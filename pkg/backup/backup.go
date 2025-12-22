@@ -35,6 +35,12 @@ type Manager struct {
 	keepVersions int    // 保留版本数
 }
 
+// BackupResult 备份结果
+type BackupResult struct {
+	BackupPath   string // 备份路径
+	CleanupError error  // 清理错误（非致命）
+}
+
 // NewManager 创建备份管理器
 func NewManager(backupDir string, keepVersions int) *Manager {
 	return &Manager{
@@ -44,26 +50,26 @@ func NewManager(backupDir string, keepVersions int) *Manager {
 }
 
 // Backup 备份证书文件
-func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo) (string, error) {
+func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo) (*BackupResult, error) {
 	// 1. 创建备份目录
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
 
 	// 备份目录包含私钥文件，使用 0700 更安全
 	if err := util.EnsureDir(backupPath, 0700); err != nil {
-		return "", fmt.Errorf("failed to create backup directory: %w", err)
+		return nil, fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
 	// 2. 备份证书文件
 	backupCertPath := filepath.Join(backupPath, "cert.pem")
 	if err := util.CopyFile(certPath, backupCertPath); err != nil {
-		return "", fmt.Errorf("failed to backup certificate: %w", err)
+		return nil, fmt.Errorf("failed to backup certificate: %w", err)
 	}
 
 	// 3. 备份私钥文件
 	backupKeyPath := filepath.Join(backupPath, "key.pem")
 	if err := util.CopyFile(keyPath, backupKeyPath); err != nil {
-		return "", fmt.Errorf("failed to backup private key: %w", err)
+		return nil, fmt.Errorf("failed to backup private key: %w", err)
 	}
 
 	// 4. 保存元数据
@@ -80,16 +86,19 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo)
 
 	metaPath := filepath.Join(backupPath, "metadata.json")
 	if err := m.saveMetadata(metaPath, metadata); err != nil {
-		return "", fmt.Errorf("failed to save metadata: %w", err)
+		return nil, fmt.Errorf("failed to save metadata: %w", err)
+	}
+
+	result := &BackupResult{
+		BackupPath: backupPath,
 	}
 
 	// 5. 清理老版本
 	if err := m.cleanup(siteName); err != nil {
-		// 清理失败不影响备份操作
-		// 在实际使用中应该记录警告日志
+		result.CleanupError = err
 	}
 
-	return backupPath, nil
+	return result, nil
 }
 
 // ListBackups 列出站点的所有备份

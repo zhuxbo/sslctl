@@ -11,7 +11,9 @@ BUILD_FLAGS := -ldflags "$(LDFLAGS)" -gcflags "$(GCFLAGS)"
 DIST_DIR := dist
 
 # 目标平台
-PLATFORMS := linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64
+LINUX_PLATFORMS := linux/amd64 linux/arm64
+WINDOWS_PLATFORMS := windows/amd64
+DARWIN_PLATFORMS := darwin/amd64 darwin/arm64
 
 .PHONY: all clean build build-nginx build-apache build-iis build-all test lint deps help
 
@@ -26,14 +28,19 @@ help:
 	@echo "  make build           构建当前平台的所有二进制文件"
 	@echo "  make build-nginx     仅构建 Nginx 客户端"
 	@echo "  make build-apache    仅构建 Apache 客户端"
-	@echo "  make build-iis       仅构建 IIS 客户端"
+	@echo "  make build-iis       仅构建 IIS 客户端 (仅 Windows)"
 	@echo "  make build-all       构建所有平台的二进制文件"
-	@echo "  make build-linux     构建 Linux amd64"
-	@echo "  make build-windows   构建 Windows amd64"
+	@echo "  make build-linux     构建 Linux (amd64/arm64)"
+	@echo "  make build-windows   构建 Windows (amd64)"
+	@echo "  make build-darwin    构建 macOS (amd64/arm64)"
 	@echo "  make clean           清理构建产物"
 	@echo "  make test            运行测试"
 	@echo "  make lint            代码检查"
 	@echo "  make deps            下载依赖"
+	@echo ""
+	@echo "构建说明:"
+	@echo "  - Nginx/Apache: 支持 Linux, Windows, macOS"
+	@echo "  - IIS: 仅支持 Windows"
 	@echo ""
 	@echo "环境变量:"
 	@echo "  VERSION              版本号 (默认: git tag)"
@@ -44,71 +51,68 @@ deps:
 	go mod download
 	go mod tidy
 
-# 构建当前平台
-build: build-nginx build-apache build-iis
+# 构建当前平台（自动判断是否构建 IIS）
+build: build-nginx build-apache
+ifeq ($(OS),Windows_NT)
+	$(MAKE) build-iis
+endif
 
 # 构建 Nginx 客户端 (当前平台)
 build-nginx:
 	@mkdir -p $(DIST_DIR)
-	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx ./cmd/nginx
+	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/nginx
 	@echo "Built: $(DIST_DIR)/cert-deploy-nginx"
 ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-nginx || echo "UPX not found, skipping compression"
+	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
 endif
 
 # 构建 Apache 客户端 (当前平台)
 build-apache:
 	@mkdir -p $(DIST_DIR)
-	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache ./cmd/apache
+	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/apache
 	@echo "Built: $(DIST_DIR)/cert-deploy-apache"
 ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-apache || echo "UPX not found, skipping compression"
+	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
 endif
 
-# 构建 IIS 客户端 (当前平台)
+# 构建 IIS 客户端 (仅 Windows)
 build-iis:
 	@mkdir -p $(DIST_DIR)
-	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-iis ./cmd/iis
-	@echo "Built: $(DIST_DIR)/cert-deploy-iis"
-ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-iis || echo "UPX not found, skipping compression"
-endif
+	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-iis.exe ./cmd/iis
+	@echo "Built: $(DIST_DIR)/cert-deploy-iis.exe (Windows only)"
 
 # 构建所有平台
-build-all: clean
-	@mkdir -p $(DIST_DIR)
-	@for platform in $(PLATFORMS); do \
-		GOOS=$${platform%/*} GOARCH=$${platform#*/} $(MAKE) build-platform; \
-	done
+build-all: clean build-linux build-windows build-darwin
+	@echo "All platforms built successfully"
 
-# 构建单个平台 (内部使用)
-build-platform:
-	@echo "Building for $(GOOS)/$(GOARCH)..."
-	@EXT=""; \
-	if [ "$(GOOS)" = "windows" ]; then EXT=".exe"; fi; \
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_FLAGS) \
-		-o $(DIST_DIR)/cert-deploy-nginx-$(GOOS)-$(GOARCH)$$EXT ./cmd/nginx; \
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_FLAGS) \
-		-o $(DIST_DIR)/cert-deploy-apache-$(GOOS)-$(GOARCH)$$EXT ./cmd/apache; \
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_FLAGS) \
-		-o $(DIST_DIR)/cert-deploy-iis-$(GOOS)-$(GOARCH)$$EXT ./cmd/iis; \
-	echo "Built: $(GOOS)/$(GOARCH)"
-
-# 仅构建 Linux amd64
+# 构建 Linux (amd64 + arm64)
 build-linux:
 	@mkdir -p $(DIST_DIR)
+	@echo "Building for Linux..."
 	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-linux-amd64 ./cmd/nginx
 	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-linux-amd64 ./cmd/apache
-	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-iis-linux-amd64 ./cmd/iis
-	@echo "Built: Linux amd64 binaries"
+	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-linux-arm64 ./cmd/nginx
+	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-linux-arm64 ./cmd/apache
+	@echo "Built: Linux amd64/arm64 (Nginx, Apache)"
 
-# 仅构建 Windows amd64
+# 构建 Windows (amd64) - 包含 IIS
 build-windows:
 	@mkdir -p $(DIST_DIR)
+	@echo "Building for Windows..."
 	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-windows-amd64.exe ./cmd/nginx
 	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-windows-amd64.exe ./cmd/apache
 	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-iis-windows-amd64.exe ./cmd/iis
-	@echo "Built: Windows amd64 binaries"
+	@echo "Built: Windows amd64 (Nginx, Apache, IIS)"
+
+# 构建 macOS (amd64 + arm64)
+build-darwin:
+	@mkdir -p $(DIST_DIR)
+	@echo "Building for macOS..."
+	GOOS=darwin GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-darwin-amd64 ./cmd/nginx
+	GOOS=darwin GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-darwin-amd64 ./cmd/apache
+	GOOS=darwin GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-darwin-arm64 ./cmd/nginx
+	GOOS=darwin GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-darwin-arm64 ./cmd/apache
+	@echo "Built: macOS amd64/arm64 (Nginx, Apache)"
 
 # 运行测试
 test:

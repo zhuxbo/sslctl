@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "site_name": "test.local",
+  "enabled": true,
+  "server_type": "nginx",
+  "api": {
+    "url": "http://host.docker.internal:8000/api/auto/cert",
+    "refer_id": "<从订单获取 32 位 refer_id>"
+  },
+  "domains": ["test.local"],
+  "paths": {
+    "certificate": "/etc/nginx/ssl/fullchain.pem",
+    "private_key": "/etc/nginx/ssl/privkey.pem"
+  },
+  "reload": {
+    "test_command": "nginx -t",
+    "reload_command": "nginx -s reload"
+  },
+  "schedule": {
+    "check_interval_hours": 12,
+    "renew_before_days": 30
+  },
+  "validation": {
+    "verify_domain": false,
+    "ignore_domain_mismatch": true
+  },
+  "backup": {
+    "enabled": true,
+    "keep_versions": 3
+  }
+}

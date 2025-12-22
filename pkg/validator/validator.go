@@ -2,6 +2,9 @@
 package validator
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -142,6 +145,64 @@ func (v *Validator) ValidateCA(caPEM string) error {
 
 	if count == 0 {
 		return errors.NewValidateError("no valid CA certificates found", nil)
+	}
+
+	return nil
+}
+
+// ValidateCertKeyPair 验证证书和私钥是否配对
+func (v *Validator) ValidateCertKeyPair(certPEM, keyPEM string) error {
+	// 1. 解析证书
+	certBlock, _ := pem.Decode([]byte(certPEM))
+	if certBlock == nil {
+		return errors.NewValidateError("failed to decode certificate PEM", nil)
+	}
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return errors.NewValidateError("failed to parse certificate", err)
+	}
+
+	// 2. 解析私钥
+	keyBlock, _ := pem.Decode([]byte(keyPEM))
+	if keyBlock == nil {
+		return errors.NewValidateError("failed to decode private key PEM", nil)
+	}
+
+	var privateKey crypto.PrivateKey
+
+	// 尝试不同的私钥格式
+	if key, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes); err == nil {
+		privateKey = key
+	} else if key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes); err == nil {
+		privateKey = key
+	} else if key, err := x509.ParseECPrivateKey(keyBlock.Bytes); err == nil {
+		privateKey = key
+	} else {
+		return errors.NewValidateError("failed to parse private key: unsupported format", nil)
+	}
+
+	// 3. 验证公钥匹配
+	certPubKey := cert.PublicKey
+
+	switch pub := certPubKey.(type) {
+	case *rsa.PublicKey:
+		priv, ok := privateKey.(*rsa.PrivateKey)
+		if !ok {
+			return errors.NewValidateError("private key type mismatch: expected RSA", nil)
+		}
+		if pub.N.Cmp(priv.N) != 0 {
+			return errors.NewValidateError("certificate and private key do not match", nil)
+		}
+	case *ecdsa.PublicKey:
+		priv, ok := privateKey.(*ecdsa.PrivateKey)
+		if !ok {
+			return errors.NewValidateError("private key type mismatch: expected ECDSA", nil)
+		}
+		if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
+			return errors.NewValidateError("certificate and private key do not match", nil)
+		}
+	default:
+		return errors.NewValidateError("unsupported public key type in certificate", nil)
 	}
 
 	return nil

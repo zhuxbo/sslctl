@@ -19,6 +19,18 @@ func NewRunner() *Runner {
 	}
 }
 
+// escapePSString 转义 PowerShell 字符串中的特殊字符
+// 在双引号字符串中，需要转义: ` $ " 和换行符
+func escapePSString(s string) string {
+	// 转义顺序很重要：先转义反引号，再转义其他字符
+	s = strings.ReplaceAll(s, "`", "``")
+	s = strings.ReplaceAll(s, "$", "`$")
+	s = strings.ReplaceAll(s, "\"", "`\"")
+	s = strings.ReplaceAll(s, "\n", "`n")
+	s = strings.ReplaceAll(s, "\r", "`r")
+	return s
+}
+
 // Run 执行 PowerShell 命令
 func (r *Runner) Run(command string) (string, error) {
 	cmd := exec.Command(
@@ -72,7 +84,7 @@ try {
     Write-Error $_.Exception.Message
     exit 1
 }
-`, pfxPath, password)
+`, escapePSString(pfxPath), escapePSString(password))
 
 	output, err := r.Run(command)
 	if err != nil {
@@ -122,7 +134,7 @@ try {
     Write-Error $_.Exception.Message
     exit 1
 }
-`, siteName, thumbprint, hostname, port)
+`, escapePSString(siteName), escapePSString(thumbprint), escapePSString(hostname), port)
 
 	_, err := r.Run(command)
 	if err != nil {
@@ -159,6 +171,7 @@ try {
                 CertThumbprint = $certHash
                 CertExpires = if ($cert) { $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss") } else { "N/A" }
                 CertSubject = if ($cert) { $cert.Subject } else { "N/A" }
+                PhysicalPath = $site.PhysicalPath
             }
         }
     }
@@ -197,7 +210,7 @@ try {
     Write-Error $_.Exception.Message
     exit 1
 }
-`, thumbprint)
+`, escapePSString(thumbprint))
 
 	_, err := r.Run(command)
 	if err != nil {
@@ -205,4 +218,46 @@ try {
 	}
 
 	return nil
+}
+
+// ListHTTPSites 列出仅有 HTTP 绑定的 IIS 站点（无 HTTPS 绑定）
+func (r *Runner) ListHTTPSites() (string, error) {
+	command := `
+Import-Module WebAdministration
+
+try {
+    $sites = @()
+
+    Get-Website | ForEach-Object {
+        $site = $_
+        $httpBindings = $site.Bindings.Collection | Where-Object { $_.protocol -eq "http" }
+        $httpsBindings = $site.Bindings.Collection | Where-Object { $_.protocol -eq "https" }
+
+        # 只返回有 HTTP 绑定但没有 HTTPS 绑定的站点
+        if ($httpBindings -and (-not $httpsBindings)) {
+            foreach ($binding in $httpBindings) {
+                $sites += [PSCustomObject]@{
+                    SiteName = $site.Name
+                    HostName = $binding.bindingInformation.Split(':')[2]
+                    Port = $binding.bindingInformation.Split(':')[1]
+                    PhysicalPath = $site.PhysicalPath
+                }
+            }
+        }
+    }
+
+    $sites | ConvertTo-Json -Depth 10
+    exit 0
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+`
+
+	output, err := r.Run(command)
+	if err != nil {
+		return "", fmt.Errorf("failed to list HTTP sites: %w", err)
+	}
+
+	return output, nil
 }

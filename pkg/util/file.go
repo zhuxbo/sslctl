@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 // AtomicWrite 原子写入文件
@@ -64,4 +66,19 @@ func FileExists(path string) bool {
 // EnsureDir 确保目录存在
 func EnsureDir(dir string, perm os.FileMode) error {
 	return os.MkdirAll(dir, perm)
+}
+
+// RunCommand 执行命令
+func RunCommand(command string) error {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return fmt.Errorf("empty command")
+	}
+
+	cmd := exec.Command(parts[0], parts[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("command failed: %s\noutput: %s", err, string(output))
+	}
+	return nil
 }
