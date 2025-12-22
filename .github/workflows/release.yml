@@ -1,0 +1,196 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run Tests
+        run: go test -v ./...
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            ext: .exe
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
+          LDFLAGS="-s -w -X 'main.version=${VERSION}' -X 'main.buildTime=${BUILD_TIME}'"
+
+          go build -ldflags "$LDFLAGS" -o cert-deploy-nginx-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/nginx
+          go build -ldflags "$LDFLAGS" -o cert-deploy-apache-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/apache
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -ldflags "$LDFLAGS" -o cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/iis
+          fi
+
+      - name: Compress
+        run: |
+          gzip -k cert-deploy-nginx-${{ matrix.suffix }}${{ matrix.ext }}
+          gzip -k cert-deploy-apache-${{ matrix.suffix }}${{ matrix.ext }}
+          if [ -f "cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }}" ]; then
+            gzip -k cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }}
+          fi
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.suffix }}
+          path: "*.gz"
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Branch
+        id: check
+        run: |
+          # 获取 tag 所在的分支
+          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref_name }})
+
+          # 检查是否在 main 分支上
+          if git branch -r --contains $TAG_COMMIT | grep -q 'origin/main'; then
+            echo "branch=main" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=dev" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "name=${{ github.ref_name }} (Pre-release)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: binaries-*
+          merge-multiple: true
+
+      - name: List Files
+        run: ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.check.outputs.name }}
+          prerelease: ${{ steps.check.outputs.prerelease == 'true' }}
+          body: |
+            ## ${{ github.ref_name }}
+
+            ${{ steps.check.outputs.prerelease == 'true' && '> ⚠️ **这是测试版本 (Pre-release)**，可能包含未完成的功能或已知问题。' || '> ✅ **这是正式版本**，已经过测试验证。' }}
+
+            ### 下载
+
+            | 平台 | Nginx | Apache | IIS |
+            |------|-------|--------|-----|
+            | Linux x64 | cert-deploy-nginx-linux-amd64.gz | cert-deploy-apache-linux-amd64.gz | - |
+            | Linux ARM64 | cert-deploy-nginx-linux-arm64.gz | cert-deploy-apache-linux-arm64.gz | - |
+            | Windows x64 | cert-deploy-nginx-windows-amd64.exe.gz | cert-deploy-apache-windows-amd64.exe.gz | cert-deploy-iis-windows-amd64.exe.gz |
+            | macOS x64 | cert-deploy-nginx-darwin-amd64.gz | cert-deploy-apache-darwin-amd64.gz | - |
+            | macOS ARM64 | cert-deploy-nginx-darwin-arm64.gz | cert-deploy-apache-darwin-arm64.gz | - |
+
+            ### 安装
+
+            ```bash
+            # Linux/macOS
+            gunzip cert-deploy-nginx-linux-amd64.gz
+            chmod +x cert-deploy-nginx-linux-amd64
+            sudo mv cert-deploy-nginx-linux-amd64 /usr/local/bin/cert-deploy-nginx
+            ```
+          files: dist/*.gz
+          draft: false
+
+      - name: Sync to Gitee Release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "GITEE_TOKEN not set, skipping Gitee release sync"
+            exit 0
+          fi
+
+          TAG="${{ github.ref_name }}"
+          PRERELEASE="${{ steps.check.outputs.prerelease }}"
+          RELEASE_NAME="${{ steps.check.outputs.name }}"
+
+          # 创建 Release
+          echo "Creating Gitee release for $TAG..."
+          RESPONSE=$(curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases" \
+            -F "access_token=$GITEE_TOKEN" \
+            -F "tag_name=$TAG" \
+            -F "name=$RELEASE_NAME" \
+            -F "body=从 GitHub 同步的 Release，详细信息请查看 GitHub Release。" \
+            -F "prerelease=$PRERELEASE" \
+            -F "target_commitish=${{ steps.check.outputs.branch }}")
+
+          RELEASE_ID=$(echo "$RESPONSE" | jq -r '.id')
+          if [ "$RELEASE_ID" = "null" ] || [ -z "$RELEASE_ID" ]; then
+            echo "Failed to create Gitee release: $RESPONSE"
+            exit 0  # 不阻断流程
+          fi
+          echo "Created Gitee release ID: $RELEASE_ID"
+
+          # 上传附件
+          for file in dist/*.gz; do
+            filename=$(basename "$file")
+            echo "Uploading $filename to Gitee..."
+            curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases/$RELEASE_ID/attach_files" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "file=@$file" || echo "Failed to upload $filename"
+          done
+          echo "Gitee release sync completed"

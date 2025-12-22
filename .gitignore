@@ -1,3 +1,6 @@
+# 环境变量 (包含敏感信息)
+.env
+
 # 构建产物
 dist/
 *.exe
@@ -28,3 +31,7 @@ Thumbs.db
 
 # 工作目录（运行时生成）
 cert-deploy/
+
+# Test artifacts
+docker/test/*/cert-deploy-*
+docker/test/*/sites/
