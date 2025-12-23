@@ -21,6 +21,7 @@ import (
 	"github.com/cnssl/cert-deploy/pkg/issuer"
 	"github.com/cnssl/cert-deploy/pkg/logger"
 	"github.com/cnssl/cert-deploy/pkg/prompt"
+	"github.com/cnssl/cert-deploy/pkg/util"
 	"github.com/cnssl/cert-deploy/pkg/validator"
 )
 
@@ -540,7 +541,10 @@ func deploySiteConfig(ctx context.Context, cfgManager *config.Manager, site *con
 		}
 
 		// 写入验证文件
-		validationPath := filepath.Join(webroot, certData.File.Path)
+		validationPath, err := util.JoinUnderDir(webroot, certData.File.Path)
+		if err != nil {
+			return fmt.Errorf("验证文件路径无效: %w", err)
+		}
 		validationDir := filepath.Dir(validationPath)
 
 		if err := os.MkdirAll(validationDir, 0755); err != nil {

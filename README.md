@@ -119,7 +119,7 @@ cat > /opt/cert-deploy/sites/example.com.json << 'EOF'
   "enabled": true,
   "server_type": "nginx",
   "api": {
-    "url": "https://cert-manager.example.com/api/auto",
+    "url": "https://cert-manager.example.com/api/auto/cert",
     "refer_id": "your-refer-id"
   },
   "domains": ["example.com", "www.example.com"],
@@ -211,7 +211,7 @@ cert-deploy-iis -daemon                             # 守护进程模式
   "enabled": true,
   "server_type": "nginx",
   "api": {
-    "url": "https://cert-manager.example.com/api/auto",
+    "url": "https://cert-manager.example.com/api/auto/cert",
     "refer_id": "your-refer-id"
   },
   "domains": ["example.com", "www.example.com"],

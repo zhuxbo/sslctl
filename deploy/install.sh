@@ -45,6 +45,9 @@ create_dirs() {
     echo_info "创建工作目录..."
     mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
     chmod 755 /opt/cert-deploy
+    # sites/certs 目录包含 refer_id 或临时私钥等敏感信息，默认收紧权限
+    chmod 700 /opt/cert-deploy/sites
+    chmod 700 /opt/cert-deploy/certs
     chmod 700 /opt/cert-deploy/backup
 }
 
