@@ -405,7 +405,7 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, sca
 			hostname = scanned.HostName
 		}
 		if scanned.Port != "" {
-			fmt.Sscanf(scanned.Port, "%d", &port)
+			_, _ = fmt.Sscanf(scanned.Port, "%d", &port)
 		}
 	}
 
@@ -569,7 +569,7 @@ deploy:
 			hostname = scanned.HostName
 		}
 		if scanned.Port != "" {
-			fmt.Sscanf(scanned.Port, "%d", &port)
+			_, _ = fmt.Sscanf(scanned.Port, "%d", &port)
 		}
 	}
 
