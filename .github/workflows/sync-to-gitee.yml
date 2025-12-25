@@ -1,0 +1,35 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  sync-code:
+    name: Sync Code to Gitee
+    runs-on: ubuntu-latest
+    # 只在主仓库运行，排除 -dev 开发仓库
+    if: "!contains(github.repository, '-dev')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Gitee
+        run: |
+          git remote add gitee https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/zhuxbo/cert-deploy.git
+
+          if [ "${{ github.ref_type }}" == "branch" ]; then
+            echo "Pushing branch ${{ github.ref_name }} to Gitee..."
+            git push gitee HEAD:${{ github.ref_name }} --force
+          else
+            echo "Pushing tag ${{ github.ref_name }} to Gitee..."
+            git push gitee ${{ github.ref_name }} --force
+          fi
