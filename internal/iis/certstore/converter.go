@@ -54,8 +54,8 @@ func (c *Converter) ConvertToPFX(cert, key, intermediate, password string) (stri
 		caCerts = []*x509.Certificate{caCert}
 	}
 
-	// 4. 转换为 PFX
-	pfxData, err := pkcs12.Encode(rand.Reader, keyParsed, certParsed, caCerts, password)
+	// 4. 转换为 PFX (使用 Legacy 编码器以获得更好的兼容性)
+	pfxData, err := pkcs12.Legacy.Encode(keyParsed, certParsed, caCerts, password)
 	if err != nil {
 		return "", fmt.Errorf("failed to encode PFX: %w", err)
 	}
