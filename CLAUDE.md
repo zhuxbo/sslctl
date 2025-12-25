@@ -234,34 +234,63 @@ make build-all
 ./scripts/build.sh v0.3.0
 ```
 
-## CI/CD 发布
+## CI/CD
 
-**GitHub Actions 自动发布** (`.github/workflows/release.yml`):
-- 推送 `v*` 标签自动触发
-- 运行测试 → 构建多平台 → 创建 GitHub Release → 同步到 Gitee Release
+### GitHub Actions Workflows
 
-**分支策略**:
+| Workflow | 文件 | 触发条件 | 功能 |
+|----------|------|----------|------|
+| CI | `ci.yml` | push/PR 到 main/dev | 测试、Lint、构建检查 |
+| Release | `release.yml` | 推送 `v*` 标签 | 构建发布、创建 Release |
+| Sync to Gitee | `sync-to-gitee.yml` | push 到 main/dev | 同步代码到 Gitee 镜像 |
+
+### CI 流程 (`.github/workflows/ci.yml`)
+
+在 `main` 和 `dev` 分支的 push/PR 时自动运行：
+
+1. **Test** - 运行 `go test -v -race ./...`
+2. **Lint** - 运行 `golangci-lint`（staticcheck、errcheck 等）
+3. **Build Check** - 验证多平台构建（依赖 Test 和 Lint 通过）
+
+### 发布流程 (`.github/workflows/release.yml`)
+
+推送 `v*` 标签自动触发：
+1. 运行测试
+2. 构建多平台二进制（Linux/Windows/macOS × amd64/arm64）
+3. 创建 GitHub Release
+4. 同步到 Gitee Release（上传附件）
+
+### Gitee 同步 (`.github/workflows/sync-to-gitee.yml`)
+
+- 自动同步 `main` 和 `dev` 分支代码到 Gitee
+- 自动同步 `v*` 标签
+- 排除 `-dev` 开发仓库避免循环
+
+### 分支策略
+
 - `main` 分支: 发布正式版
 - `dev` 分支: 发布测试版 (Pre-release)
 
-**发布流程**:
+### 发布流程
+
 ```bash
 # 发布测试版 (dev 分支)
 git checkout dev
 git tag v0.3.0-beta
-git push github v0.3.0-beta
+git push origin v0.3.0-beta
 
 # 发布正式版 (main 分支)
 git checkout main
 git merge dev
 git tag v0.3.0
-git push github v0.3.0
+git push origin v0.3.0
 ```
 
-**Gitee Release 同步**:
-- Gitee 镜像只同步代码，不同步 Release
-- GitHub Actions 中添加了 Gitee API 调用，自动同步 Release 和附件
-- 需要在 GitHub 仓库设置中添加 `GITEE_TOKEN` Secret
+### GitHub Secrets 配置
+
+| Secret | 用途 |
+|--------|------|
+| `GITEE_TOKEN` | Gitee 访问令牌，用于同步代码和 Release |
 
 ## 最近更新
 

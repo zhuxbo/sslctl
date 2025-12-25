@@ -1,7 +1,7 @@
 # cert-deploy
 
 [![GitHub Release](https://img.shields.io/github/v/release/zhuxbo/cert-deploy?include_prereleases)](https://github.com/zhuxbo/cert-deploy/releases)
-[![Build Status](https://github.com/zhuxbo/cert-deploy/actions/workflows/release.yml/badge.svg)](https://github.com/zhuxbo/cert-deploy/actions)
+[![CI](https://github.com/zhuxbo/cert-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuxbo/cert-deploy/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/zhuxbo/cert-deploy)](LICENSE)
 
 SSL 证书自动部署工具，支持 Nginx、Apache、IIS 三种 Web 服务器。
