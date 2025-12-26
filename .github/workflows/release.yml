@@ -41,12 +41,6 @@ jobs:
             goarch: amd64
             suffix: windows-amd64
             ext: .exe
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
 
     steps:
       - name: Checkout
@@ -141,8 +135,6 @@ jobs:
             | Linux x64 | cert-deploy-nginx-linux-amd64.gz | cert-deploy-apache-linux-amd64.gz | - |
             | Linux ARM64 | cert-deploy-nginx-linux-arm64.gz | cert-deploy-apache-linux-arm64.gz | - |
             | Windows x64 | cert-deploy-nginx-windows-amd64.exe.gz | cert-deploy-apache-windows-amd64.exe.gz | cert-deploy-iis-windows-amd64.exe.gz |
-            | macOS x64 | cert-deploy-nginx-darwin-amd64.gz | cert-deploy-apache-darwin-amd64.gz | - |
-            | macOS ARM64 | cert-deploy-nginx-darwin-arm64.gz | cert-deploy-apache-darwin-arm64.gz | - |
 
             ### 安装
 
