@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -120,7 +121,12 @@ func runScan(log *logger.Logger) {
 
 	fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
 	for i, site := range sites {
-		fmt.Printf("%d. %s\n", i+1, site.ServerName)
+		// 显示所有绑定的域名
+		allDomains := site.ServerName
+		if len(site.ServerAlias) > 0 {
+			allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+		}
+		fmt.Printf("%d. %s\n", i+1, allDomains)
 		fmt.Printf("   配置文件: %s\n", site.ConfigFile)
 		fmt.Printf("   证书路径: %s\n", site.CertificatePath)
 		fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
@@ -179,10 +185,13 @@ func checkAndDeploy(ctx context.Context, cfgManager *config.Manager, log *logger
 		return
 	}
 
-	// 3. 构建域名到扫描站点的映射
+	// 3. 构建域名到扫描站点的映射（包含主域名和所有别名）
 	scannedMap := make(map[string]*scanner.SSLSite)
 	for _, site := range scannedSites {
 		scannedMap[site.ServerName] = site
+		for _, alias := range site.ServerAlias {
+			scannedMap[alias] = site
+		}
 	}
 
 	// 4. 遍历站点配置，检查是否需要更新
@@ -419,10 +428,12 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
 	// 验证证书和私钥配对
@@ -592,22 +603,47 @@ deploy:
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 3. 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 3. 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
-	// 4. 获取私钥（优先 API，否则读取本地）
+	// 4. 获取私钥（优先 API，否则读取本地，本地不存在或不匹配则交互式提示）
 	var privateKey string
 	if certData.PrivateKey != "" {
+		// API 返回了私钥，直接使用
 		privateKey = certData.PrivateKey
 	} else {
+		// 尝试读取本地私钥
 		keyBytes, err := os.ReadFile(keyPath)
-		if err != nil {
-			return fmt.Errorf("读取私钥失败: %w", err)
+		if err == nil {
+			privateKey = string(keyBytes)
+			// 验证私钥与证书是否配对
+			if pairErr := v.ValidateCertKeyPair(certData.Cert, privateKey); pairErr != nil {
+				log.Warn("本地私钥与证书不匹配: %v", pairErr)
+				privateKey = "" // 清空，触发后续处理
+			}
+		} else {
+			log.Warn("读取本地私钥失败: %v", err)
 		}
-		privateKey = string(keyBytes)
+
+		// 如果本地私钥不可用，根据交互模式处理
+		if privateKey == "" {
+			if prompt.IsInteractive() {
+				fmt.Println("无法获取有效私钥：API 未返回且本地私钥不存在或不匹配")
+				inputKeyPath := prompt.InputPath("请输入私钥文件路径", keyPath, true)
+				keyBytes, err := os.ReadFile(inputKeyPath)
+				if err != nil {
+					return fmt.Errorf("读取私钥失败: %w", err)
+				}
+				privateKey = string(keyBytes)
+			} else {
+				return fmt.Errorf("无法获取私钥：API 未返回且本地私钥不存在或不匹配")
+			}
+		}
 	}
 
 	// 4.1 验证证书和私钥配对

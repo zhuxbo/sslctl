@@ -92,11 +92,61 @@ func (i *ApacheInstaller) Install() (*InstallResult, error) {
 	}, nil
 }
 
-// hasSSLConfig 检查是否已配置 SSL
+// hasSSLConfig 检查目标 VirtualHost 是否已配置 SSL
+// 只检查匹配 serverName 的 :443 VirtualHost，而不是整个文件
 func (i *ApacheInstaller) hasSSLConfig(content string) bool {
-	// 检查是否有 :443 VirtualHost
-	sslVhostRe := regexp.MustCompile(`(?i)<VirtualHost\s+[^>]*:443[^>]*>`)
-	return sslVhostRe.MatchString(content)
+	lines := strings.Split(content, "\n")
+
+	// 正则表达式
+	vhostStartRe := regexp.MustCompile(`(?i)^\s*<VirtualHost\s+[^>]*:443[^>]*>`)
+	vhostEndRe := regexp.MustCompile(`(?i)^\s*</VirtualHost>`)
+	serverNameRe := regexp.MustCompile(`(?i)^\s*ServerName\s+(.+)$`)
+	serverAliasRe := regexp.MustCompile(`(?i)^\s*ServerAlias\s+(.+)$`)
+
+	inVhost := false
+	serverNames := []string{}
+
+	for _, line := range lines {
+		// 检测 :443 VirtualHost 开始
+		if vhostStartRe.MatchString(line) {
+			inVhost = true
+			serverNames = nil
+			continue
+		}
+
+		if !inVhost {
+			continue
+		}
+
+		// 解析 ServerName
+		if matches := serverNameRe.FindStringSubmatch(line); len(matches) > 1 {
+			name := strings.TrimSpace(matches[1])
+			name = strings.Trim(name, `"'`)
+			serverNames = append(serverNames, name)
+		}
+
+		// 解析 ServerAlias
+		if matches := serverAliasRe.FindStringSubmatch(line); len(matches) > 1 {
+			aliases := strings.Fields(matches[1])
+			for _, alias := range aliases {
+				alias = strings.Trim(alias, `"'`)
+				serverNames = append(serverNames, alias)
+			}
+		}
+
+		// VirtualHost 结束
+		if vhostEndRe.MatchString(line) {
+			// 检查这个 VirtualHost 是否包含目标域名
+			for _, name := range serverNames {
+				if name == i.serverName {
+					return true
+				}
+			}
+			inVhost = false
+		}
+	}
+
+	return false
 }
 
 // backup 备份配置文件
@@ -138,7 +188,8 @@ func (i *ApacheInstaller) extractVirtualHost80(content string) (string, error) {
 	inVhost := false
 	depth := 0
 
-	vhostStartRe := regexp.MustCompile(`(?i)^\s*<VirtualHost\s+[^>]*:80[^>]*>`)
+	// 精确匹配端口 80，避免误匹配 8080/180 等
+	vhostStartRe := regexp.MustCompile(`(?i)^\s*<VirtualHost\s+[^>]*:80(?:[^0-9][^>]*)?>`)
 	vhostEndRe := regexp.MustCompile(`(?i)^\s*</VirtualHost>`)
 	serverNameRe := regexp.MustCompile(`(?i)^\s*ServerName\s+(.+)$`)
 

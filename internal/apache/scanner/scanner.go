@@ -14,13 +14,14 @@ import (
 
 // SSLSite 扫描到的 SSL 站点信息
 type SSLSite struct {
-	ConfigFile      string // 配置文件路径
-	ServerName      string // 服务器名称（域名）
-	CertificatePath string // 证书路径 (SSLCertificateFile)
-	PrivateKeyPath  string // 私钥路径 (SSLCertificateKeyFile)
-	ChainPath       string // 证书链路径 (SSLCertificateChainFile)
-	ListenPort      string // 监听端口
-	Webroot         string // Web 根目录 (DocumentRoot)
+	ConfigFile      string   // 配置文件路径
+	ServerName      string   // 服务器名称（主域名）
+	ServerAlias     []string // 域名别名列表 (ServerAlias)
+	CertificatePath string   // 证书路径 (SSLCertificateFile)
+	PrivateKeyPath  string   // 私钥路径 (SSLCertificateKeyFile)
+	ChainPath       string   // 证书链路径 (SSLCertificateChainFile)
+	ListenPort      string   // 监听端口
+	Webroot         string   // Web 根目录 (DocumentRoot)
 }
 
 // HTTPSite 扫描到的 HTTP 站点信息（未启用 SSL）
@@ -285,6 +286,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	vhostStartRe := regexp.MustCompile(`(?i)^\s*<VirtualHost\s+([^>]+)>`)
 	vhostEndRe := regexp.MustCompile(`(?i)^\s*</VirtualHost>`)
 	serverNameRe := regexp.MustCompile(`(?i)^\s*ServerName\s+(.+)$`)
+	serverAliasRe := regexp.MustCompile(`(?i)^\s*ServerAlias\s+(.+)$`)
 	sslCertRe := regexp.MustCompile(`(?i)^\s*SSLCertificateFile\s+(.+)$`)
 	sslKeyRe := regexp.MustCompile(`(?i)^\s*SSLCertificateKeyFile\s+(.+)$`)
 	sslChainRe := regexp.MustCompile(`(?i)^\s*SSLCertificateChainFile\s+(.+)$`)
@@ -340,6 +342,15 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			currentSite.ServerName = serverName
 		}
 
+		// 解析 ServerAlias（可能包含多个域名，空格分隔）
+		if matches := serverAliasRe.FindStringSubmatch(line); len(matches) > 1 {
+			aliases := strings.Fields(matches[1])
+			for _, alias := range aliases {
+				alias = strings.Trim(alias, `"'`)
+				currentSite.ServerAlias = append(currentSite.ServerAlias, alias)
+			}
+		}
+
 		// 解析 SSLCertificateFile
 		if matches := sslCertRe.FindStringSubmatch(line); len(matches) > 1 {
 			certPath := strings.TrimSpace(matches[1])
@@ -378,6 +389,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 }
 
 // FindByDomain 根据域名查找站点
+// 同时匹配 ServerName 和 ServerAlias
 func (s *Scanner) FindByDomain(domain string) (*SSLSite, error) {
 	sites, err := s.Scan()
 	if err != nil {
@@ -385,10 +397,26 @@ func (s *Scanner) FindByDomain(domain string) (*SSLSite, error) {
 	}
 
 	for _, site := range sites {
+		// 检查主域名
 		if site.ServerName == domain {
 			return site, nil
 		}
-		// 支持通配符匹配
+
+		// 检查别名
+		for _, alias := range site.ServerAlias {
+			if alias == domain {
+				return site, nil
+			}
+			// 支持通配符匹配
+			if strings.HasPrefix(alias, "*.") {
+				suffix := alias[1:] // 去掉 *
+				if strings.HasSuffix(domain, suffix) {
+					return site, nil
+				}
+			}
+		}
+
+		// 支持主域名通配符匹配
 		if strings.HasPrefix(site.ServerName, "*.") {
 			suffix := site.ServerName[1:] // 去掉 *
 			if strings.HasSuffix(domain, suffix) {

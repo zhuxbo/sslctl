@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -117,7 +118,12 @@ func runScan(log *logger.Logger) {
 
 	fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
 	for i, site := range sites {
-		fmt.Printf("%d. %s\n", i+1, site.ServerName)
+		// 显示所有绑定的域名
+		allDomains := site.ServerName
+		if len(site.ServerAlias) > 0 {
+			allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+		}
+		fmt.Printf("%d. %s\n", i+1, allDomains)
 		fmt.Printf("   配置文件: %s\n", site.ConfigFile)
 		fmt.Printf("   证书路径: %s\n", site.CertificatePath)
 		fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
@@ -170,10 +176,13 @@ func checkAndDeploy(ctx context.Context, cfgManager *config.Manager, log *logger
 		log.LogScan(s.GetConfigPath(), len(scannedSites))
 	}
 
-	// 2. 构建域名到扫描站点的映射
+	// 2. 构建域名到扫描站点的映射（包含主域名和所有别名）
 	scannedMap := make(map[string]*scanner.SSLSite)
 	for _, site := range scannedSites {
 		scannedMap[site.ServerName] = site
+		for _, alias := range site.ServerAlias {
+			scannedMap[alias] = site
+		}
 	}
 
 	// 3. 加载站点配置
@@ -429,10 +438,12 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
 	// 验证证书和私钥配对

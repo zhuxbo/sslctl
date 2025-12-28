@@ -379,10 +379,12 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, sca
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
 	// 验证证书和私钥配对
