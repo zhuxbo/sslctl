@@ -21,8 +21,8 @@ fi
 
 # 检测系统
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
-    echo_error "不支持的操作系统: $OS"
+if [ "$OS" != "linux" ]; then
+    echo_error "不支持的操作系统: $OS (仅支持 Linux)"
     exit 1
 fi
 
@@ -43,31 +43,26 @@ esac
 
 echo_info "系统: $OS, 架构: $ARCH"
 
-# 检测 Web 服务
-detect_webservers() {
-    local servers=""
-
+# 检测 Web 服务（优先 nginx）
+detect_webserver() {
     if command -v nginx >/dev/null 2>&1; then
-        servers="$servers nginx"
+        echo "nginx"
+        return
     fi
 
     if command -v apache2ctl >/dev/null 2>&1 || \
        command -v apachectl >/dev/null 2>&1 || \
        command -v httpd >/dev/null 2>&1; then
-        servers="$servers apache"
+        echo "apache"
+        return
     fi
 
-    echo "$servers" | xargs
+    # 默认 nginx
+    echo "nginx"
 }
 
-TOOLS=$(detect_webservers)
-
-if [ -z "$TOOLS" ]; then
-    echo_warn "未检测到 Nginx 或 Apache，将安装 nginx 版本"
-    TOOLS="nginx"
-fi
-
-echo_info "将安装: $TOOLS"
+TOOL=$(detect_webserver)
+echo_info "检测到 Web 服务: $TOOL"
 
 # 获取最新版本号
 get_latest_version() {
@@ -94,52 +89,69 @@ fi
 
 echo_info "最新版本: $VERSION"
 
-# 下载函数
-download_file() {
-    local filename=$1
-    local gitee_url="https://gitee.com/zhuxbo/cert-deploy/releases/download/$VERSION/$filename"
-    local github_url="https://github.com/zhuxbo/cert-deploy/releases/download/$VERSION/$filename"
-    local output="/tmp/$filename"
+# 下载
+FILENAME="cert-deploy-${TOOL}-${OS}-${ARCH}.gz"
+GITEE_URL="https://gitee.com/zhuxbo/cert-deploy/releases/download/$VERSION/$FILENAME"
+GITHUB_URL="https://github.com/zhuxbo/cert-deploy/releases/download/$VERSION/$FILENAME"
 
-    if curl -fsSL --connect-timeout 10 "$gitee_url" -o "$output" 2>/dev/null; then
-        return 0
-    fi
+echo_info "下载 $FILENAME..."
 
+if ! curl -fsSL --connect-timeout 10 "$GITEE_URL" -o "/tmp/$FILENAME" 2>/dev/null; then
     echo_warn "Gitee 下载失败，尝试 GitHub..."
-    if curl -fsSL --connect-timeout 10 "$github_url" -o "$output" 2>/dev/null; then
-        return 0
-    fi
-
-    return 1
-}
-
-# 下载并安装
-for TOOL in $TOOLS; do
-    FILENAME="cert-deploy-${TOOL}-${OS}-${ARCH}.gz"
-    BINARY_NAME="cert-deploy-${TOOL}-${OS}-${ARCH}"
-
-    echo_info "下载 cert-deploy-${TOOL}..."
-
-    if ! download_file "$FILENAME"; then
-        echo_error "下载 $FILENAME 失败"
+    if ! curl -fsSL --connect-timeout 10 "$GITHUB_URL" -o "/tmp/$FILENAME" 2>/dev/null; then
+        echo_error "下载失败"
         exit 1
     fi
+fi
 
-    # 解压
-    gunzip -f "/tmp/$FILENAME"
+# 解压并安装
+echo_info "安装中..."
+gunzip -f "/tmp/$FILENAME"
+mv "/tmp/cert-deploy-${TOOL}-${OS}-${ARCH}" /usr/local/bin/cert-deploy
+chmod +x /usr/local/bin/cert-deploy
 
-    # 安装
-    mv "/tmp/$BINARY_NAME" "/usr/local/bin/cert-deploy-${TOOL}"
-    chmod +x "/usr/local/bin/cert-deploy-${TOOL}"
+# 创建工作目录
+mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
 
-    echo_info "已安装 cert-deploy-${TOOL} 到 /usr/local/bin/"
-done
+# 安装 systemd 服务
+if command -v systemctl >/dev/null 2>&1; then
+    cat > /etc/systemd/system/cert-deploy.service << 'EOF'
+[Unit]
+Description=Certificate Deploy Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cert-deploy -daemon
+Restart=always
+RestartSec=30
+User=root
+Group=root
+WorkingDirectory=/opt/cert-deploy
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/cert-deploy /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    echo_info "已安装 systemd 服务: cert-deploy"
+fi
 
 echo ""
 echo_info "安装完成！"
 echo ""
 echo "使用方法:"
-for TOOL in $TOOLS; do
-    echo "  cert-deploy-${TOOL} -help    # 查看帮助"
-    echo "  cert-deploy-${TOOL} -scan    # 扫描站点"
-done
+echo "  cert-deploy -scan              # 扫描 SSL 站点"
+echo "  cert-deploy -site example.com  # 部署证书"
+echo "  cert-deploy -h                 # 查看帮助"
+echo ""
+echo "启动守护进程:"
+echo "  systemctl enable cert-deploy   # 开机自启"
+echo "  systemctl start cert-deploy    # 启动服务"
+echo ""
+echo "配置目录: /opt/cert-deploy/sites/"

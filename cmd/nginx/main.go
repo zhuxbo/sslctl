@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cnssl/cert-deploy/internal/nginx/deployer"
+	"github.com/cnssl/cert-deploy/internal/nginx/docker"
 	"github.com/cnssl/cert-deploy/internal/nginx/installer"
 	"github.com/cnssl/cert-deploy/internal/nginx/scanner"
 	"github.com/cnssl/cert-deploy/pkg/backup"
@@ -40,6 +42,11 @@ func main() {
 		issueMode    = flag.Bool("issue", false, "发起证书签发（用于 file 验证）")
 		installHTTPS = flag.Bool("install-https", false, "为 HTTP 站点安装 HTTPS 配置")
 		daemon       = flag.Bool("daemon", false, "守护进程模式")
+		// 配置初始化参数
+		initConfig = flag.Bool("init", false, "根据扫描结果生成站点配置")
+		apiURL     = flag.String("url", "", "证书 API 地址")
+		referID    = flag.String("refer_id", "", "API 认证 ID")
+		domains    = flag.String("domains", "", "域名列表（逗号分隔）")
 	)
 	flag.Parse()
 
@@ -66,6 +73,12 @@ func main() {
 	if *scanOnly {
 		// 仅扫描模式
 		runScan(log)
+	} else if *initConfig {
+		// 配置初始化模式
+		if err := runInit(*apiURL, *referID, *domains, flag.Arg(0)); err != nil {
+			fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
+			os.Exit(1)
+		}
 	} else if *daemon {
 		// 守护进程模式
 		runDaemon(cfgManager, log)
@@ -99,14 +112,70 @@ func main() {
 	}
 }
 
-// runScan 扫描并显示所有 SSL 站点
+// detectEnvironment 检测运行环境
+// 返回: "local" - 本地 Nginx, "docker" - Docker 容器, "none" - 未检测到
+func detectEnvironment() string {
+	// 1. 检测本地 nginx
+	if _, err := exec.LookPath("nginx"); err == nil {
+		// 尝试获取配置路径
+		if _, err := scanner.DetectNginx(); err == nil {
+			return "local"
+		}
+	}
+
+	// 2. 检测 Docker 容器
+	if docker.CheckDockerAvailable() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if docker.HasNginxContainers(ctx) {
+			return "docker"
+		}
+	}
+
+	return "none"
+}
+
+// runScan 扫描并显示所有 SSL 站点（自动检测本地/Docker）
 func runScan(log *logger.Logger) {
+	env := detectEnvironment()
+	result := &config.ScanResult{
+		Environment: env,
+		Sites:       []config.ScannedSite{},
+	}
+
+	switch env {
+	case "local":
+		sites := runLocalScan(log)
+		result.Sites = append(result.Sites, sites...)
+	case "docker":
+		sites := runDockerScan(log)
+		result.Sites = append(result.Sites, sites...)
+	case "none":
+		fmt.Println("未检测到本地 Nginx 或 Docker 容器中的 Nginx")
+		log.Error("未检测到 Nginx 环境")
+		return
+	}
+
+	// 保存扫描结果
+	if len(result.Sites) > 0 {
+		if err := config.SaveScanResult(result); err != nil {
+			log.Error("保存扫描结果失败: %v", err)
+		} else {
+			fmt.Printf("\n扫描结果已保存: %s\n", config.GetScanResultPath())
+		}
+	}
+}
+
+// runLocalScan 扫描本地 Nginx
+func runLocalScan(log *logger.Logger) []config.ScannedSite {
+	var result []config.ScannedSite
+
 	s := scanner.New()
 	sites, err := s.Scan()
 	if err != nil {
 		log.Error("扫描失败: %v", err)
 		fmt.Printf("扫描失败: %v\n", err)
-		return
+		return result
 	}
 
 	// 显示检测到的配置路径
@@ -116,7 +185,7 @@ func runScan(log *logger.Logger) {
 
 	if len(sites) == 0 {
 		fmt.Println("未发现 SSL 站点")
-		return
+		return result
 	}
 
 	fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
@@ -135,7 +204,130 @@ func runScan(log *logger.Logger) {
 			fmt.Printf("   Web 根目录: %s\n", site.Webroot)
 		}
 		fmt.Println()
+
+		// 转换为 ScannedSite
+		result = append(result, config.ScannedSite{
+			ID:              site.ServerName,
+			Name:            "本地",
+			Source:          "local",
+			ConfigFile:      site.ConfigFile,
+			ServerName:      site.ServerName,
+			ServerAlias:     site.ServerAlias,
+			ListenPorts:     site.ListenPorts,
+			Webroot:         site.Webroot,
+			CertificatePath: site.CertificatePath,
+			PrivateKeyPath:  site.PrivateKeyPath,
+		})
 	}
+
+	return result
+}
+
+// runDockerScan 扫描 Docker 容器中的 Nginx
+func runDockerScan(log *logger.Logger) []config.ScannedSite {
+	var result []config.ScannedSite
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// 发现 Nginx 容器
+	containers, err := docker.DiscoverNginxContainers(ctx)
+	if err != nil {
+		log.Error("发现 Docker 容器失败: %v", err)
+		fmt.Printf("发现 Docker 容器失败: %v\n", err)
+		return result
+	}
+
+	if len(containers) == 0 {
+		fmt.Println("未发现运行中的 Nginx 容器")
+		return result
+	}
+
+	fmt.Printf("发现 %d 个 Nginx 容器:\n\n", len(containers))
+
+	totalSites := 0
+	for _, container := range containers {
+		composeInfo := ""
+		if container.IsCompose {
+			composeInfo = fmt.Sprintf(" (compose: %s)", container.ServiceName)
+		}
+		fmt.Printf("容器: %s (%s)%s\n", container.Name, container.ID[:12], composeInfo)
+
+		// 创建客户端
+		var client *docker.Client
+		if container.IsCompose && container.ComposeFile != "" {
+			client = docker.NewComposeClient(container.ComposeFile, container.ServiceName)
+		} else {
+			client = docker.NewClient(container.ID)
+		}
+
+		// 扫描容器内站点
+		dockerScanner := docker.NewScanner(client)
+		sites, err := dockerScanner.Scan(ctx)
+		if err != nil {
+			fmt.Printf("   扫描失败: %v\n\n", err)
+			continue
+		}
+
+		log.LogScan(fmt.Sprintf("Docker:%s", container.Name), len(sites))
+
+		if len(sites) == 0 {
+			fmt.Println("   未发现 SSL 站点\n")
+			continue
+		}
+
+		totalSites += len(sites)
+		for i, site := range sites {
+			allDomains := site.ServerName
+			if len(site.ServerAlias) > 0 {
+				allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+			}
+
+			mode := "copy"
+			if site.VolumeMode {
+				mode = "volume"
+			}
+
+			fmt.Printf("   %d. %s [%s]\n", i+1, allDomains, mode)
+			fmt.Printf("      容器内配置: %s\n", site.ConfigFile)
+			fmt.Printf("      容器内证书: %s\n", site.CertificatePath)
+			fmt.Printf("      容器内私钥: %s\n", site.PrivateKeyPath)
+			if site.HostCertPath != "" {
+				fmt.Printf("      宿主机证书: %s\n", site.HostCertPath)
+			}
+			if site.HostKeyPath != "" {
+				fmt.Printf("      宿主机私钥: %s\n", site.HostKeyPath)
+			}
+			fmt.Printf("      监听端口: %v\n", site.ListenPorts)
+			if site.Webroot != "" {
+				fmt.Printf("      Web 根目录: %s\n", site.Webroot)
+			}
+
+			// 转换为 ScannedSite
+			result = append(result, config.ScannedSite{
+				ID:              site.ServerName,
+				Name:            container.Name,
+				Source:          "docker",
+				ContainerID:     site.ContainerID,
+				ContainerName:   site.ContainerName,
+				ComposeService:  container.ServiceName,
+				ConfigFile:      site.ConfigFile,
+				ServerName:      site.ServerName,
+				ServerAlias:     site.ServerAlias,
+				ListenPorts:     site.ListenPorts,
+				Webroot:         site.Webroot,
+				CertificatePath: site.CertificatePath,
+				PrivateKeyPath:  site.PrivateKeyPath,
+				HostCertPath:    site.HostCertPath,
+				HostKeyPath:     site.HostKeyPath,
+				VolumeMode:      site.VolumeMode,
+			})
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("共发现 %d 个 SSL 站点\n", totalSites)
+	return result
 }
 
 // runDaemon 守护进程模式
@@ -651,10 +843,10 @@ deploy:
 		return fmt.Errorf("证书私钥配对验证失败: %w", err)
 	}
 
-	// 5. 备份旧证书
+	// 5. 备份旧证书（仅本地模式）
 	var backupPath string
 	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), site.Backup.KeepVersions)
-	if site.Backup.Enabled {
+	if site.Backup.Enabled && !site.Docker.Enabled {
 		if _, err := os.Stat(certPath); err == nil {
 			result, err := backupMgr.Backup(site.SiteName, certPath, keyPath, nil)
 			if err != nil {
@@ -670,31 +862,40 @@ deploy:
 		}
 	}
 
-	// 6. 部署证书
-	d := deployer.NewNginxDeployer(
-		certPath,
-		keyPath,
-		site.Reload.TestCommand,
-		site.Reload.ReloadCommand,
-	)
-
-	if err := d.Deploy(certData.Cert, certData.IntermediateCert, privateKey); err != nil {
-		log.LogDeployment(site.SiteName, certPath, keyPath, false, err)
-
-		// 尝试回滚
-		if backupPath != "" {
-			backupCertPath, backupKeyPath := backupMgr.GetBackupPaths(backupPath)
-			if rollbackErr := d.Rollback(backupCertPath, backupKeyPath); rollbackErr != nil {
-				log.Error("回滚失败: %v", rollbackErr)
-			} else {
-				log.Info("已回滚到备份证书")
-			}
+	// 6. 部署证书（根据 Docker 配置选择部署方式）
+	if site.Docker.Enabled {
+		// Docker 模式部署
+		if err := deployDockerSite(ctx, site, certData.Cert, certData.IntermediateCert, privateKey, log); err != nil {
+			log.LogDeployment(site.SiteName, certPath, keyPath, false, err)
+			return fmt.Errorf("Docker 部署失败: %w", err)
 		}
+		log.LogDeployment(site.SiteName, fmt.Sprintf("Docker:%s", site.Docker.ContainerName), "", true, nil)
+	} else {
+		// 本地模式部署
+		d := deployer.NewNginxDeployer(
+			certPath,
+			keyPath,
+			site.Reload.TestCommand,
+			site.Reload.ReloadCommand,
+		)
 
-		return fmt.Errorf("部署失败: %w", err)
+		if err := d.Deploy(certData.Cert, certData.IntermediateCert, privateKey); err != nil {
+			log.LogDeployment(site.SiteName, certPath, keyPath, false, err)
+
+			// 尝试回滚
+			if backupPath != "" {
+				backupCertPath, backupKeyPath := backupMgr.GetBackupPaths(backupPath)
+				if rollbackErr := d.Rollback(backupCertPath, backupKeyPath); rollbackErr != nil {
+					log.Error("回滚失败: %v", rollbackErr)
+				} else {
+					log.Info("已回滚到备份证书")
+				}
+			}
+
+			return fmt.Errorf("部署失败: %w", err)
+		}
+		log.LogDeployment(site.SiteName, certPath, keyPath, true, nil)
 	}
-
-	log.LogDeployment(site.SiteName, certPath, keyPath, true, nil)
 
 	// 7. 重载服务日志
 	if site.Reload.ReloadCommand != "" {
@@ -905,4 +1106,239 @@ func interactiveInstallHTTPS(cfgManager *config.Manager, log *logger.Logger) err
 	fmt.Printf("\n安装完成! 请执行 'systemctl reload nginx' 重载配置\n")
 
 	return nil
+}
+
+// deployDockerSite Docker 模式部署证书
+func deployDockerSite(ctx context.Context, site *config.SiteConfig, cert, intermediate, privateKey string, log *logger.Logger) error {
+	// 1. 创建 Docker 客户端
+	var client *docker.Client
+	if site.Docker.ComposeFile != "" && site.Docker.ServiceName != "" {
+		client = docker.NewComposeClient(site.Docker.ComposeFile, site.Docker.ServiceName)
+		log.Info("使用 docker-compose 模式: %s", site.Docker.ServiceName)
+	} else if site.Docker.ContainerID != "" {
+		client = docker.NewClient(site.Docker.ContainerID)
+		log.Info("使用 docker 模式: %s", site.Docker.ContainerID)
+	} else if site.Docker.ContainerName != "" {
+		client = docker.NewClient(site.Docker.ContainerName)
+		log.Info("使用 docker 模式: %s", site.Docker.ContainerName)
+	} else if site.Docker.AutoDiscover {
+		// 自动发现容器
+		containers, err := docker.DiscoverNginxContainers(ctx)
+		if err != nil {
+			return fmt.Errorf("自动发现容器失败: %w", err)
+		}
+		if len(containers) == 0 {
+			return fmt.Errorf("未发现 Nginx 容器")
+		}
+		// 使用第一个容器
+		container := containers[0]
+		if container.IsCompose && container.ComposeFile != "" {
+			client = docker.NewComposeClient(container.ComposeFile, container.ServiceName)
+		} else {
+			client = docker.NewClient(container.ID)
+		}
+		log.Info("自动发现容器: %s", container.Name)
+	} else {
+		return fmt.Errorf("未配置 Docker 容器信息")
+	}
+
+	// 2. 确定证书路径
+	certPath := site.Docker.ContainerPaths.Certificate
+	keyPath := site.Docker.ContainerPaths.PrivateKey
+	if certPath == "" {
+		certPath = site.Paths.Certificate
+	}
+	if keyPath == "" {
+		keyPath = site.Paths.PrivateKey
+	}
+	if certPath == "" || keyPath == "" {
+		return fmt.Errorf("未配置证书路径")
+	}
+
+	// 3. 创建部署器
+	opts := docker.DeployerOptions{
+		CertPath:      certPath,
+		KeyPath:       keyPath,
+		DeployMode:    site.Docker.DeployMode,
+		TestCommand:   "nginx -t",
+		ReloadCommand: "nginx -s reload",
+	}
+
+	// 如果有宿主机路径配置（挂载卷模式）
+	if site.Paths.Certificate != "" && site.Docker.DeployMode == "volume" {
+		opts.HostCertPath = site.Paths.Certificate
+		opts.HostKeyPath = site.Paths.PrivateKey
+	}
+
+	d := docker.NewDeployer(client, opts)
+
+	// 4. 部署证书
+	log.Info("开始部署证书到 Docker 容器...")
+	if err := d.Deploy(ctx, cert, intermediate, privateKey); err != nil {
+		return err
+	}
+
+	// 5. 输出部署模式
+	mode := d.GetDeployMode()
+	log.Info("部署完成，模式: %s", mode)
+
+	return nil
+}
+
+// runInit 根据扫描结果生成站点配置
+func runInit(apiURL, referID, domainsStr, siteID string) error {
+	// 验证必填参数
+	if apiURL == "" {
+		return fmt.Errorf("缺少 -url 参数")
+	}
+	if referID == "" {
+		return fmt.Errorf("缺少 -refer_id 参数")
+	}
+
+	// 加载扫描结果
+	scanResult, err := config.LoadScanResult()
+	if err != nil {
+		return fmt.Errorf("加载扫描结果失败: %v\n请先执行 -scan 扫描站点", err)
+	}
+
+	if len(scanResult.Sites) == 0 {
+		return fmt.Errorf("扫描结果为空，请先执行 -scan 扫描站点")
+	}
+
+	// 选择站点
+	var site *config.ScannedSite
+	if siteID != "" {
+		// 指定站点 ID
+		site = scanResult.FindSiteByID(siteID)
+		if site == nil {
+			return fmt.Errorf("未找到站点: %s", siteID)
+		}
+	} else {
+		// 交互式选择
+		fmt.Printf("扫描结果 (%s):\n", scanResult.ScanTime.Format("2006-01-02 15:04:05"))
+		for i, s := range scanResult.Sites {
+			source := "local"
+			if s.Source == "docker" {
+				mode := "copy"
+				if s.VolumeMode {
+					mode = "volume"
+				}
+				source = fmt.Sprintf("docker/%s", mode)
+			}
+			name := s.Name
+			if name == "" {
+				name = "本地"
+			}
+			fmt.Printf("  %d. %s (%s) [%s]\n", i+1, s.ID, name, source)
+		}
+		fmt.Print("\n请选择站点 [1-")
+		fmt.Printf("%d]: ", len(scanResult.Sites))
+
+		var choice int
+		if _, err := fmt.Scanf("%d", &choice); err != nil {
+			return fmt.Errorf("无效的选择")
+		}
+
+		site = scanResult.FindSiteByIndex(choice)
+		if site == nil {
+			return fmt.Errorf("无效的选择: %d", choice)
+		}
+	}
+
+	// 解析域名
+	var domains []string
+	if domainsStr != "" {
+		for _, d := range strings.Split(domainsStr, ",") {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				domains = append(domains, d)
+			}
+		}
+	}
+
+	// 生成配置
+	cfg := generateSiteConfig(site, apiURL, referID, domains)
+
+	// 保存配置
+	cfgManager, err := config.NewManager()
+	if err != nil {
+		return fmt.Errorf("初始化配置管理器失败: %v", err)
+	}
+
+	if err := cfgManager.SaveSite(cfg); err != nil {
+		return fmt.Errorf("保存配置失败: %v", err)
+	}
+
+	configPath := filepath.Join(cfgManager.GetSitesDir(), site.ID+".json")
+	fmt.Printf("\n已生成配置文件: %s\n", configPath)
+	fmt.Printf("\n下一步:\n")
+	fmt.Printf("  cert-deploy -site %s    # 部署证书\n", site.ID)
+
+	return nil
+}
+
+// generateSiteConfig 生成站点配置
+func generateSiteConfig(site *config.ScannedSite, apiURL, referID string, domains []string) *config.SiteConfig {
+	cfg := &config.SiteConfig{
+		Version:    "1.0",
+		SiteName:   site.ID,
+		Enabled:    true,
+		ServerType: "nginx",
+		API: config.APIConfig{
+			URL:     apiURL,
+			ReferID: referID,
+		},
+		Reload: config.ReloadConfig{
+			TestCommand:   "nginx -t",
+			ReloadCommand: "nginx -s reload",
+		},
+		Backup: config.BackupConfig{
+			Enabled:      true,
+			KeepVersions: 3,
+		},
+		Schedule: config.ScheduleConfig{
+			CheckIntervalHours: 12,
+			RenewBeforeDays:    30,
+		},
+	}
+
+	// 域名
+	if len(domains) > 0 {
+		cfg.Domains = domains
+	} else if site.ServerName != "" {
+		cfg.Domains = append([]string{site.ServerName}, site.ServerAlias...)
+	}
+
+	// 路径配置
+	if site.Source == "docker" {
+		cfg.Docker = config.DockerConfig{
+			Enabled:       true,
+			ContainerID:   site.ContainerID,
+			ContainerName: site.ContainerName,
+			DeployMode:    "auto",
+			ContainerPaths: config.ContainerPathsConfig{
+				Certificate: site.CertificatePath,
+				PrivateKey:  site.PrivateKeyPath,
+			},
+		}
+		// 宿主机路径（挂载卷模式）
+		if site.VolumeMode && site.HostCertPath != "" {
+			cfg.Paths = config.PathsConfig{
+				Certificate: site.HostCertPath,
+				PrivateKey:  site.HostKeyPath,
+				ConfigFile:  site.ConfigFile,
+				Webroot:     site.Webroot,
+			}
+			cfg.Docker.DeployMode = "volume"
+		}
+	} else {
+		cfg.Paths = config.PathsConfig{
+			Certificate: site.CertificatePath,
+			PrivateKey:  site.PrivateKeyPath,
+			ConfigFile:  site.ConfigFile,
+			Webroot:     site.Webroot,
+		}
+	}
+
+	return cfg
 }
