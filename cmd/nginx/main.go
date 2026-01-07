@@ -272,7 +272,7 @@ func runDockerScan(log *logger.Logger) []config.ScannedSite {
 		log.LogScan(fmt.Sprintf("Docker:%s", container.Name), len(sites))
 
 		if len(sites) == 0 {
-			fmt.Println("   未发现 SSL 站点\n")
+			fmt.Println("   未发现 SSL 站点")
 			continue
 		}
 
