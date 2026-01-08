@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/cnssl/cert-deploy/pkg/issuer"
 	"github.com/cnssl/cert-deploy/pkg/logger"
 	"github.com/cnssl/cert-deploy/pkg/prompt"
+	"github.com/cnssl/cert-deploy/pkg/util"
 	"github.com/cnssl/cert-deploy/pkg/validator"
 )
 
@@ -38,6 +40,11 @@ func main() {
 		issueMode    = flag.Bool("issue", false, "发起证书签发（用于 file 验证）")
 		installHTTPS = flag.Bool("install-https", false, "为 HTTP 站点安装 HTTPS 配置")
 		daemon       = flag.Bool("daemon", false, "守护进程模式")
+		// 配置初始化参数
+		initConfig = flag.Bool("init", false, "根据扫描结果生成站点配置")
+		apiURL     = flag.String("url", "", "证书 API 地址")
+		referID    = flag.String("refer_id", "", "API 认证 ID")
+		domains    = flag.String("domains", "", "域名列表（逗号分隔）")
 	)
 	flag.Parse()
 
@@ -63,6 +70,12 @@ func main() {
 
 	if *scanOnly {
 		runScan(log)
+	} else if *initConfig {
+		// 配置初始化模式
+		if err := runInit(*apiURL, *referID, *domains, flag.Arg(0)); err != nil {
+			fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
+			os.Exit(1)
+		}
 	} else if *daemon {
 		runDaemon(cfgManager, log)
 	} else if *siteName != "" && *issueMode {
@@ -114,9 +127,20 @@ func runScan(log *logger.Logger) {
 		return
 	}
 
+	// 构建扫描结果
+	result := &config.ScanResult{
+		Environment: "local",
+		Sites:       make([]config.ScannedSite, 0, len(sites)),
+	}
+
 	fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
 	for i, site := range sites {
-		fmt.Printf("%d. %s\n", i+1, site.ServerName)
+		// 显示所有绑定的域名
+		allDomains := site.ServerName
+		if len(site.ServerAlias) > 0 {
+			allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+		}
+		fmt.Printf("%d. %s\n", i+1, allDomains)
 		fmt.Printf("   配置文件: %s\n", site.ConfigFile)
 		fmt.Printf("   证书路径: %s\n", site.CertificatePath)
 		fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
@@ -128,6 +152,27 @@ func runScan(log *logger.Logger) {
 			fmt.Printf("   Web 根目录: %s\n", site.Webroot)
 		}
 		fmt.Println()
+
+		// 添加到扫描结果
+		result.Sites = append(result.Sites, config.ScannedSite{
+			ID:              site.ServerName,
+			Name:            "本地",
+			Source:          "local",
+			ConfigFile:      site.ConfigFile,
+			ServerName:      site.ServerName,
+			ServerAlias:     site.ServerAlias,
+			ListenPorts:     []string{site.ListenPort},
+			Webroot:         site.Webroot,
+			CertificatePath: site.CertificatePath,
+			PrivateKeyPath:  site.PrivateKeyPath,
+		})
+	}
+
+	// 保存扫描结果
+	if err := config.SaveScanResult(result); err != nil {
+		log.Error("保存扫描结果失败: %v", err)
+	} else {
+		fmt.Printf("扫描结果已保存: %s\n", config.GetScanResultPath())
 	}
 }
 
@@ -169,10 +214,13 @@ func checkAndDeploy(ctx context.Context, cfgManager *config.Manager, log *logger
 		log.LogScan(s.GetConfigPath(), len(scannedSites))
 	}
 
-	// 2. 构建域名到扫描站点的映射
+	// 2. 构建域名到扫描站点的映射（包含主域名和所有别名）
 	scannedMap := make(map[string]*scanner.SSLSite)
 	for _, site := range scannedSites {
 		scannedMap[site.ServerName] = site
+		for _, alias := range site.ServerAlias {
+			scannedMap[alias] = site
+		}
 	}
 
 	// 3. 加载站点配置
@@ -428,10 +476,12 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
 	// 验证证书和私钥配对
@@ -540,7 +590,10 @@ func deploySiteConfig(ctx context.Context, cfgManager *config.Manager, site *con
 		}
 
 		// 写入验证文件
-		validationPath := filepath.Join(webroot, certData.File.Path)
+		validationPath, err := util.JoinUnderDir(webroot, certData.File.Path)
+		if err != nil {
+			return fmt.Errorf("验证文件路径无效: %w", err)
+		}
 		validationDir := filepath.Dir(validationPath)
 
 		if err := os.MkdirAll(validationDir, 0755); err != nil {
@@ -889,4 +942,131 @@ func interactiveInstallHTTPS(cfgManager *config.Manager, log *logger.Logger) err
 	fmt.Printf("\n安装完成! 请执行 'systemctl reload apache2' 重载配置\n")
 
 	return nil
+}
+
+// runInit 根据扫描结果生成站点配置
+func runInit(apiURL, referID, domainsStr, siteID string) error {
+	// 验证必填参数
+	if apiURL == "" {
+		return fmt.Errorf("缺少 -url 参数")
+	}
+	if referID == "" {
+		return fmt.Errorf("缺少 -refer_id 参数")
+	}
+
+	// 加载扫描结果
+	scanResult, err := config.LoadScanResult()
+	if err != nil {
+		return fmt.Errorf("加载扫描结果失败: %v\n请先执行 -scan 扫描站点", err)
+	}
+
+	if len(scanResult.Sites) == 0 {
+		return fmt.Errorf("扫描结果为空，请先执行 -scan 扫描站点")
+	}
+
+	// 选择站点
+	var site *config.ScannedSite
+	if siteID != "" {
+		// 指定站点 ID
+		site = scanResult.FindSiteByID(siteID)
+		if site == nil {
+			return fmt.Errorf("未找到站点: %s", siteID)
+		}
+	} else {
+		// 交互式选择
+		fmt.Printf("扫描结果 (%s):\n", scanResult.ScanTime.Format("2006-01-02 15:04:05"))
+		for i, s := range scanResult.Sites {
+			name := s.Name
+			if name == "" {
+				name = "本地"
+			}
+			fmt.Printf("  %d. %s (%s) [%s]\n", i+1, s.ID, name, s.Source)
+		}
+		fmt.Print("\n请选择站点 [1-")
+		fmt.Printf("%d]: ", len(scanResult.Sites))
+
+		var choice int
+		if _, err := fmt.Scanf("%d", &choice); err != nil {
+			return fmt.Errorf("无效的选择")
+		}
+
+		site = scanResult.FindSiteByIndex(choice)
+		if site == nil {
+			return fmt.Errorf("无效的选择: %d", choice)
+		}
+	}
+
+	// 解析域名
+	var domains []string
+	if domainsStr != "" {
+		for _, d := range strings.Split(domainsStr, ",") {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				domains = append(domains, d)
+			}
+		}
+	}
+
+	// 生成配置
+	cfg := generateSiteConfig(site, apiURL, referID, domains)
+
+	// 保存配置
+	cfgManager, err := config.NewManager()
+	if err != nil {
+		return fmt.Errorf("初始化配置管理器失败: %v", err)
+	}
+
+	if err := cfgManager.SaveSite(cfg); err != nil {
+		return fmt.Errorf("保存配置失败: %v", err)
+	}
+
+	configPath := filepath.Join(cfgManager.GetSitesDir(), site.ID+".json")
+	fmt.Printf("\n已生成配置文件: %s\n", configPath)
+	fmt.Printf("\n下一步:\n")
+	fmt.Printf("  cert-deploy -site %s    # 部署证书\n", site.ID)
+
+	return nil
+}
+
+// generateSiteConfig 生成站点配置
+func generateSiteConfig(site *config.ScannedSite, apiURL, referID string, domains []string) *config.SiteConfig {
+	cfg := &config.SiteConfig{
+		Version:    "1.0",
+		SiteName:   site.ID,
+		Enabled:    true,
+		ServerType: "apache",
+		API: config.APIConfig{
+			URL:     apiURL,
+			ReferID: referID,
+		},
+		Reload: config.ReloadConfig{
+			TestCommand:   "apache2ctl -t",
+			ReloadCommand: "systemctl reload apache2",
+		},
+		Backup: config.BackupConfig{
+			Enabled:      true,
+			KeepVersions: 3,
+		},
+		Schedule: config.ScheduleConfig{
+			CheckIntervalHours: 12,
+			RenewBeforeDays:    30,
+		},
+	}
+
+	// 域名
+	if len(domains) > 0 {
+		cfg.Domains = domains
+	} else if site.ServerName != "" {
+		cfg.Domains = append([]string{site.ServerName}, site.ServerAlias...)
+	}
+
+	// 路径配置
+	cfg.Paths = config.PathsConfig{
+		Certificate: site.CertificatePath,
+		PrivateKey:  site.PrivateKeyPath,
+		ConfigFile:  site.ConfigFile,
+		Webroot:     site.Webroot,
+	}
+
+	return cfg
 }

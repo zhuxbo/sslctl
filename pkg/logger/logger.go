@@ -124,8 +124,8 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	if l.file != nil {
 		currentFilename := filepath.Base(l.file.Name())
 		if currentFilename != expectedFilename {
-			l.file.Close()
-			l.openLogFile()
+			_ = l.file.Close()
+			_ = l.openLogFile()
 		}
 	}
 
@@ -135,7 +135,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 
 	// 写入文件
 	if l.file != nil {
-		l.file.WriteString(logLine)
+		_, _ = l.file.WriteString(logLine)
 	}
 
 	// 同时输出到控制台

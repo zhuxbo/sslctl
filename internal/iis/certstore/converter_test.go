@@ -212,7 +212,7 @@ func TestConvertToPFX_NoIntermediate(t *testing.T) {
 		t.Error("PFX 文件未创建")
 	}
 
-	converter.CleanupPFX(pfxPath)
+	_ = converter.CleanupPFX(pfxPath)
 }
 
 func TestConvertToPFX_InvalidCert(t *testing.T) {

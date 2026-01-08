@@ -69,6 +69,35 @@ type ScheduleConfig struct {
 	MinImproveDays     int `json:"min_improve_days,omitempty"` // 最小改进天数
 }
 
+// DockerConfig Docker 部署配置
+type DockerConfig struct {
+	Enabled       bool   `json:"enabled"`                  // 是否启用 Docker 模式
+	ContainerID   string `json:"container_id,omitempty"`   // 容器 ID
+	ContainerName string `json:"container_name,omitempty"` // 容器名称
+
+	// 自动发现配置
+	AutoDiscover bool   `json:"auto_discover,omitempty"` // 自动发现 Nginx 容器
+	ImageFilter  string `json:"image_filter,omitempty"`  // 镜像名过滤
+
+	// 部署模式
+	DeployMode string `json:"deploy_mode,omitempty"` // volume | copy | auto
+
+	// Compose 配置
+	ComposeFile string `json:"compose_file,omitempty"` // docker-compose.yml 路径
+	ServiceName string `json:"service_name,omitempty"` // compose 服务名
+
+	// 容器内路径
+	ContainerPaths ContainerPathsConfig `json:"container_paths,omitempty"`
+}
+
+// ContainerPathsConfig 容器内路径配置
+type ContainerPathsConfig struct {
+	Certificate string `json:"certificate,omitempty"`  // 容器内证书路径
+	PrivateKey  string `json:"private_key,omitempty"`  // 容器内私钥路径
+	ConfigFile  string `json:"config_file,omitempty"`  // 容器内配置文件路径
+	Webroot     string `json:"webroot,omitempty"`      // 容器内 Web 根目录
+}
+
 // GetEnvWithDefault 获取环境变量，提供默认值
 func GetEnvWithDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {

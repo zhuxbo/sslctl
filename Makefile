@@ -13,9 +13,8 @@ DIST_DIR := dist
 # 目标平台
 LINUX_PLATFORMS := linux/amd64 linux/arm64
 WINDOWS_PLATFORMS := windows/amd64
-DARWIN_PLATFORMS := darwin/amd64 darwin/arm64
 
-.PHONY: all clean build build-nginx build-apache build-iis build-all test lint deps help
+.PHONY: all clean build build-nginx build-apache build-iis build-all build-linux build-windows test lint deps help compress
 
 # 默认目标
 all: build
@@ -32,19 +31,18 @@ help:
 	@echo "  make build-all       构建所有平台的二进制文件"
 	@echo "  make build-linux     构建 Linux (amd64/arm64)"
 	@echo "  make build-windows   构建 Windows (amd64)"
-	@echo "  make build-darwin    构建 macOS (amd64/arm64)"
 	@echo "  make clean           清理构建产物"
+	@echo "  make compress        gzip 压缩所有二进制文件"
 	@echo "  make test            运行测试"
 	@echo "  make lint            代码检查"
 	@echo "  make deps            下载依赖"
 	@echo ""
 	@echo "构建说明:"
-	@echo "  - Nginx/Apache: 支持 Linux, Windows, macOS"
+	@echo "  - Nginx/Apache: 支持 Linux, Windows"
 	@echo "  - IIS: 仅支持 Windows"
 	@echo ""
 	@echo "环境变量:"
 	@echo "  VERSION              版本号 (默认: git tag)"
-	@echo "  UPX=1                启用 UPX 压缩 (需要安装 upx)"
 
 # 下载依赖
 deps:
@@ -62,18 +60,12 @@ build-nginx:
 	@mkdir -p $(DIST_DIR)
 	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/nginx
 	@echo "Built: $(DIST_DIR)/cert-deploy-nginx"
-ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
-endif
 
 # 构建 Apache 客户端 (当前平台)
 build-apache:
 	@mkdir -p $(DIST_DIR)
 	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/apache
 	@echo "Built: $(DIST_DIR)/cert-deploy-apache"
-ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
-endif
 
 # 构建 IIS 客户端 (仅 Windows)
 build-iis:
@@ -82,7 +74,7 @@ build-iis:
 	@echo "Built: $(DIST_DIR)/cert-deploy-iis.exe (Windows only)"
 
 # 构建所有平台
-build-all: clean build-linux build-windows build-darwin
+build-all: clean build-linux build-windows
 	@echo "All platforms built successfully"
 
 # 构建 Linux (amd64 + arm64)
@@ -104,16 +96,6 @@ build-windows:
 	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-iis-windows-amd64.exe ./cmd/iis
 	@echo "Built: Windows amd64 (Nginx, Apache, IIS)"
 
-# 构建 macOS (amd64 + arm64)
-build-darwin:
-	@mkdir -p $(DIST_DIR)
-	@echo "Building for macOS..."
-	GOOS=darwin GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-darwin-amd64 ./cmd/nginx
-	GOOS=darwin GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-darwin-amd64 ./cmd/apache
-	GOOS=darwin GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx-darwin-arm64 ./cmd/nginx
-	GOOS=darwin GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache-darwin-arm64 ./cmd/apache
-	@echo "Built: macOS amd64/arm64 (Nginx, Apache)"
-
 # 运行测试
 test:
 	go test -v -race ./...
@@ -122,6 +104,18 @@ test:
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed"; exit 1; }
 	golangci-lint run ./...
+
+# gzip 压缩所有二进制文件
+compress:
+	@echo "Compressing binaries with gzip..."
+	@for f in $(DIST_DIR)/cert-deploy-*; do \
+		if [ -f "$$f" ] && [ ! -f "$$f.gz" ] && ! echo "$$f" | grep -q "\.gz$$"; then \
+			echo "Compressing: $$f"; \
+			gzip -k -f "$$f"; \
+		fi \
+	done
+	@echo "Compression complete"
+	@ls -lh $(DIST_DIR)/*.gz 2>/dev/null || true
 
 # 清理
 clean:

@@ -20,6 +20,7 @@ import (
 	"github.com/cnssl/cert-deploy/pkg/issuer"
 	"github.com/cnssl/cert-deploy/pkg/logger"
 	"github.com/cnssl/cert-deploy/pkg/prompt"
+	"github.com/cnssl/cert-deploy/pkg/util"
 	"github.com/cnssl/cert-deploy/pkg/validator"
 )
 
@@ -378,10 +379,12 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, sca
 		return fmt.Errorf("证书验证失败: %w", err)
 	}
 
-	// 验证域名覆盖
-	dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
-	if err := dv.ValidateDomainCoverage(cert); err != nil {
-		return fmt.Errorf("域名验证失败: %w", err)
+	// 验证域名覆盖（如果配置启用）
+	if site.Validation.VerifyDomain {
+		dv := validator.NewDomainValidator(site.Domains, site.Validation.IgnoreDomainMismatch)
+		if err := dv.ValidateDomainCoverage(cert); err != nil {
+			return fmt.Errorf("域名验证失败: %w", err)
+		}
 	}
 
 	// 验证证书和私钥配对
@@ -404,7 +407,7 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, sca
 			hostname = scanned.HostName
 		}
 		if scanned.Port != "" {
-			fmt.Sscanf(scanned.Port, "%d", &port)
+			_, _ = fmt.Sscanf(scanned.Port, "%d", &port)
 		}
 	}
 
@@ -474,7 +477,10 @@ func deploySiteConfig(ctx context.Context, cfgManager *config.Manager, site *con
 		}
 
 		// 写入验证文件
-		validationPath := filepath.Join(webroot, certData.File.Path)
+		validationPath, err := util.JoinUnderDir(webroot, certData.File.Path)
+		if err != nil {
+			return fmt.Errorf("验证文件路径无效: %w", err)
+		}
 		validationDir := filepath.Dir(validationPath)
 
 		if err := os.MkdirAll(validationDir, 0755); err != nil {
@@ -565,7 +571,7 @@ deploy:
 			hostname = scanned.HostName
 		}
 		if scanned.Port != "" {
-			fmt.Sscanf(scanned.Port, "%d", &port)
+			_, _ = fmt.Sscanf(scanned.Port, "%d", &port)
 		}
 	}
 

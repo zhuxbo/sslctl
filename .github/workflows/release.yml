@@ -41,12 +41,6 @@ jobs:
             goarch: amd64
             suffix: windows-amd64
             ext: .exe
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
 
     steps:
       - name: Checkout
@@ -134,23 +128,31 @@ jobs:
 
             ${{ steps.check.outputs.prerelease == 'true' && '> ⚠️ **这是测试版本 (Pre-release)**，可能包含未完成的功能或已知问题。' || '> ✅ **这是正式版本**，已经过测试验证。' }}
 
-            ### 下载
+            ### 一键安装
+
+            **Linux:**
+            ```bash
+            curl -fsSL https://gitee.com/zhuxbo/cert-deploy/raw/main/deploy/install.sh | sudo bash
+            ```
+
+            **Windows (PowerShell 管理员):**
+            ```powershell
+            irm https://gitee.com/zhuxbo/cert-deploy/raw/main/deploy/install.ps1 | iex
+            ```
+
+            ### 手动下载
 
             | 平台 | Nginx | Apache | IIS |
             |------|-------|--------|-----|
             | Linux x64 | cert-deploy-nginx-linux-amd64.gz | cert-deploy-apache-linux-amd64.gz | - |
             | Linux ARM64 | cert-deploy-nginx-linux-arm64.gz | cert-deploy-apache-linux-arm64.gz | - |
             | Windows x64 | cert-deploy-nginx-windows-amd64.exe.gz | cert-deploy-apache-windows-amd64.exe.gz | cert-deploy-iis-windows-amd64.exe.gz |
-            | macOS x64 | cert-deploy-nginx-darwin-amd64.gz | cert-deploy-apache-darwin-amd64.gz | - |
-            | macOS ARM64 | cert-deploy-nginx-darwin-arm64.gz | cert-deploy-apache-darwin-arm64.gz | - |
-
-            ### 安装
 
             ```bash
-            # Linux/macOS
+            # Linux 手动安装
             gunzip cert-deploy-nginx-linux-amd64.gz
             chmod +x cert-deploy-nginx-linux-amd64
-            sudo mv cert-deploy-nginx-linux-amd64 /usr/local/bin/cert-deploy-nginx
+            sudo mv cert-deploy-nginx-linux-amd64 /usr/local/bin/cert-deploy
             ```
           files: dist/*.gz
           draft: false
@@ -185,12 +187,34 @@ jobs:
           fi
           echo "Created Gitee release ID: $RELEASE_ID"
 
-          # 上传附件
-          for file in dist/*.gz; do
-            filename=$(basename "$file")
+          # 并行上传附件（最多 4 个并发）
+          upload_file() {
+            local file=$1
+            local filename=$(basename "$file")
             echo "Uploading $filename to Gitee..."
-            curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases/$RELEASE_ID/attach_files" \
+            if curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases/$RELEASE_ID/attach_files" \
               -F "access_token=$GITEE_TOKEN" \
-              -F "file=@$file" || echo "Failed to upload $filename"
+              -F "file=@$file" > /dev/null; then
+              echo "✓ $filename uploaded"
+            else
+              echo "✗ Failed to upload $filename"
+            fi
+          }
+
+          # 启动并行上传
+          PIDS=()
+          MAX_PARALLEL=4
+          for file in dist/*.gz; do
+            upload_file "$file" &
+            PIDS+=($!)
+            # 限制并发数
+            if [ ${#PIDS[@]} -ge $MAX_PARALLEL ]; then
+              wait ${PIDS[0]}
+              PIDS=("${PIDS[@]:1}")
+            fi
+          done
+          # 等待剩余任务完成
+          for pid in "${PIDS[@]}"; do
+            wait $pid
           done
           echo "Gitee release sync completed"

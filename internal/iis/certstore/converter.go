@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"software.sslmate.com/src/go-pkcs12"
 )
@@ -28,10 +27,15 @@ func NewConverter(tempDir string) *Converter {
 // ConvertToPFX 将 PEM 格式转换为 PFX 格式
 // cert: 服务器证书 PEM
 // key: 私钥 PEM
-// intermediate: 中间证书 PEM (可选)
+// intermediate: 中间证书 PEM (可选，支持多个证书块)
 // password: PFX 密码
 // 返回: PFX 文件路径
 func (c *Converter) ConvertToPFX(cert, key, intermediate, password string) (string, error) {
+	// 0. 确保临时目录存在
+	if err := os.MkdirAll(c.tempDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
 	// 1. 解析证书
 	certParsed, err := parseCertificate(cert)
 	if err != nil {
@@ -44,26 +48,54 @@ func (c *Converter) ConvertToPFX(cert, key, intermediate, password string) (stri
 		return "", fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	// 3. 解析中间证书(可选)
+	// 3. 解析中间证书(可选，支持多个证书块)
 	var caCerts []*x509.Certificate
 	if intermediate != "" {
-		caCert, err := parseCertificate(intermediate)
-		if err != nil {
-			return "", fmt.Errorf("failed to parse intermediate certificate: %w", err)
+		rest := []byte(intermediate)
+		for {
+			block, remaining := pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type == "CERTIFICATE" {
+				caCert, err := x509.ParseCertificate(block.Bytes)
+				if err != nil {
+					return "", fmt.Errorf("failed to parse intermediate certificate: %w", err)
+				}
+				caCerts = append(caCerts, caCert)
+			}
+			rest = remaining
 		}
-		caCerts = []*x509.Certificate{caCert}
 	}
 
-	// 4. 转换为 PFX
-	pfxData, err := pkcs12.Encode(rand.Reader, keyParsed, certParsed, caCerts, password)
+	// 4. 转换为 PFX (使用 Legacy 编码器以获得更好的兼容性)
+	pfxData, err := pkcs12.Legacy.Encode(keyParsed, certParsed, caCerts, password)
 	if err != nil {
 		return "", fmt.Errorf("failed to encode PFX: %w", err)
 	}
 
-	// 5. 写入临时文件
-	pfxPath := filepath.Join(c.tempDir, "temp_cert.pfx")
-	if err := os.WriteFile(pfxPath, pfxData, 0600); err != nil {
+	// 5. 写入临时文件（使用唯一文件名避免并发冲突）
+	pfxFile, err := os.CreateTemp(c.tempDir, "cert_*.pfx")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	pfxPath := pfxFile.Name()
+
+	if _, err := pfxFile.Write(pfxData); err != nil {
+		pfxFile.Close()
+		os.Remove(pfxPath)
 		return "", fmt.Errorf("failed to write PFX file: %w", err)
+	}
+
+	if err := pfxFile.Chmod(0600); err != nil {
+		pfxFile.Close()
+		os.Remove(pfxPath)
+		return "", fmt.Errorf("failed to set PFX file permissions: %w", err)
+	}
+
+	if err := pfxFile.Close(); err != nil {
+		os.Remove(pfxPath)
+		return "", fmt.Errorf("failed to close PFX file: %w", err)
 	}
 
 	return pfxPath, nil

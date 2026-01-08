@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -66,6 +67,60 @@ func FileExists(path string) bool {
 // EnsureDir 确保目录存在
 func EnsureDir(dir string, perm os.FileMode) error {
 	return os.MkdirAll(dir, perm)
+}
+
+// JoinUnderDir 将一个可能来自 URL 的路径安全拼接到 baseDir 下。
+//
+// 典型场景：DCV file/http/https 验证返回的 path 往往以 "/" 开头（URL Path），
+// 直接 filepath.Join(baseDir, "/.well-known/...") 会导致 baseDir 被丢弃，进而写入到系统根目录。
+// 该函数会：
+// - 去掉前导的 / 或 \，确保拼接结果始终位于 baseDir 下
+// - 使用 filepath.Clean 归一化路径，并拒绝 ".." 目录穿越
+func JoinUnderDir(baseDir, path string) (string, error) {
+	if strings.TrimSpace(baseDir) == "" {
+		return "", fmt.Errorf("baseDir is empty")
+	}
+
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+
+	// 兼容 URL Path：去掉前导分隔符，避免 Join 时 baseDir 被丢弃
+	p = strings.TrimLeft(p, "/\\")
+	p = filepath.FromSlash(p)
+	p = filepath.Clean(p)
+
+	if p == "." || p == "" {
+		return "", fmt.Errorf("invalid path: %q", path)
+	}
+	if filepath.IsAbs(p) {
+		return "", fmt.Errorf("absolute path not allowed: %q", path)
+	}
+	if p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path traversal not allowed: %q", path)
+	}
+
+	full := filepath.Join(baseDir, p)
+
+	// 二次校验：确保 full 仍然位于 baseDir 内（防御性检查）
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve baseDir: %w", err)
+	}
+	fullAbs, err := filepath.Abs(full)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve joined path: %w", err)
+	}
+	rel, err := filepath.Rel(baseAbs, fullAbs)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes baseDir: %q", path)
+	}
+
+	return full, nil
 }
 
 // RunCommand 执行命令

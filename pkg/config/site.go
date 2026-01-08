@@ -28,6 +28,9 @@ type SiteConfig struct {
 
 	Backup BackupConfig `json:"backup"`
 
+	// Docker 配置
+	Docker DockerConfig `json:"docker,omitempty"`
+
 	Metadata MetadataConfig `json:"metadata"`
 }
 

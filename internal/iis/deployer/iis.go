@@ -50,7 +50,7 @@ func (d *IISDeployer) Deploy(cert, intermediate, key string) error {
 
 	// 确保清理临时文件
 	if pfxPath != "" {
-		defer d.converter.CleanupPFX(pfxPath)
+		defer func() { _ = d.converter.CleanupPFX(pfxPath) }()
 	}
 
 	// 3. 导入证书到 Windows 证书存储
@@ -62,7 +62,7 @@ func (d *IISDeployer) Deploy(cert, intermediate, key string) error {
 	// 4. 绑定证书到 IIS 站点
 	if err := d.psRunner.BindCertificate(d.siteName, thumbprint, d.hostname, d.port); err != nil {
 		// 如果绑定失败,尝试清理已导入的证书
-		d.psRunner.RemoveCertificate(thumbprint)
+		_ = d.psRunner.RemoveCertificate(thumbprint)
 		return fmt.Errorf("failed to bind certificate: %w", err)
 	}
 

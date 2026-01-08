@@ -77,7 +77,7 @@ func main() {
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
 func handleCert(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func handleCert(w http.ResponseWriter, r *http.Request) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Unauthorized"})
+		_ = json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Unauthorized"})
 		return
 	}
 
@@ -94,7 +94,7 @@ func handleCert(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error reading cert file: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Failed to read cert"})
+		_ = json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Failed to read cert"})
 		return
 	}
 
@@ -102,7 +102,7 @@ func handleCert(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error reading key file: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Failed to read key"})
+		_ = json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Failed to read key"})
 		return
 	}
 
@@ -125,14 +125,14 @@ func handleCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 	log.Printf("Served certificate for %s to %s", commonName, r.RemoteAddr)
 }
 
 func handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Method not allowed"})
+		_ = json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Method not allowed"})
 		return
 	}
 
@@ -140,7 +140,7 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Unauthorized"})
+		_ = json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Unauthorized"})
 		return
 	}
 
@@ -148,7 +148,7 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	var req CallbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Invalid request body"})
+		_ = json.NewEncoder(w).Encode(CallbackResponse{Code: 0, Message: "Invalid request body"})
 		return
 	}
 
@@ -162,5 +162,5 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("========================")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CallbackResponse{Code: 1, Message: "success"})
+	_ = json.NewEncoder(w).Encode(CallbackResponse{Code: 1, Message: "success"})
 }

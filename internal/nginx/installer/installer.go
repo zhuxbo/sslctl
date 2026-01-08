@@ -90,11 +90,68 @@ func (i *NginxInstaller) Install() (*InstallResult, error) {
 	}, nil
 }
 
-// hasSSLConfig 检查是否已配置 SSL
+// hasSSLConfig 检查目标 server 块是否已配置 SSL
+// 只检查匹配 serverName 的 server 块，而不是整个文件
 func (i *NginxInstaller) hasSSLConfig(content string) bool {
-	// 检查是否有 ssl_certificate 指令
-	sslCertRe := regexp.MustCompile(`(?m)^\s*ssl_certificate\s+`)
-	return sslCertRe.MatchString(content)
+	lines := strings.Split(content, "\n")
+
+	// 正则表达式
+	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
+	serverNameRe := regexp.MustCompile(`^\s*server_name\s+([^;]+);`)
+	sslCertRe := regexp.MustCompile(`^\s*ssl_certificate\s+`)
+
+	inServerBlock := false
+	braceCount := 0
+	currentServerNames := []string{}
+	hasSSLInBlock := false
+
+	for _, line := range lines {
+		// 跳过注释
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// 检测 server 块开始
+		if serverBlockRe.MatchString(line) {
+			inServerBlock = true
+			braceCount = 1
+			currentServerNames = nil
+			hasSSLInBlock = false
+			continue
+		}
+
+		if !inServerBlock {
+			continue
+		}
+
+		// 统计大括号
+		braceCount += strings.Count(line, "{") - strings.Count(line, "}")
+
+		// 解析 server_name
+		if matches := serverNameRe.FindStringSubmatch(line); len(matches) > 1 {
+			names := strings.Fields(matches[1])
+			currentServerNames = append(currentServerNames, names...)
+		}
+
+		// 检测 SSL 配置
+		if sslCertRe.MatchString(line) {
+			hasSSLInBlock = true
+		}
+
+		// server 块结束
+		if braceCount <= 0 {
+			// 检查这个 server 块是否是目标域名且已有 SSL
+			for _, name := range currentServerNames {
+				if name == i.serverName && hasSSLInBlock {
+					return true
+				}
+			}
+			inServerBlock = false
+		}
+	}
+
+	return false
 }
 
 // backup 备份配置文件
@@ -124,6 +181,8 @@ func (i *NginxInstaller) addSSLConfig(content string) (string, error) {
 	// 正则表达式
 	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
 	listenRe := regexp.MustCompile(`^\s*listen\s+([^;]+);`)
+	// 精确匹配端口 80：开头或冒号后是 80，后面是空格、分号或行尾
+	listen80Re := regexp.MustCompile(`(?:^|[:\s])80(?:\s|;|$)`)
 
 	for _, line := range lines {
 		// 检测 server 块开始
@@ -143,8 +202,8 @@ func (i *NginxInstaller) addSSLConfig(content string) (string, error) {
 			// 检查 listen 指令
 			if matches := listenRe.FindStringSubmatch(line); len(matches) > 1 {
 				listenValue := strings.TrimSpace(matches[1])
-				// 检查是否是 80 端口
-				if strings.Contains(listenValue, "80") && !strings.Contains(listenValue, "ssl") {
+				// 精确检查是否是 80 端口（避免误匹配 8080、18080 等）
+				if listen80Re.MatchString(listenValue) && !strings.Contains(listenValue, "ssl") {
 					hasListen80 = true
 					listenLineIndex = len(result)
 				}

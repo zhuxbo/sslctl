@@ -70,16 +70,23 @@ func NewManager() (*Manager, error) {
 
 // ensureDirs 确保必要的目录存在
 func (m *Manager) ensureDirs() error {
-	dirs := []string{
-		m.workDir,
-		m.sitesDir,
-		m.logsDir,
-		m.backupDir,
-		m.certsDir,
+	// sitesDir 内包含 refer_id（作为 Auto API 的凭据），backup/certs 目录可能包含私钥/临时文件，
+	// 因此默认权限尽量收紧，避免在多用户系统上被其他用户读取。
+	type dirSpec struct {
+		path string
+		perm os.FileMode
+	}
+
+	dirs := []dirSpec{
+		{path: m.workDir, perm: 0755},
+		{path: m.sitesDir, perm: 0700},
+		{path: m.logsDir, perm: 0755},
+		{path: m.backupDir, perm: 0700},
+		{path: m.certsDir, perm: 0700},
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir.path, dir.perm); err != nil {
 			return err
 		}
 	}
@@ -143,7 +150,8 @@ func (m *Manager) SaveSite(config *SiteConfig) error {
 
 	// 原子写入
 	tmpPath := configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	// 站点配置包含 refer_id，按敏感信息处理（0600）
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 

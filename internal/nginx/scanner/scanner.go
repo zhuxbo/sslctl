@@ -15,7 +15,8 @@ import (
 // SSLSite 扫描到的 SSL 站点信息
 type SSLSite struct {
 	ConfigFile      string   // 配置文件路径
-	ServerName      string   // 服务器名称（域名）
+	ServerName      string   // 服务器名称（主域名）
+	ServerAlias     []string // 域名别名列表
 	CertificatePath string   // 证书路径 (ssl_certificate)
 	PrivateKeyPath  string   // 私钥路径 (ssl_certificate_key)
 	ListenPorts     []string // 监听端口
@@ -272,6 +273,8 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	var currentSite *SSLSite
 	inServerBlock := false
 	braceCount := 0
+	inLocation := false       // 是否在 location 块内
+	locationBraceCount := 0   // location 块的大括号计数
 
 	// 正则表达式
 	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
@@ -280,6 +283,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	sslCertRe := regexp.MustCompile(`^\s*ssl_certificate\s+([^;]+);`)
 	sslKeyRe := regexp.MustCompile(`^\s*ssl_certificate_key\s+([^;]+);`)
 	rootRe := regexp.MustCompile(`^\s*root\s+([^;]+);`)
+	locationRe := regexp.MustCompile(`^\s*location\s+`)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -295,6 +299,8 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 		if serverBlockRe.MatchString(line) {
 			inServerBlock = true
 			braceCount = 1
+			inLocation = false
+			locationBraceCount = 0
 			currentSite = &SSLSite{
 				ConfigFile: filePath,
 			}
@@ -305,8 +311,25 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			continue
 		}
 
+		// 检测 location 块开始
+		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+			inLocation = true
+			locationBraceCount = 1
+		}
+
 		// 统计大括号
-		braceCount += strings.Count(line, "{") - strings.Count(line, "}")
+		openBraces := strings.Count(line, "{")
+		closeBraces := strings.Count(line, "}")
+		braceCount += openBraces - closeBraces
+
+		// 跟踪 location 块的大括号（排除当前行已处理的）
+		if inLocation && !locationRe.MatchString(line) {
+			locationBraceCount += openBraces - closeBraces
+			if locationBraceCount <= 0 {
+				inLocation = false
+				locationBraceCount = 0
+			}
+		}
 
 		// server 块结束
 		if braceCount <= 0 {
@@ -318,20 +341,24 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			continue
 		}
 
-		// 解析 server_name
+		// 解析 server_name（保存所有域名别名）
 		if matches := serverNameRe.FindStringSubmatch(line); len(matches) > 1 {
 			names := strings.Fields(matches[1])
-			if len(names) > 0 {
-				// 取第一个非通配符域名
-				for _, name := range names {
-					if name != "_" && !strings.HasPrefix(name, "*") {
-						currentSite.ServerName = name
-						break
-					}
+			for _, name := range names {
+				if name == "_" {
+					continue
 				}
-				if currentSite.ServerName == "" && len(names) > 0 {
-					currentSite.ServerName = names[0]
+				// 第一个非通配符域名作为主域名
+				if currentSite.ServerName == "" && !strings.HasPrefix(name, "*") {
+					currentSite.ServerName = name
+				} else {
+					// 其他域名作为别名
+					currentSite.ServerAlias = append(currentSite.ServerAlias, name)
 				}
+			}
+			// 如果全是通配符，取第一个作为主域名
+			if currentSite.ServerName == "" && len(names) > 0 {
+				currentSite.ServerName = names[0]
 			}
 		}
 
@@ -357,13 +384,15 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			currentSite.PrivateKeyPath = keyPath
 		}
 
-		// 解析 root (仅在 server 块内且不在 location 块内时)
-		if matches := rootRe.FindStringSubmatch(line); len(matches) > 1 {
-			// 只取第一个 root 指令（server 级别的）
-			if currentSite.Webroot == "" {
-				webroot := strings.TrimSpace(matches[1])
-				webroot = strings.Trim(webroot, `"'`)
-				currentSite.Webroot = webroot
+		// 解析 root（仅在 server 块级别，不在 location 块内）
+		if !inLocation {
+			if matches := rootRe.FindStringSubmatch(line); len(matches) > 1 {
+				// 只取第一个 server 级别的 root 指令
+				if currentSite.Webroot == "" {
+					webroot := strings.TrimSpace(matches[1])
+					webroot = strings.Trim(webroot, `"'`)
+					currentSite.Webroot = webroot
+				}
 			}
 		}
 	}
@@ -377,6 +406,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 }
 
 // FindByDomain 根据域名查找站点
+// 同时匹配 ServerName 和 ServerAlias
 func (s *Scanner) FindByDomain(domain string) (*SSLSite, error) {
 	sites, err := s.Scan()
 	if err != nil {
@@ -384,10 +414,26 @@ func (s *Scanner) FindByDomain(domain string) (*SSLSite, error) {
 	}
 
 	for _, site := range sites {
+		// 检查主域名
 		if site.ServerName == domain {
 			return site, nil
 		}
-		// 支持通配符匹配
+
+		// 检查别名
+		for _, alias := range site.ServerAlias {
+			if alias == domain {
+				return site, nil
+			}
+			// 支持通配符匹配
+			if strings.HasPrefix(alias, "*.") {
+				suffix := alias[1:] // 去掉 *
+				if strings.HasSuffix(domain, suffix) {
+					return site, nil
+				}
+			}
+		}
+
+		// 支持主域名通配符匹配
 		if strings.HasPrefix(site.ServerName, "*.") {
 			suffix := site.ServerName[1:] // 去掉 *
 			if strings.HasSuffix(domain, suffix) {
@@ -478,6 +524,8 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 	inServerBlock := false
 	braceCount := 0
 	hasSSL := false
+	inLocation := false       // 是否在 location 块内
+	locationBraceCount := 0   // location 块的大括号计数
 
 	// 正则表达式
 	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
@@ -485,6 +533,7 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 	listenRe := regexp.MustCompile(`^\s*listen\s+([^;]+);`)
 	sslCertRe := regexp.MustCompile(`^\s*ssl_certificate\s+`)
 	rootRe := regexp.MustCompile(`^\s*root\s+([^;]+);`)
+	locationRe := regexp.MustCompile(`^\s*location\s+`)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -501,6 +550,8 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			inServerBlock = true
 			braceCount = 1
 			hasSSL = false
+			inLocation = false
+			locationBraceCount = 0
 			currentSite = &HTTPSite{
 				ConfigFile: filePath,
 			}
@@ -511,8 +562,25 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			continue
 		}
 
+		// 检测 location 块开始
+		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+			inLocation = true
+			locationBraceCount = 1
+		}
+
 		// 统计大括号
-		braceCount += strings.Count(line, "{") - strings.Count(line, "}")
+		openBraces := strings.Count(line, "{")
+		closeBraces := strings.Count(line, "}")
+		braceCount += openBraces - closeBraces
+
+		// 跟踪 location 块的大括号
+		if inLocation && !locationRe.MatchString(line) {
+			locationBraceCount += openBraces - closeBraces
+			if locationBraceCount <= 0 {
+				inLocation = false
+				locationBraceCount = 0
+			}
+		}
 
 		// server 块结束
 		if braceCount <= 0 {
@@ -570,12 +638,14 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			}
 		}
 
-		// 解析 root
-		if matches := rootRe.FindStringSubmatch(line); len(matches) > 1 {
-			if currentSite.Webroot == "" {
-				webroot := strings.TrimSpace(matches[1])
-				webroot = strings.Trim(webroot, `"'`)
-				currentSite.Webroot = webroot
+		// 解析 root（仅在 server 块级别，不在 location 块内）
+		if !inLocation {
+			if matches := rootRe.FindStringSubmatch(line); len(matches) > 1 {
+				if currentSite.Webroot == "" {
+					webroot := strings.TrimSpace(matches[1])
+					webroot = strings.Trim(webroot, `"'`)
+					currentSite.Webroot = webroot
+				}
 			}
 		}
 	}
