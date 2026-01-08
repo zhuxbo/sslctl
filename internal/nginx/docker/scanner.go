@@ -33,9 +33,8 @@ type SSLSite struct {
 // Scanner Docker Nginx 扫描器
 type Scanner struct {
 	client       *Client
-	configRoot   string            // 容器内 Nginx 配置根目录
-	scannedFiles map[string]bool   // 已扫描的文件（避免循环）
-	mounts       []MountInfo       // 容器挂载信息
+	scannedFiles map[string]bool // 已扫描的文件（避免循环）
+	mounts       []MountInfo     // 容器挂载信息
 }
 
 // NewScanner 创建 Docker 扫描器

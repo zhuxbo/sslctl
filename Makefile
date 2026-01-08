@@ -32,7 +32,7 @@ help:
 	@echo "  make build-linux     构建 Linux (amd64/arm64)"
 	@echo "  make build-windows   构建 Windows (amd64)"
 	@echo "  make clean           清理构建产物"
-	@echo "  make compress        UPX 压缩所有二进制文件 (6.4MB -> 2MB)"
+	@echo "  make compress        gzip 压缩所有二进制文件"
 	@echo "  make test            运行测试"
 	@echo "  make lint            代码检查"
 	@echo "  make deps            下载依赖"
@@ -43,7 +43,6 @@ help:
 	@echo ""
 	@echo "环境变量:"
 	@echo "  VERSION              版本号 (默认: git tag)"
-	@echo "  UPX=1                启用 UPX 压缩 (需要安装 upx)"
 
 # 下载依赖
 deps:
@@ -61,18 +60,12 @@ build-nginx:
 	@mkdir -p $(DIST_DIR)
 	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/nginx
 	@echo "Built: $(DIST_DIR)/cert-deploy-nginx"
-ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-nginx$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
-endif
 
 # 构建 Apache 客户端 (当前平台)
 build-apache:
 	@mkdir -p $(DIST_DIR)
 	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd/apache
 	@echo "Built: $(DIST_DIR)/cert-deploy-apache"
-ifdef UPX
-	@command -v upx >/dev/null 2>&1 && upx -9 $(DIST_DIR)/cert-deploy-apache$(if $(filter Windows_NT,$(OS)),.exe,) || echo "UPX not found, skipping compression"
-endif
 
 # 构建 IIS 客户端 (仅 Windows)
 build-iis:
@@ -112,18 +105,17 @@ lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed"; exit 1; }
 	golangci-lint run ./...
 
-# UPX 压缩所有二进制文件
+# gzip 压缩所有二进制文件
 compress:
-	@command -v upx >/dev/null 2>&1 || { echo "UPX not installed. Install with: apt install upx / brew install upx"; exit 1; }
-	@echo "Compressing binaries with UPX..."
+	@echo "Compressing binaries with gzip..."
 	@for f in $(DIST_DIR)/cert-deploy-*; do \
-		if [ -f "$$f" ] && file "$$f" | grep -q "executable"; then \
+		if [ -f "$$f" ] && [ ! -f "$$f.gz" ] && ! echo "$$f" | grep -q "\.gz$$"; then \
 			echo "Compressing: $$f"; \
-			upx --best --lzma "$$f" 2>/dev/null || upx -9 "$$f" 2>/dev/null || true; \
+			gzip -k -f "$$f"; \
 		fi \
 	done
 	@echo "Compression complete"
-	@ls -lh $(DIST_DIR)/cert-deploy-* 2>/dev/null || true
+	@ls -lh $(DIST_DIR)/*.gz 2>/dev/null || true
 
 # 清理
 clean:

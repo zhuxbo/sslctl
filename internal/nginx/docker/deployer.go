@@ -205,10 +205,10 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 	keyDir := getDir(d.keyPath)
 
 	if certDir != "" {
-		d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", certDir))
+		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", certDir))
 	}
 	if keyDir != "" && keyDir != certDir {
-		d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", keyDir))
+		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", keyDir))
 	}
 
 	// 复制到容器
@@ -220,8 +220,8 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 	}
 
 	// 设置容器内文件权限
-	d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", d.certPath))
-	d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", d.keyPath))
+	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", d.certPath))
+	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", d.keyPath))
 
 	return nil
 }

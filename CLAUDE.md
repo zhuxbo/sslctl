@@ -100,7 +100,7 @@ cert-deploy -site example.com  # 根据配置自动选择部署方式
 ```bash
 make build          # 构建当前平台
 make build-all      # 构建所有平台
-make compress       # UPX 压缩 (6.4MB → 2.6MB)
+make compress       # gzip 压缩 (CI 使用)
 go test ./...       # 运行测试
 ```
 
