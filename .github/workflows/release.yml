@@ -60,20 +60,11 @@ jobs:
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
           LDFLAGS="-s -w -X 'main.version=${VERSION}' -X 'main.buildTime=${BUILD_TIME}'"
 
-          go build -ldflags "$LDFLAGS" -o cert-deploy-nginx-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/nginx
-          go build -ldflags "$LDFLAGS" -o cert-deploy-apache-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/apache
-
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            go build -ldflags "$LDFLAGS" -o cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/iis
-          fi
+          go build -ldflags "$LDFLAGS" -o cert-deploy-${{ matrix.suffix }}${{ matrix.ext }} ./cmd
 
       - name: Compress
         run: |
-          gzip -k cert-deploy-nginx-${{ matrix.suffix }}${{ matrix.ext }}
-          gzip -k cert-deploy-apache-${{ matrix.suffix }}${{ matrix.ext }}
-          if [ -f "cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }}" ]; then
-            gzip -k cert-deploy-iis-${{ matrix.suffix }}${{ matrix.ext }}
-          fi
+          gzip -k cert-deploy-${{ matrix.suffix }}${{ matrix.ext }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -94,10 +85,8 @@ jobs:
       - name: Check Branch
         id: check
         run: |
-          # 获取 tag 所在的分支
           TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref_name }})
 
-          # 检查是否在 main 分支上
           if git branch -r --contains $TAG_COMMIT | grep -q 'origin/main'; then
             echo "branch=main" >> $GITHUB_OUTPUT
             echo "prerelease=false" >> $GITHUB_OUTPUT
@@ -128,93 +117,35 @@ jobs:
 
             ${{ steps.check.outputs.prerelease == 'true' && '> ⚠️ **这是测试版本 (Pre-release)**，可能包含未完成的功能或已知问题。' || '> ✅ **这是正式版本**，已经过测试验证。' }}
 
-            ### 一键安装
+            ### 下载
 
-            **Linux:**
-            ```bash
-            curl -fsSL https://gitee.com/zhuxbo/cert-deploy/raw/main/deploy/install.sh | sudo bash
-            ```
+            | 平台 | 文件 |
+            |------|------|
+            | Linux x64 | cert-deploy-linux-amd64.gz |
+            | Linux ARM64 | cert-deploy-linux-arm64.gz |
+            | Windows x64 | cert-deploy-windows-amd64.exe.gz |
 
-            **Windows (PowerShell 管理员):**
-            ```powershell
-            irm https://gitee.com/zhuxbo/cert-deploy/raw/main/deploy/install.ps1 | iex
-            ```
-
-            ### 手动下载
-
-            | 平台 | Nginx | Apache | IIS |
-            |------|-------|--------|-----|
-            | Linux x64 | cert-deploy-nginx-linux-amd64.gz | cert-deploy-apache-linux-amd64.gz | - |
-            | Linux ARM64 | cert-deploy-nginx-linux-arm64.gz | cert-deploy-apache-linux-arm64.gz | - |
-            | Windows x64 | cert-deploy-nginx-windows-amd64.exe.gz | cert-deploy-apache-windows-amd64.exe.gz | cert-deploy-iis-windows-amd64.exe.gz |
+            ### 使用方法
 
             ```bash
-            # Linux 手动安装
-            gunzip cert-deploy-nginx-linux-amd64.gz
-            chmod +x cert-deploy-nginx-linux-amd64
-            sudo mv cert-deploy-nginx-linux-amd64 /usr/local/bin/cert-deploy
+            # 扫描站点
+            cert-deploy nginx scan
+            cert-deploy apache scan
+
+            # 部署证书
+            cert-deploy nginx deploy --site example.com
+            cert-deploy apache deploy --site example.com
+
+            # 守护进程模式
+            cert-deploy nginx daemon
+            cert-deploy apache daemon
+
+            # 调试模式
+            cert-deploy --debug nginx deploy --site example.com
             ```
+
+            ### IIS 支持
+
+            IIS 版本已独立为 [cert-deploy-iis](https://github.com/cnssl/cert-deploy-iis) 项目，基于 .NET 8，提供 GUI 界面。
           files: dist/*.gz
           draft: false
-
-      - name: Sync to Gitee Release
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          if [ -z "$GITEE_TOKEN" ]; then
-            echo "GITEE_TOKEN not set, skipping Gitee release sync"
-            exit 0
-          fi
-
-          TAG="${{ github.ref_name }}"
-          PRERELEASE="${{ steps.check.outputs.prerelease }}"
-          RELEASE_NAME="${{ steps.check.outputs.name }}"
-
-          # 创建 Release
-          echo "Creating Gitee release for $TAG..."
-          RESPONSE=$(curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases" \
-            -F "access_token=$GITEE_TOKEN" \
-            -F "tag_name=$TAG" \
-            -F "name=$RELEASE_NAME" \
-            -F "body=从 GitHub 同步的 Release，详细信息请查看 GitHub Release。" \
-            -F "prerelease=$PRERELEASE" \
-            -F "target_commitish=${{ steps.check.outputs.branch }}")
-
-          RELEASE_ID=$(echo "$RESPONSE" | jq -r '.id')
-          if [ "$RELEASE_ID" = "null" ] || [ -z "$RELEASE_ID" ]; then
-            echo "Failed to create Gitee release: $RESPONSE"
-            exit 0  # 不阻断流程
-          fi
-          echo "Created Gitee release ID: $RELEASE_ID"
-
-          # 并行上传附件（最多 4 个并发）
-          upload_file() {
-            local file=$1
-            local filename=$(basename "$file")
-            echo "Uploading $filename to Gitee..."
-            if curl -s -X POST "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=$GITEE_TOKEN" \
-              -F "file=@$file" > /dev/null; then
-              echo "✓ $filename uploaded"
-            else
-              echo "✗ Failed to upload $filename"
-            fi
-          }
-
-          # 启动并行上传
-          PIDS=()
-          MAX_PARALLEL=4
-          for file in dist/*.gz; do
-            upload_file "$file" &
-            PIDS+=($!)
-            # 限制并发数
-            if [ ${#PIDS[@]} -ge $MAX_PARALLEL ]; then
-              wait ${PIDS[0]}
-              PIDS=("${PIDS[@]:1}")
-            fi
-          done
-          # 等待剩余任务完成
-          for pid in "${PIDS[@]}"; do
-            wait $pid
-          done
-          echo "Gitee release sync completed"

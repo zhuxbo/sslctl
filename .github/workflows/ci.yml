@@ -83,8 +83,4 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -o /dev/null ./cmd/nginx
-          go build -o /dev/null ./cmd/apache
-          if [ "$GOOS" = "windows" ]; then
-            go build -o /dev/null ./cmd/iis
-          fi
+          go build -o /dev/null ./cmd

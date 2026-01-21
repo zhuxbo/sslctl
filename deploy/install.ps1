@@ -1,6 +1,6 @@
 # cert-deploy Windows 安装脚本
-# 自动检测架构和 Web 服务，下载对应的部署工具
-# 使用方法: irm https://gitee.com/zhuxbo/cert-deploy/raw/main/deploy/install.ps1 | iex
+# 自动检测架构，下载部署工具
+# 使用方法: irm https://raw.githubusercontent.com/zhuxbo/cert-deploy/main/deploy/install.ps1 | iex
 
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
@@ -20,59 +20,39 @@ if ($Arch -ne "amd64") {
 
 Write-Info "系统: windows, 架构: $Arch"
 
-# 检测 Web 服务（优先级: IIS > nginx > apache）
-function Detect-WebServer {
-    # 检测 IIS
-    try {
-        $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServer -ErrorAction SilentlyContinue
-        if ($iisFeature -and $iisFeature.State -eq 'Enabled') {
-            return "iis"
-        }
-    } catch {
-        try {
-            $iisService = Get-Service -Name W3SVC -ErrorAction SilentlyContinue
-            if ($iisService) {
-                return "iis"
-            }
-        } catch {}
-    }
-
-    # 检测 Nginx
-    if (Get-Command nginx -ErrorAction SilentlyContinue) {
-        return "nginx"
-    }
-
-    # 检测 Apache
-    $apacheServices = Get-Service -Name "Apache*" -ErrorAction SilentlyContinue
-    if ($apacheServices) {
-        return "apache"
-    }
-
-    # 默认 nginx
-    return "nginx"
+# 检测 Web 服务
+$services = @()
+if (Get-Command nginx -ErrorAction SilentlyContinue) {
+    $services += "nginx"
+}
+$apacheServices = Get-Service -Name "Apache*" -ErrorAction SilentlyContinue
+if ($apacheServices) {
+    $services += "apache"
 }
 
-$Tool = Detect-WebServer
-Write-Info "检测到 Web 服务: $Tool"
+if ($services.Count -gt 0) {
+    Write-Info "检测到 Web 服务: $($services -join ', ')"
+} else {
+    Write-Warn "未检测到 nginx 或 apache，仍可继续安装"
+}
+
+# IIS 提示
+try {
+    $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServer -ErrorAction SilentlyContinue
+    if ($iisFeature -and $iisFeature.State -eq 'Enabled') {
+        Write-Warn "检测到 IIS，请使用 cert-deploy-iis 项目 (https://github.com/cnssl/cert-deploy-iis)"
+    }
+} catch {}
 
 # 获取最新版本号
 function Get-LatestVersion {
     $version = $null
-
-    # 优先 Gitee
     try {
-        $release = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/zhuxbo/cert-deploy/releases/latest" -TimeoutSec 10 -ErrorAction Stop
-        $version = $release.tag_name
-    } catch {
-        # 回退 GitHub
-        try {
-            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/zhuxbo/cert-deploy/releases" -TimeoutSec 10 -ErrorAction Stop
-            if ($releases.Count -gt 0) {
-                $version = $releases[0].tag_name
-            }
-        } catch {}
-    }
-
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/zhuxbo/cert-deploy/releases" -TimeoutSec 30 -ErrorAction Stop
+        if ($releases.Count -gt 0) {
+            $version = $releases[0].tag_name
+        }
+    } catch {}
     return $version
 }
 
@@ -102,24 +82,17 @@ foreach ($dir in @("sites", "logs", "backup", "certs")) {
 }
 
 # 下载
-$Filename = "cert-deploy-$Tool-windows-$Arch.exe.gz"
+$Filename = "cert-deploy-windows-$Arch.exe.gz"
 $TempFile = "$env:TEMP\$Filename"
-$GiteeUrl = "https://gitee.com/zhuxbo/cert-deploy/releases/download/$Version/$Filename"
 $GithubUrl = "https://github.com/zhuxbo/cert-deploy/releases/download/$Version/$Filename"
 
 Write-Info "下载 $Filename..."
 
 $downloaded = $false
 try {
-    Invoke-WebRequest -Uri $GiteeUrl -OutFile $TempFile -TimeoutSec 60 -ErrorAction Stop
+    Invoke-WebRequest -Uri $GithubUrl -OutFile $TempFile -TimeoutSec 120 -ErrorAction Stop
     $downloaded = $true
-} catch {
-    Write-Warn "Gitee 下载失败，尝试 GitHub..."
-    try {
-        Invoke-WebRequest -Uri $GithubUrl -OutFile $TempFile -TimeoutSec 60 -ErrorAction Stop
-        $downloaded = $true
-    } catch {}
-}
+} catch {}
 
 if (-not $downloaded) {
     Write-Err "下载失败"
@@ -157,10 +130,13 @@ Write-Host ""
 Write-Info "安装完成！"
 Write-Host ""
 Write-Host "使用方法 (需重新打开终端):"
-Write-Host "  cert-deploy -scan              # 扫描 SSL 站点"
-Write-Host "  cert-deploy -site example.com  # 部署证书"
-Write-Host "  cert-deploy -daemon            # 守护进程模式"
-Write-Host "  cert-deploy -h                 # 查看帮助"
+Write-Host "  cert-deploy nginx scan                    # 扫描 Nginx SSL 站点"
+Write-Host "  cert-deploy apache scan                   # 扫描 Apache SSL 站点"
+Write-Host "  cert-deploy nginx deploy --site example.com  # 部署证书"
+Write-Host "  cert-deploy --debug nginx scan            # 调试模式"
+Write-Host "  cert-deploy help                          # 查看帮助"
 Write-Host ""
 Write-Host "配置目录: C:\cert-deploy\sites\"
 Write-Host "日志目录: C:\cert-deploy\logs\"
+Write-Host ""
+Write-Host "IIS 用户请使用: https://github.com/cnssl/cert-deploy-iis"
