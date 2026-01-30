@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cnssl/cert-deploy/pkg/errors"
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // NginxDeployer Nginx 部署器

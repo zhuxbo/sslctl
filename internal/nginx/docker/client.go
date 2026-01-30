@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -284,4 +285,28 @@ func CheckComposeAvailable() bool {
 
 	cmd := exec.CommandContext(ctx, "docker-compose", "version")
 	return cmd.Run() == nil
+}
+
+// CopyFilesForBackup 从容器复制证书文件用于备份
+// 返回临时目录路径，调用者负责清理
+func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath string) (tmpCertPath, tmpKeyPath string, err error) {
+	tmpDir, err := os.MkdirTemp("", "cert-deploy-backup-")
+	if err != nil {
+		return "", "", fmt.Errorf("create temp dir failed: %w", err)
+	}
+
+	tmpCertPath = filepath.Join(tmpDir, "cert.pem")
+	tmpKeyPath = filepath.Join(tmpDir, "key.pem")
+
+	if err := c.CopyFromContainer(ctx, certPath, tmpCertPath); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("copy cert from container failed: %w", err)
+	}
+
+	if err := c.CopyFromContainer(ctx, keyPath, tmpKeyPath); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("copy key from container failed: %w", err)
+	}
+
+	return tmpCertPath, tmpKeyPath, nil
 }

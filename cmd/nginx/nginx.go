@@ -14,18 +14,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cnssl/cert-deploy/internal/nginx/deployer"
-	"github.com/cnssl/cert-deploy/internal/nginx/docker"
-	"github.com/cnssl/cert-deploy/internal/nginx/installer"
-	"github.com/cnssl/cert-deploy/internal/nginx/scanner"
-	"github.com/cnssl/cert-deploy/pkg/backup"
-	"github.com/cnssl/cert-deploy/pkg/config"
-	"github.com/cnssl/cert-deploy/pkg/fetcher"
-	"github.com/cnssl/cert-deploy/pkg/issuer"
-	"github.com/cnssl/cert-deploy/pkg/logger"
-	"github.com/cnssl/cert-deploy/pkg/prompt"
-	"github.com/cnssl/cert-deploy/pkg/util"
-	"github.com/cnssl/cert-deploy/pkg/validator"
+	"github.com/zhuxbo/cert-deploy/internal/nginx/deployer"
+	"github.com/zhuxbo/cert-deploy/internal/nginx/docker"
+	"github.com/zhuxbo/cert-deploy/internal/nginx/installer"
+	"github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
+	"github.com/zhuxbo/cert-deploy/pkg/backup"
+	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
+	"github.com/zhuxbo/cert-deploy/pkg/issuer"
+	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/cert-deploy/pkg/prompt"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/validator"
 )
 
 // Run 运行 nginx 命令
@@ -34,14 +34,15 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	var (
 		showVersion  = fs.Bool("version", false, "显示版本信息")
-		scanOnly     = fs.Bool("scan", false, "仅扫描显示 SSL 站点")
+		scanOnly     = fs.Bool("scan", false, "扫描显示站点")
+		sslOnly      = fs.Bool("ssl-only", false, "仅扫描 SSL 站点（与 scan 配合使用）")
 		siteName     = fs.String("site", "", "部署指定站点")
 		issueMode    = fs.Bool("issue", false, "发起证书签发（用于 file 验证）")
 		installHTTPS = fs.Bool("install-https", false, "为 HTTP 站点安装 HTTPS 配置")
 		daemon       = fs.Bool("daemon", false, "守护进程模式")
 		initConfig   = fs.Bool("init", false, "根据扫描结果生成站点配置")
 		apiURL       = fs.String("url", "", "证书 API 地址")
-		referID      = fs.String("refer_id", "", "API 认证 ID")
+		token        = fs.String("token", "", "API 认证 Token")
 		domains      = fs.String("domains", "", "域名列表（逗号分隔）")
 	)
 
@@ -56,7 +57,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 		case "scan":
 			args = append([]string{"-scan"}, args[1:]...)
 		case "deploy":
-			// 保持原样，通过 -site 参数处理
+			// 移除 "deploy" 子命令，保留后续参数
+			args = args[1:]
 		case "issue":
 			args = append([]string{"-issue"}, args[1:]...)
 		case "install-https":
@@ -110,9 +112,9 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	if *scanOnly {
-		runScan(log)
+		runScan(log, *sslOnly)
 	} else if *initConfig {
-		if err := runInit(*apiURL, *referID, *domains, fs.Arg(0)); err != nil {
+		if err := runInit(*apiURL, *token, *domains, fs.Arg(0)); err != nil {
 			fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -163,8 +165,8 @@ func detectEnvironment() string {
 	return "none"
 }
 
-// runScan 扫描并显示所有 SSL 站点
-func runScan(log *logger.Logger) {
+// runScan 扫描并显示站点（sslOnly=true 时仅显示 SSL 站点）
+func runScan(log *logger.Logger, sslOnly bool) {
 	env := detectEnvironment()
 	result := &config.ScanResult{
 		Environment: env,
@@ -173,7 +175,7 @@ func runScan(log *logger.Logger) {
 
 	switch env {
 	case "local":
-		sites := runLocalScan(log)
+		sites := runLocalScan(log, sslOnly)
 		result.Sites = append(result.Sites, sites...)
 	case "docker":
 		sites := runDockerScan(log)
@@ -193,55 +195,121 @@ func runScan(log *logger.Logger) {
 	}
 }
 
-// runLocalScan 扫描本地 Nginx
-func runLocalScan(log *logger.Logger) []config.ScannedSite {
+// runLocalScan 扫描本地 Nginx（sslOnly=true 时仅扫描 SSL 站点）
+func runLocalScan(log *logger.Logger, sslOnly bool) []config.ScannedSite {
 	var result []config.ScannedSite
 
 	s := scanner.New()
-	sites, err := s.Scan()
-	if err != nil {
-		log.Error("扫描失败: %v", err)
-		fmt.Printf("扫描失败: %v\n", err)
-		return result
+
+	// 启用 debug 日志
+	if os.Getenv("CERT_DEPLOY_DEBUG") == "1" {
+		s.SetDebug(true, func(format string, args ...interface{}) {
+			log.Debug(format, args...)
+		})
 	}
 
 	configPath := s.GetConfigPath()
-	fmt.Printf("检测到 Nginx 配置: %s\n\n", configPath)
-	log.LogScan(configPath, len(sites))
-
-	if len(sites) == 0 {
-		fmt.Println("未发现 SSL 站点")
-		return result
+	if configPath == "" {
+		if cp, err := scanner.DetectNginx(); err == nil {
+			configPath = cp
+		}
 	}
+	fmt.Printf("检测到 Nginx 配置: %s\n\n", configPath)
 
-	fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
-	for i, site := range sites {
-		allDomains := site.ServerName
-		if len(site.ServerAlias) > 0 {
-			allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+	if sslOnly {
+		// 仅扫描 SSL 站点（兼容旧行为）
+		sites, err := s.Scan()
+		if err != nil {
+			log.Error("扫描失败: %v", err)
+			fmt.Printf("扫描失败: %v\n", err)
+			return result
 		}
-		fmt.Printf("%d. %s\n", i+1, allDomains)
-		fmt.Printf("   配置文件: %s\n", site.ConfigFile)
-		fmt.Printf("   证书路径: %s\n", site.CertificatePath)
-		fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
-		fmt.Printf("   监听端口: %v\n", site.ListenPorts)
-		if site.Webroot != "" {
-			fmt.Printf("   Web 根目录: %s\n", site.Webroot)
-		}
-		fmt.Println()
+		log.LogScan(configPath, len(sites))
 
-		result = append(result, config.ScannedSite{
-			ID:              site.ServerName,
-			Name:            "本地",
-			Source:          "local",
-			ConfigFile:      site.ConfigFile,
-			ServerName:      site.ServerName,
-			ServerAlias:     site.ServerAlias,
-			ListenPorts:     site.ListenPorts,
-			Webroot:         site.Webroot,
-			CertificatePath: site.CertificatePath,
-			PrivateKeyPath:  site.PrivateKeyPath,
-		})
+		if len(sites) == 0 {
+			fmt.Println("未发现 SSL 站点")
+			return result
+		}
+
+		fmt.Printf("发现 %d 个 SSL 站点:\n\n", len(sites))
+		for i, site := range sites {
+			allDomains := site.ServerName
+			if len(site.ServerAlias) > 0 {
+				allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+			}
+			fmt.Printf("%d. %s\n", i+1, allDomains)
+			fmt.Printf("   配置文件: %s\n", site.ConfigFile)
+			fmt.Printf("   证书路径: %s\n", site.CertificatePath)
+			fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
+			fmt.Printf("   监听端口: %v\n", site.ListenPorts)
+			if site.Webroot != "" {
+				fmt.Printf("   Web 根目录: %s\n", site.Webroot)
+			}
+			fmt.Println()
+
+			result = append(result, config.ScannedSite{
+				ID:              site.ServerName,
+				Name:            "本地",
+				Source:          "local",
+				ConfigFile:      site.ConfigFile,
+				ServerName:      site.ServerName,
+				ServerAlias:     site.ServerAlias,
+				ListenPorts:     site.ListenPorts,
+				Webroot:         site.Webroot,
+				CertificatePath: site.CertificatePath,
+				PrivateKeyPath:  site.PrivateKeyPath,
+			})
+		}
+	} else {
+		// 扫描所有站点（新默认行为）
+		sites, err := s.ScanAll()
+		if err != nil {
+			log.Error("扫描失败: %v", err)
+			fmt.Printf("扫描失败: %v\n", err)
+			return result
+		}
+		log.LogScan(configPath, len(sites))
+
+		if len(sites) == 0 {
+			fmt.Println("未发现站点")
+			return result
+		}
+
+		fmt.Printf("发现 %d 个站点:\n\n", len(sites))
+		for i, site := range sites {
+			allDomains := site.ServerName
+			if len(site.ServerAlias) > 0 {
+				allDomains += ", " + strings.Join(site.ServerAlias, ", ")
+			}
+			sslStatus := "HTTP"
+			if site.HasSSL {
+				sslStatus = "HTTPS"
+			}
+			fmt.Printf("%d. %s [%s]\n", i+1, allDomains, sslStatus)
+			fmt.Printf("   配置文件: %s\n", site.ConfigFile)
+			if site.HasSSL {
+				fmt.Printf("   证书路径: %s\n", site.CertificatePath)
+				fmt.Printf("   私钥路径: %s\n", site.PrivateKeyPath)
+			}
+			fmt.Printf("   监听端口: %v\n", site.ListenPorts)
+			if site.Webroot != "" {
+				fmt.Printf("   Web 根目录: %s\n", site.Webroot)
+			}
+			fmt.Println()
+
+			result = append(result, config.ScannedSite{
+				ID:              site.ServerName,
+				Name:            "本地",
+				Source:          "local",
+				ConfigFile:      site.ConfigFile,
+				ServerName:      site.ServerName,
+				ServerAlias:     site.ServerAlias,
+				ListenPorts:     site.ListenPorts,
+				Webroot:         site.Webroot,
+				CertificatePath: site.CertificatePath,
+				PrivateKeyPath:  site.PrivateKeyPath,
+			})
+		}
 	}
 
 	return result
@@ -357,7 +425,11 @@ func runDaemon(cfgManager *config.Manager, log *logger.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(10 * time.Minute)
+	// 检查间隔（默认 10 分钟）
+	interval := 10 * time.Minute
+	log.Info("检查间隔: %v", interval)
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -579,9 +651,23 @@ func issueSite(cfgManager *config.Manager, siteName string, log *logger.Logger) 
 	}
 
 	iss := issuer.New(log)
+
+	// 确定验证方式
+	method := site.Validation.Method
+	if method == "" {
+		method = "file" // 默认
+	}
+	// 通配符域名强制使用 delegation（不支持 file 验证）
+	for _, d := range site.Domains {
+		if strings.HasPrefix(d, "*") {
+			method = "delegation"
+			break
+		}
+	}
+
 	opts := issuer.IssueOptions{
 		Webroot:          webroot,
-		ValidationMethod: "file",
+		ValidationMethod: method,
 	}
 
 	log.Info("开始签发证书: %s", site.SiteName)
@@ -684,6 +770,7 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 	if site.API.CallbackURL != "" {
 		f := fetcher.New(30 * time.Second)
 		callbackReq := &fetcher.CallbackRequest{
+			OrderID:       certData.OrderID,
 			Domain:        site.SiteName,
 			Status:        "success",
 			DeployedAt:    time.Now().Format(time.RFC3339),
@@ -692,7 +779,7 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 			ServerType:    "nginx",
 		}
 		ctx := context.Background()
-		if err := f.Callback(ctx, site.API.CallbackURL, site.API.ReferID, callbackReq); err != nil {
+		if err := f.Callback(ctx, site.API.CallbackURL, site.API.Token, callbackReq); err != nil {
 			log.Warn("发送部署回调失败: %v", err)
 		} else {
 			log.Info("部署回调发送成功")
@@ -708,7 +795,7 @@ func deploySiteConfig(ctx context.Context, cfgManager *config.Manager, site *con
 	log.Info("开始部署站点: %s", site.SiteName)
 
 	f := fetcher.New(30 * time.Second)
-	certData, err := f.Info(ctx, site.API.URL, site.API.ReferID)
+	certData, err := f.Info(ctx, site.API.URL, site.API.Token)
 	if err != nil {
 		return fmt.Errorf("获取证书失败: %w", err)
 	}
@@ -743,7 +830,7 @@ func deploySiteConfig(ctx context.Context, cfgManager *config.Manager, site *con
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(checkInterval):
-				certData, err = f.Info(ctx, site.API.URL, site.API.ReferID)
+				certData, err = f.Info(ctx, site.API.URL, site.API.Token)
 				if err != nil {
 					log.Warn("检查证书状态失败: %v", err)
 					continue
@@ -818,8 +905,48 @@ deploy:
 
 	var backupPath string
 	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), site.Backup.KeepVersions)
-	if site.Backup.Enabled && !site.Docker.Enabled {
-		if _, err := os.Stat(certPath); err == nil {
+	if site.Backup.Enabled {
+		if site.Docker.Enabled {
+			// Docker 模式：从容器导出文件再备份
+			var client *docker.Client
+			if site.Docker.ComposeFile != "" && site.Docker.ServiceName != "" {
+				client = docker.NewComposeClient(site.Docker.ComposeFile, site.Docker.ServiceName)
+			} else if site.Docker.ContainerID != "" {
+				client = docker.NewClient(site.Docker.ContainerID)
+			} else if site.Docker.ContainerName != "" {
+				client = docker.NewClient(site.Docker.ContainerName)
+			}
+
+			if client != nil {
+				containerCertPath := site.Docker.ContainerPaths.Certificate
+				containerKeyPath := site.Docker.ContainerPaths.PrivateKey
+				if containerCertPath == "" {
+					containerCertPath = certPath
+				}
+				if containerKeyPath == "" {
+					containerKeyPath = keyPath
+				}
+
+				tmpCertPath, tmpKeyPath, err := client.CopyFilesForBackup(ctx, containerCertPath, containerKeyPath)
+				if err != nil {
+					log.Warn("Docker 备份失败: %v", err)
+					log.LogBackup(containerCertPath, "", false, err)
+				} else {
+					defer os.RemoveAll(filepath.Dir(tmpCertPath))
+					result, err := backupMgr.Backup(site.SiteName, tmpCertPath, tmpKeyPath, nil)
+					if err != nil {
+						log.Warn("备份失败: %v", err)
+						log.LogBackup(containerCertPath, "", false, err)
+					} else {
+						backupPath = result.BackupPath
+						log.LogBackup(containerCertPath, backupPath, true, nil)
+						if result.CleanupError != nil {
+							log.Warn("备份清理失败: %v", result.CleanupError)
+						}
+					}
+				}
+			}
+		} else if _, err := os.Stat(certPath); err == nil {
 			result, err := backupMgr.Backup(site.SiteName, certPath, keyPath, nil)
 			if err != nil {
 				log.Warn("备份失败: %v", err)
@@ -880,6 +1007,7 @@ deploy:
 
 	if site.API.CallbackURL != "" {
 		callbackReq := &fetcher.CallbackRequest{
+			OrderID:       certData.OrderID,
 			Domain:        site.SiteName,
 			Status:        "success",
 			DeployedAt:    time.Now().Format(time.RFC3339),
@@ -887,7 +1015,7 @@ deploy:
 			CertSerial:    fmt.Sprintf("%X", cert.SerialNumber),
 			ServerType:    "nginx",
 		}
-		if err := f.Callback(ctx, site.API.CallbackURL, site.API.ReferID, callbackReq); err != nil {
+		if err := f.Callback(ctx, site.API.CallbackURL, site.API.Token, callbackReq); err != nil {
 			log.Warn("发送部署回调失败: %v", err)
 		} else {
 			log.Info("部署回调发送成功")
@@ -1132,12 +1260,12 @@ func deployDockerSite(ctx context.Context, site *config.SiteConfig, cert, interm
 }
 
 // runInit 根据扫描结果生成站点配置
-func runInit(apiURL, referID, domainsStr, siteID string) error {
+func runInit(apiURL, token, domainsStr, siteID string) error {
 	if apiURL == "" {
 		return fmt.Errorf("缺少 -url 参数")
 	}
-	if referID == "" {
-		return fmt.Errorf("缺少 -refer_id 参数")
+	if token == "" {
+		return fmt.Errorf("缺少 -token 参数")
 	}
 
 	scanResult, err := config.LoadScanResult()
@@ -1196,7 +1324,7 @@ func runInit(apiURL, referID, domainsStr, siteID string) error {
 		}
 	}
 
-	cfg := generateSiteConfig(site, apiURL, referID, domains)
+	cfg := generateSiteConfig(site, apiURL, token, domains)
 
 	cfgManager, err := config.NewManager()
 	if err != nil {
@@ -1216,7 +1344,7 @@ func runInit(apiURL, referID, domainsStr, siteID string) error {
 }
 
 // generateSiteConfig 生成站点配置
-func generateSiteConfig(site *config.ScannedSite, apiURL, referID string, domains []string) *config.SiteConfig {
+func generateSiteConfig(site *config.ScannedSite, apiURL, token string, domains []string) *config.SiteConfig {
 	cfg := &config.SiteConfig{
 		Version:    "1.0",
 		SiteName:   site.ID,
@@ -1224,7 +1352,7 @@ func generateSiteConfig(site *config.ScannedSite, apiURL, referID string, domain
 		ServerType: "nginx",
 		API: config.APIConfig{
 			URL:     apiURL,
-			ReferID: referID,
+			Token: token,
 		},
 		Reload: config.ReloadConfig{
 			TestCommand:   "nginx -t",

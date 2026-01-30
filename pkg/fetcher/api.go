@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/cert-deploy/pkg/errors"
 )
 
 // API 响应状态码
@@ -45,30 +45,64 @@ type FileChallenge struct {
 
 // CertData 证书数据
 type CertData struct {
+	OrderID          int            `json:"order_id"`
 	Status           string         `json:"status"`
 	CommonName       string         `json:"common_name"`
-	Cert             string         `json:"cert"`
-	IntermediateCert string         `json:"intermediate_cert"`
+	Domain           string         `json:"domain"`
+	Domains          string         `json:"domains"`
+	Cert             string         `json:"certificate"`
+	IntermediateCert string         `json:"ca_certificate"`
 	PrivateKey       string         `json:"private_key"`
 	ExpiresAt        string         `json:"expires_at"`
+	CreatedAt        string         `json:"created_at"`
 	File             *FileChallenge `json:"file,omitempty"`
 }
 
 // APIResponse API 响应结构
 type APIResponse struct {
-	Code    int      `json:"code"`
-	Message string   `json:"msg"` // API 使用 msg 字段
-	Data    CertData `json:"data"`
+	Code    int             `json:"code"`
+	Message string          `json:"msg"` // API 使用 msg 字段
+	Data    json.RawMessage `json:"data"`
 }
 
-// PostRequest POST 参数
+// ParseData 解析 Data 字段，支持单个对象或数组格式
+func (r *APIResponse) ParseData() (*CertData, error) {
+	if len(r.Data) == 0 {
+		return nil, fmt.Errorf("empty data field")
+	}
+	// 尝试解析为单个对象
+	var single CertData
+	if err := json.Unmarshal(r.Data, &single); err == nil {
+		return &single, nil
+	}
+	// 尝试解析为数组
+	var list []CertData
+	if err := json.Unmarshal(r.Data, &list); err != nil {
+		return nil, fmt.Errorf("failed to parse data: not object or array")
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("empty data array")
+	}
+	return &list[0], nil
+}
+
+// PostRequest POST 参数（兼容旧接口）
 type PostRequest struct {
 	CSR              string `json:"csr"`
 	ValidationMethod string `json:"validation_method,omitempty"`
 }
 
+// UpdateRequest 更新/续费证书请求（新 API）
+type UpdateRequest struct {
+	OrderID          int    `json:"order_id,omitempty"`
+	CSR              string `json:"csr,omitempty"`
+	Domains          string `json:"domains,omitempty"`
+	ValidationMethod string `json:"validation_method,omitempty"`
+}
+
 // CallbackRequest 部署回调请求
 type CallbackRequest struct {
+	OrderID       int    `json:"order_id"`
 	Domain        string `json:"domain"`
 	Status        string `json:"status"` // success, failure
 	DeployedAt    string `json:"deployed_at"`
@@ -177,7 +211,7 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 		}
 
 		// 指数退避 + 随机抖动
-		jitter := time.Duration(rand.Int63n(int64(wait / 2)))
+		jitter := time.Duration(rand.IntN(int(wait / 2)))
 		sleepTime := wait + jitter
 		if sleepTime > f.retryConfig.MaxWait {
 			sleepTime = f.retryConfig.MaxWait
@@ -211,19 +245,21 @@ func mustValidURL(apiURL string) error {
 	return nil
 }
 
-// Info 调用 GET 获取证书信息
-func (f *Fetcher) Info(ctx context.Context, apiURL, referID string) (*CertData, error) {
-	if err := mustValidURL(apiURL); err != nil {
+// Info 调用 GET 获取证书信息（兼容旧接口）
+// 自动处理 URL 路径：如果 apiURL 只有 host，会自动添加 /api/deploy
+func (f *Fetcher) Info(ctx context.Context, apiURL, token string) (*CertData, error) {
+	fullURL := buildAPIURL(apiURL, "")
+	if err := mustValidURL(fullURL); err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 
 	newRequest := func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", "Bearer "+referID)
+		req.Header.Set("Authorization", "Bearer "+token)
 		return req, nil
 	}
 
@@ -248,12 +284,14 @@ func (f *Fetcher) Info(ctx context.Context, apiURL, referID string) (*CertData, 
 	if apiResp.Code != APICodeSuccess {
 		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
 	}
-	return &apiResp.Data, nil
+	return apiResp.ParseData()
 }
 
-// StartOrUpdate 调用 POST 提交 CSR 发起/更新签发
-func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, referID, csrPEM, validationMethod string) (*CertData, error) {
-	if err := mustValidURL(apiURL); err != nil {
+// StartOrUpdate 调用 POST 提交 CSR 发起/更新签发（兼容旧接口）
+// 自动处理 URL 路径：如果 apiURL 只有 host，会自动添加 /api/deploy
+func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, token, csrPEM, validationMethod string) (*CertData, error) {
+	fullURL := buildAPIURL(apiURL, "")
+	if err := mustValidURL(fullURL); err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 	reqBody := PostRequest{CSR: csrPEM}
@@ -266,13 +304,13 @@ func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, referID, csrPEM, va
 	}
 
 	newRequest := func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyData))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(bodyData))
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", "Bearer "+referID)
+		req.Header.Set("Authorization", "Bearer "+token)
 		return req, nil
 	}
 
@@ -296,11 +334,11 @@ func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, referID, csrPEM, va
 	if apiResp.Code != APICodeSuccess {
 		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
 	}
-	return &apiResp.Data, nil
+	return apiResp.ParseData()
 }
 
 // Callback 调用回调接口通知部署结果
-func (f *Fetcher) Callback(ctx context.Context, callbackURL, referID string, callbackReq *CallbackRequest) error {
+func (f *Fetcher) Callback(ctx context.Context, callbackURL, token string, callbackReq *CallbackRequest) error {
 	if err := mustValidURL(callbackURL); err != nil {
 		return errors.NewNetworkError("invalid callback URL", err)
 	}
@@ -316,7 +354,7 @@ func (f *Fetcher) Callback(ctx context.Context, callbackURL, referID string, cal
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+referID)
+		httpReq.Header.Set("Authorization", "Bearer "+token)
 		return httpReq, nil
 	}
 
@@ -341,4 +379,128 @@ func (f *Fetcher) Callback(ctx context.Context, callbackURL, referID string, cal
 		return errors.NewNetworkError(fmt.Sprintf("callback failed: %s", callbackResp.Message), nil)
 	}
 	return nil
+}
+
+// buildAPIURL 构建 API URL（支持新旧格式）
+// 如果 baseURL 已包含路径（如 /api/deploy），直接使用
+// 如果只有 host，自动拼接 /api/deploy
+func buildAPIURL(baseURL, path string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL + path
+	}
+	// 如果已有路径，直接拼接
+	if u.Path != "" && u.Path != "/" {
+		return baseURL + path
+	}
+	// 否则使用默认的 /api/deploy 路径
+	return baseURL + "/api/deploy" + path
+}
+
+// Query 查询证书（新 API：GET {baseURL}/api/deploy?domain=xxx）
+func (f *Fetcher) Query(ctx context.Context, baseURL, token, domain string) (*CertData, error) {
+	apiURL := buildAPIURL(baseURL, "")
+	if err := mustValidURL(apiURL); err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+
+	// 构建带 domain 参数的 URL
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+	q := u.Query()
+	q.Set("domain", domain)
+	u.RawQuery = q.Encode()
+	fullURL := u.String()
+
+	newRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	}
+
+	resp, err := f.doWithRetry(ctx, newRequest)
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to query certificate", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+	const maxResponseSize = 512 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to read response body", err)
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, errors.NewNetworkError("failed to parse JSON response", err)
+	}
+	if apiResp.Code != APICodeSuccess {
+		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
+	}
+	return apiResp.ParseData()
+}
+
+// Update 更新/续费证书（新 API：POST {baseURL}/api/deploy）
+func (f *Fetcher) Update(ctx context.Context, baseURL, token string, orderID int, csr, domains, method string) (*CertData, error) {
+	apiURL := buildAPIURL(baseURL, "")
+	if err := mustValidURL(apiURL); err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+
+	reqBody := UpdateRequest{
+		OrderID:          orderID,
+		CSR:              csr,
+		Domains:          domains,
+		ValidationMethod: method,
+	}
+	bodyData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to marshal request", err)
+	}
+
+	newRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyData))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	}
+
+	resp, err := f.doWithRetry(ctx, newRequest)
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to update certificate", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+	const maxResponseSize = 512 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to read response body", err)
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, errors.NewNetworkError("failed to parse JSON response", err)
+	}
+	if apiResp.Code != APICodeSuccess {
+		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
+	}
+	return apiResp.ParseData()
+}
+
+// CallbackNew 调用新的回调接口（POST {baseURL}/api/deploy/callback）
+func (f *Fetcher) CallbackNew(ctx context.Context, baseURL, token string, callbackReq *CallbackRequest) error {
+	callbackURL := buildAPIURL(baseURL, "/callback")
+	return f.Callback(ctx, callbackURL, token, callbackReq)
 }

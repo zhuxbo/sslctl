@@ -3,7 +3,7 @@ package validator
 import (
 	"testing"
 
-	"github.com/cnssl/cert-deploy/testdata/certs"
+	"github.com/zhuxbo/cert-deploy/testdata/certs"
 )
 
 func TestMatchDomain_ExactMatch(t *testing.T) {

@@ -70,7 +70,7 @@ func NewManager() (*Manager, error) {
 
 // ensureDirs 确保必要的目录存在
 func (m *Manager) ensureDirs() error {
-	// sitesDir 内包含 refer_id（作为 Auto API 的凭据），backup/certs 目录可能包含私钥/临时文件，
+	// sitesDir 内包含 token（作为 Auto API 的凭据），backup/certs 目录可能包含私钥/临时文件，
 	// 因此默认权限尽量收紧，避免在多用户系统上被其他用户读取。
 	type dirSpec struct {
 		path string
@@ -150,7 +150,7 @@ func (m *Manager) SaveSite(config *SiteConfig) error {
 
 	// 原子写入
 	tmpPath := configPath + ".tmp"
-	// 站点配置包含 refer_id，按敏感信息处理（0600）
+	// 站点配置包含 token，按敏感信息处理（0600）
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}

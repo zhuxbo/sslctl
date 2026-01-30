@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cnssl/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/cert-deploy/pkg/errors"
 )
 
 // KeyConfig 私钥配置
@@ -27,8 +27,8 @@ type CSRConfig struct {
 
 // APIConfig API 配置
 type APIConfig struct {
-	URL         string `json:"url"`                    // 证书 API 地址
-	ReferID     string `json:"refer_id"`               // 引用 ID (Bearer Token)
+	URL         string `json:"url"`                    // 证书 API 基础地址
+	Token       string `json:"token"`                  // API 认证 Token (Bearer Token)
 	CallbackURL string `json:"callback_url,omitempty"` // 部署完成回调地址
 }
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // ApacheInstaller Apache HTTPS 安装器

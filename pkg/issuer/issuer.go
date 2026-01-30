@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/config"
-	"github.com/cnssl/cert-deploy/pkg/csr"
-	"github.com/cnssl/cert-deploy/pkg/fetcher"
-	"github.com/cnssl/cert-deploy/pkg/logger"
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/cert-deploy/pkg/csr"
+	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
+	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // IssueResult 签发结果
@@ -98,7 +98,7 @@ func (i *Issuer) Issue(ctx context.Context, site *config.SiteConfig, opts IssueO
 	// 2. 提交 CSR 到 API
 	i.log("提交 CSR 到 API: %s", site.API.URL)
 
-	certData, err := i.fetcher.StartOrUpdate(ctx, site.API.URL, site.API.ReferID, csrPEM, opts.ValidationMethod)
+	certData, err := i.fetcher.StartOrUpdate(ctx, site.API.URL, site.API.Token, csrPEM, opts.ValidationMethod)
 	if err != nil {
 		return nil, fmt.Errorf("提交 CSR 失败: %w", err)
 	}
@@ -173,7 +173,7 @@ func (i *Issuer) waitForCert(ctx context.Context, site *config.SiteConfig, opts 
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(opts.CheckInterval):
-			certData, err := i.fetcher.Info(ctx, site.API.URL, site.API.ReferID)
+			certData, err := i.fetcher.Info(ctx, site.API.URL, site.API.Token)
 			if err != nil {
 				i.log("检查证书状态失败: %v", err)
 				continue

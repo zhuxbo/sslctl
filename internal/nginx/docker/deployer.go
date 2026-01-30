@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // DeployerOptions 部署器选项
@@ -144,9 +144,11 @@ func (d *Deployer) DetectDeployMode(ctx context.Context) (string, error) {
 		keyMount := d.client.FindMountForPath(info.Mounts, d.keyPath)
 		if keyMount != nil {
 			d.hostKeyPath = d.client.ResolveHostPath(d.keyPath, keyMount)
+			d.volumeMode = true
+			return "volume", nil
 		}
-		d.volumeMode = true
-		return "volume", nil
+		// key 路径无挂载，回退到 copy 模式
+		d.hostCertPath = ""
 	}
 
 	return "copy", nil
@@ -205,10 +207,10 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 	keyDir := getDir(d.keyPath)
 
 	if certDir != "" {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", certDir))
+		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", util.ShellQuote(certDir)))
 	}
 	if keyDir != "" && keyDir != certDir {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", keyDir))
+		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", util.ShellQuote(keyDir)))
 	}
 
 	// 复制到容器
@@ -220,8 +222,8 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 	}
 
 	// 设置容器内文件权限
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", d.certPath))
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", d.keyPath))
+	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", util.ShellQuote(d.certPath)))
+	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", util.ShellQuote(d.keyPath)))
 
 	return nil
 }
@@ -339,3 +341,4 @@ func ValidateCommand(cmd string) bool {
 func AddAllowedCommand(cmd string) {
 	allowedContainerCommands[cmd] = true
 }
+

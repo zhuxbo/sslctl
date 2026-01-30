@@ -9,16 +9,17 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // Metadata 备份元数据
 type Metadata struct {
-	SiteName string    `json:"site_name"`
-	BackupAt time.Time `json:"backup_at"`
-	CertInfo CertInfo  `json:"cert_info"`
-	CertPath string    `json:"cert_path"`
-	KeyPath  string    `json:"key_path"`
+	SiteName  string    `json:"site_name"`
+	BackupAt  time.Time `json:"backup_at"`
+	CertInfo  CertInfo  `json:"cert_info"`
+	CertPath  string    `json:"cert_path"`
+	KeyPath   string    `json:"key_path"`
+	ChainPath string    `json:"chain_path,omitempty"`
 }
 
 // CertInfo 证书信息
@@ -50,7 +51,8 @@ func NewManager(backupDir string, keepVersions int) *Manager {
 }
 
 // Backup 备份证书文件
-func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo) (*BackupResult, error) {
+// chainPath 可选，用于 Apache 备份证书链文件
+func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo, chainPath ...string) (*BackupResult, error) {
 	// 1. 创建备份目录
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
@@ -72,12 +74,24 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo)
 		return nil, fmt.Errorf("failed to backup private key: %w", err)
 	}
 
-	// 4. 保存元数据
+	// 4. 备份证书链文件（可选）
+	var actualChainPath string
+	if len(chainPath) > 0 && chainPath[0] != "" {
+		actualChainPath = chainPath[0]
+		backupChainPath := filepath.Join(backupPath, "chain.pem")
+		if err := util.CopyFile(actualChainPath, backupChainPath); err != nil {
+			// chain 文件备份失败不影响整体备份
+			actualChainPath = ""
+		}
+	}
+
+	// 5. 保存元数据
 	metadata := &Metadata{
-		SiteName: siteName,
-		BackupAt: time.Now(),
-		CertPath: certPath,
-		KeyPath:  keyPath,
+		SiteName:  siteName,
+		BackupAt:  time.Now(),
+		CertPath:  certPath,
+		KeyPath:   keyPath,
+		ChainPath: actualChainPath,
 	}
 
 	if certInfo != nil {
@@ -93,7 +107,7 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo)
 		BackupPath: backupPath,
 	}
 
-	// 5. 清理老版本
+	// 6. 清理老版本
 	if err := m.cleanup(siteName); err != nil {
 		result.CleanupError = err
 	}
@@ -144,6 +158,14 @@ func (m *Manager) GetLatestBackup(siteName string) (string, error) {
 func (m *Manager) GetBackupPaths(backupPath string) (certPath, keyPath string) {
 	certPath = filepath.Join(backupPath, "cert.pem")
 	keyPath = filepath.Join(backupPath, "key.pem")
+	return
+}
+
+// GetBackupPathsWithChain 获取备份的证书、私钥和证书链路径
+func (m *Manager) GetBackupPathsWithChain(backupPath string) (certPath, keyPath, chainPath string) {
+	certPath = filepath.Join(backupPath, "cert.pem")
+	keyPath = filepath.Join(backupPath, "key.pem")
+	chainPath = filepath.Join(backupPath, "chain.pem")
 	return
 }
 

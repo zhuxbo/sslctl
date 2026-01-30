@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
 
 // NginxInstaller Nginx HTTPS 安装器

@@ -33,8 +33,8 @@ type SiteConfig struct {
 
 // APIConfig API 配置
 type APIConfig struct {
-	URL     string `json:"url"`
-	ReferID string `json:"refer_id"`
+	URL   string `json:"url"`
+	Token string `json:"token"`
 }
 
 // PathsConfig 路径配置
