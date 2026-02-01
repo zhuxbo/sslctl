@@ -323,7 +323,7 @@ func isValidContainerPath(path string) bool {
 		return false
 	}
 	// 检查危险字符
-	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\"}
+	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
 	for _, char := range dangerousChars {
 		if strings.Contains(path, char) {
 			return false

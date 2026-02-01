@@ -21,6 +21,9 @@ const csrPendingTimeout = 24 * time.Hour
 // pendingKeyDir 待确认私钥目录
 const pendingKeyDir = "pending-keys"
 
+// MaxIssueRetryCount 最大重试次数
+const MaxIssueRetryCount = 10
+
 // CheckAndRenewAll 检查并续签所有证书
 func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) {
 	cfg, err := s.cfgManager.Load()
@@ -149,6 +152,12 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 
 // prepareLocalRenew 本地私钥模式：生成 CSR 并通过 API 触发续签
 func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
+	// 检查重试次数是否超限
+	if cert.Metadata.IssueRetryCount >= MaxIssueRetryCount {
+		s.log.Error("证书 %s 重试次数已达上限 (%d)，跳过", cert.CertName, MaxIssueRetryCount)
+		return nil, "", fmt.Errorf("exceeded max retry count (%d)", MaxIssueRetryCount)
+	}
+
 	workDir := s.cfgManager.GetWorkDir()
 	keyPath := pickKeyPath(cert)
 	if keyPath == "" {

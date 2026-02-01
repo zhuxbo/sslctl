@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -127,16 +126,16 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 
 	// 获取文件锁，防止并发写入
 	lockPath := cm.configPath + ".lock"
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open lock file: %w", err)
 	}
-	defer lockFile.Close()
+	defer lf.Close()
 
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFile(lf); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	defer unlockFile(lf)
 
 	// 原子写入
 	tmpPath := cm.configPath + ".tmp"

@@ -4,8 +4,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -343,10 +346,29 @@ func repairService() {
 	}
 }
 
+// versionInfo 版本详细信息
+type versionInfo struct {
+	Checksums map[string]string `json:"checksums"` // 文件名 -> sha256:hash
+}
+
 // releaseInfo 发布信息
 type releaseInfo struct {
-	LatestStable string `json:"latest_stable"`
-	LatestDev    string `json:"latest_dev"`
+	LatestStable string                 `json:"latest_stable"`
+	LatestDev    string                 `json:"latest_dev"`
+	Versions     map[string]versionInfo `json:"versions,omitempty"`
+}
+
+// verifyChecksum 验证文件校验和
+func verifyChecksum(data []byte, expected string) error {
+	if expected == "" {
+		return nil // 无校验和则跳过（兼容旧版本）
+	}
+	hash := sha256.Sum256(data)
+	actual := "sha256:" + hex.EncodeToString(hash[:])
+	if actual != expected {
+		return fmt.Errorf("校验失败: 期望 %s, 实际 %s", expected, actual)
+	}
+	return nil
 }
 
 // runUpgrade 升级命令
@@ -465,8 +487,31 @@ func runUpgrade(args []string) {
 		os.Exit(1)
 	}
 
+	// 读取全部内容用于校验
+	gzData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取下载数据失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 验证校验和
+	var expectedChecksum string
+	if info.Versions != nil {
+		if verInfo, ok := info.Versions[target]; ok {
+			expectedChecksum = verInfo.Checksums[filename]
+		}
+	}
+	if expectedChecksum != "" {
+		fmt.Println("验证文件完整性...")
+		if err := verifyChecksum(gzData, expectedChecksum); err != nil {
+			fmt.Fprintf(os.Stderr, "文件完整性验证失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("校验通过")
+	}
+
 	// 解压 gzip
-	gzReader, err := gzip.NewReader(resp.Body)
+	gzReader, err := gzip.NewReader(bytes.NewReader(gzData))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
 		os.Exit(1)

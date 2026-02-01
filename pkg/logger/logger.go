@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -17,6 +18,12 @@ const (
 	LevelInfo
 	LevelWarn
 	LevelError
+)
+
+// 日志轮转配置
+const (
+	MaxLogAgeDays = 30 // 保留 30 天
+	MaxLogBackups = 10 // 最多保留 10 个日志文件
 )
 
 func (l Level) String() string {
@@ -126,6 +133,8 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 		if currentFilename != expectedFilename {
 			_ = l.file.Close()
 			_ = l.openLogFile()
+			// 日期切换时清理旧日志
+			l.cleanOldLogs()
 		}
 	}
 
@@ -203,4 +212,36 @@ func (l *Logger) LogReload(command string, success bool, output string, err erro
 // LogScan 记录扫描操作
 func (l *Logger) LogScan(configPath string, sitesFound int) {
 	l.Info("配置扫描完成: path=%s, sites_found=%d", configPath, sitesFound)
+}
+
+// cleanOldLogs 清理旧日志文件
+func (l *Logger) cleanOldLogs() {
+	pattern := filepath.Join(l.logDir, l.siteName+"-*.log")
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) <= MaxLogBackups {
+		return
+	}
+
+	// 获取文件信息并按修改时间排序（最新在前）
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+	}
+	fileInfos := make([]fileInfo, 0, len(files))
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		fileInfos = append(fileInfos, fileInfo{path: f, modTime: info.ModTime()})
+	}
+
+	sort.Slice(fileInfos, func(i, j int) bool {
+		return fileInfos[i].modTime.After(fileInfos[j].modTime)
+	})
+
+	// 删除超出保留数量的旧文件
+	for i := MaxLogBackups; i < len(fileInfos); i++ {
+		os.Remove(fileInfos[i].path)
+	}
 }
