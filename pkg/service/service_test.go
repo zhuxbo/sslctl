@@ -211,3 +211,155 @@ func TestServiceConfig(t *testing.T) {
 		t.Errorf("DisplayName = %s", cfg.DisplayName)
 	}
 }
+
+// TestNew_CustomConfig 测试使用自定义配置创建服务管理器
+func TestNew_CustomConfig(t *testing.T) {
+	cfg := &ServiceConfig{
+		Name:        "custom-service",
+		DisplayName: "Custom Service",
+		Description: "A custom test service",
+		ExecPath:    "/usr/local/bin/custom",
+		WorkDir:     "/opt/custom",
+	}
+
+	mgr, err := New(cfg)
+	if err != nil {
+		t.Logf("创建服务管理器失败（环境不支持）: %v", err)
+		return
+	}
+
+	if mgr == nil {
+		t.Error("New() 返回 nil 且无错误")
+	}
+}
+
+// TestStatus_Defaults 测试状态默认值
+func TestStatus_Defaults(t *testing.T) {
+	status := &Status{}
+
+	if status.Running {
+		t.Error("默认 Running 应为 false")
+	}
+
+	if status.Enabled {
+		t.Error("默认 Enabled 应为 false")
+	}
+}
+
+// TestStatus_Mixed 测试混合状态
+func TestStatus_Mixed(t *testing.T) {
+	tests := []struct {
+		name    string
+		running bool
+		enabled bool
+	}{
+		{"运行中但未启用", true, false},
+		{"已启用但未运行", false, true},
+		{"运行中且已启用", true, true},
+		{"未运行且未启用", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := &Status{
+				Running: tt.running,
+				Enabled: tt.enabled,
+			}
+			if status.Running != tt.running {
+				t.Errorf("Running = %v, 期望 %v", status.Running, tt.running)
+			}
+			if status.Enabled != tt.enabled {
+				t.Errorf("Enabled = %v, 期望 %v", status.Enabled, tt.enabled)
+			}
+		})
+	}
+}
+
+// TestServiceConfig_EmptyFields 测试空字段服务配置
+func TestServiceConfig_EmptyFields(t *testing.T) {
+	cfg := &ServiceConfig{}
+
+	if cfg.Name != "" {
+		t.Error("空配置的 Name 应为空")
+	}
+	if cfg.DisplayName != "" {
+		t.Error("空配置的 DisplayName 应为空")
+	}
+	if cfg.Description != "" {
+		t.Error("空配置的 Description 应为空")
+	}
+	if cfg.ExecPath != "" {
+		t.Error("空配置的 ExecPath 应为空")
+	}
+	if cfg.WorkDir != "" {
+		t.Error("空配置的 WorkDir 应为空")
+	}
+}
+
+// TestInitSystem_Values 测试所有 InitSystem 常量值
+func TestInitSystem_Values(t *testing.T) {
+	// 确保所有常量都有预期的值
+	if InitSystemd != "systemd" {
+		t.Errorf("InitSystemd = %s, 期望 systemd", InitSystemd)
+	}
+	if InitOpenRC != "openrc" {
+		t.Errorf("InitOpenRC = %s, 期望 openrc", InitOpenRC)
+	}
+	if InitSysVinit != "sysvinit" {
+		t.Errorf("InitSysVinit = %s, 期望 sysvinit", InitSysVinit)
+	}
+	if InitWindows != "windows" {
+		t.Errorf("InitWindows = %s, 期望 windows", InitWindows)
+	}
+	if InitUnknown != "unknown" {
+		t.Errorf("InitUnknown = %s, 期望 unknown", InitUnknown)
+	}
+}
+
+// TestDetect_Consistent 测试检测结果一致性
+func TestDetect_Consistent(t *testing.T) {
+	// 多次调用 Detect 应返回相同结果
+	result1 := Detect()
+	result2 := Detect()
+	result3 := Detect()
+
+	if result1 != result2 || result2 != result3 {
+		t.Error("Detect() 应返回一致的结果")
+	}
+}
+
+// TestGetInitSystemName_Consistent 测试名称获取一致性
+func TestGetInitSystemName_Consistent(t *testing.T) {
+	name1 := GetInitSystemName()
+	name2 := GetInitSystemName()
+
+	if name1 != name2 {
+		t.Error("GetInitSystemName() 应返回一致的结果")
+	}
+}
+
+// TestDefaultConfig_NonNil 测试默认配置非空
+func TestDefaultConfig_NonNil(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg == nil {
+		t.Fatal("DefaultConfig() 不应返回 nil")
+	}
+
+	// 所有字段都应有值
+	if cfg.Name == "" {
+		t.Error("Name 不应为空")
+	}
+	if cfg.DisplayName == "" {
+		t.Error("DisplayName 不应为空")
+	}
+	if cfg.Description == "" {
+		t.Error("Description 不应为空")
+	}
+	if cfg.ExecPath == "" {
+		t.Error("ExecPath 不应为空")
+	}
+	if cfg.WorkDir == "" {
+		t.Error("WorkDir 不应为空")
+	}
+}

@@ -142,3 +142,108 @@ func TestSystemdManager_Disable_NoError(t *testing.T) {
 		t.Errorf("Disable() 应返回 nil，即使服务不存在，实际: %v", err)
 	}
 }
+
+// TestSystemdManager_serviceContent_RestartConfig 测试重启配置
+func TestSystemdManager_serviceContent_RestartConfig(t *testing.T) {
+	cfg := &ServiceConfig{
+		Name:        "test",
+		Description: "Test",
+		ExecPath:    "/bin/test",
+		WorkDir:     "/tmp",
+	}
+	mgr := NewSystemdManager(cfg)
+
+	content := mgr.serviceContent()
+
+	// 验证重启相关配置
+	checks := []string{
+		"Restart=always",
+		"RestartSec=30",
+	}
+
+	for _, check := range checks {
+		if !strings.Contains(content, check) {
+			t.Errorf("服务文件内容应包含: %s", check)
+		}
+	}
+}
+
+// TestSystemdManager_serviceContent_Security 测试安全配置
+func TestSystemdManager_serviceContent_Security(t *testing.T) {
+	cfg := &ServiceConfig{
+		Name:        "test",
+		Description: "Test",
+		ExecPath:    "/bin/test",
+		WorkDir:     "/tmp",
+	}
+	mgr := NewSystemdManager(cfg)
+
+	content := mgr.serviceContent()
+
+	// 验证用户和组配置
+	if !strings.Contains(content, "User=root") {
+		t.Error("服务文件应配置 User=root")
+	}
+	if !strings.Contains(content, "Group=root") {
+		t.Error("服务文件应配置 Group=root")
+	}
+}
+
+// TestSystemdManager_serviceContent_Logging 测试日志配置
+func TestSystemdManager_serviceContent_Logging(t *testing.T) {
+	cfg := &ServiceConfig{
+		Name:        "test",
+		Description: "Test",
+		ExecPath:    "/bin/test",
+		WorkDir:     "/tmp",
+	}
+	mgr := NewSystemdManager(cfg)
+
+	content := mgr.serviceContent()
+
+	// 验证日志配置
+	if !strings.Contains(content, "StandardOutput=journal") {
+		t.Error("服务文件应配置 StandardOutput=journal")
+	}
+	if !strings.Contains(content, "StandardError=journal") {
+		t.Error("服务文件应配置 StandardError=journal")
+	}
+}
+
+// TestSystemdManager_serviceContent_Type 测试服务类型
+func TestSystemdManager_serviceContent_Type(t *testing.T) {
+	cfg := &ServiceConfig{
+		Name:        "test",
+		Description: "Test",
+		ExecPath:    "/bin/test",
+		WorkDir:     "/tmp",
+	}
+	mgr := NewSystemdManager(cfg)
+
+	content := mgr.serviceContent()
+
+	if !strings.Contains(content, "Type=simple") {
+		t.Error("服务文件应配置 Type=simple")
+	}
+}
+
+// TestDefaultConfig_Systemd 测试默认配置
+func TestDefaultConfig_Systemd(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg == nil {
+		t.Fatal("DefaultConfig() 返回 nil")
+	}
+
+	if cfg.Name == "" {
+		t.Error("默认配置的 Name 不应为空")
+	}
+
+	if cfg.ExecPath == "" {
+		t.Error("默认配置的 ExecPath 不应为空")
+	}
+
+	if cfg.WorkDir == "" {
+		t.Error("默认配置的 WorkDir 不应为空")
+	}
+}

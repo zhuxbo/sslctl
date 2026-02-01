@@ -890,3 +890,381 @@ func TestConfigManager_MultipleCertOperations(t *testing.T) {
 		t.Errorf("删除后 ListCerts() = %d, 期望 2", len(allCerts))
 	}
 }
+
+// TestCertConfig_Bindings 测试证书绑定操作
+func TestCertConfig_Bindings(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	// 创建带绑定的证书
+	cert := &CertConfig{
+		CertName: "binding-test",
+		OrderID:  100,
+		Enabled:  true,
+		Domains:  []string{"bind.example.com"},
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "site1",
+				ServerType: ServerTypeNginx,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/etc/ssl/site1/cert.pem",
+					PrivateKey:  "/etc/ssl/site1/key.pem",
+				},
+				Reload: ReloadConfig{
+					TestCommand:   "nginx -t",
+					ReloadCommand: "systemctl reload nginx",
+				},
+			},
+		},
+	}
+
+	if err := cm.AddCert(cert); err != nil {
+		t.Fatalf("AddCert() error = %v", err)
+	}
+
+	// 获取并验证绑定
+	got, _ := cm.GetCert("binding-test")
+	if len(got.Bindings) != 1 {
+		t.Errorf("Bindings 长度 = %d, 期望 1", len(got.Bindings))
+	}
+
+	binding := got.Bindings[0]
+	if binding.SiteName != "site1" {
+		t.Errorf("SiteName = %s, 期望 site1", binding.SiteName)
+	}
+	if binding.ServerType != ServerTypeNginx {
+		t.Errorf("ServerType = %s, 期望 %s", binding.ServerType, ServerTypeNginx)
+	}
+	if !binding.Enabled {
+		t.Error("Binding 应该是启用的")
+	}
+
+	// 添加新绑定
+	got.Bindings = append(got.Bindings, SiteBinding{
+		SiteName:   "site2",
+		ServerType: ServerTypeApache,
+		Enabled:    true,
+		Paths: BindingPaths{
+			Certificate: "/etc/ssl/site2/cert.pem",
+			PrivateKey:  "/etc/ssl/site2/key.pem",
+			ChainFile:   "/etc/ssl/site2/chain.pem",
+		},
+	})
+
+	if err := cm.UpdateCert(got); err != nil {
+		t.Fatalf("UpdateCert() error = %v", err)
+	}
+
+	updated, _ := cm.GetCert("binding-test")
+	if len(updated.Bindings) != 2 {
+		t.Errorf("更新后 Bindings 长度 = %d, 期望 2", len(updated.Bindings))
+	}
+
+	// 验证 Apache 绑定
+	apacheBinding := updated.Bindings[1]
+	if apacheBinding.ServerType != ServerTypeApache {
+		t.Errorf("ServerType = %s, 期望 %s", apacheBinding.ServerType, ServerTypeApache)
+	}
+	if apacheBinding.Paths.ChainFile == "" {
+		t.Error("Apache 绑定应有 ChainFile")
+	}
+}
+
+// TestCertConfig_DockerBinding 测试 Docker 绑定配置
+func TestCertConfig_DockerBinding(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	cert := &CertConfig{
+		CertName: "docker-test",
+		OrderID:  200,
+		Enabled:  true,
+		Domains:  []string{"docker.example.com"},
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "docker-site",
+				ServerType: ServerTypeDockerNginx,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/opt/certs/docker/cert.pem",
+					PrivateKey:  "/opt/certs/docker/key.pem",
+				},
+				Docker: &DockerInfo{
+					ContainerName: "nginx-container",
+					DeployMode:    "volume",
+				},
+			},
+		},
+	}
+
+	if err := cm.AddCert(cert); err != nil {
+		t.Fatalf("AddCert() error = %v", err)
+	}
+
+	got, _ := cm.GetCert("docker-test")
+	binding := got.Bindings[0]
+
+	if binding.ServerType != ServerTypeDockerNginx {
+		t.Errorf("ServerType = %s, 期望 %s", binding.ServerType, ServerTypeDockerNginx)
+	}
+
+	if binding.Docker == nil {
+		t.Fatal("Docker 配置不应为 nil")
+	}
+
+	if binding.Docker.ContainerName != "nginx-container" {
+		t.Errorf("ContainerName = %s, 期望 nginx-container", binding.Docker.ContainerName)
+	}
+
+	if binding.Docker.DeployMode != "volume" {
+		t.Errorf("DeployMode = %s, 期望 volume", binding.Docker.DeployMode)
+	}
+}
+
+// TestScheduleConfig_Validation 测试调度配置验证
+func TestScheduleConfig_Validation(t *testing.T) {
+	tests := []struct {
+		name      string
+		schedule  ScheduleConfig
+		wantError bool
+	}{
+		{
+			name: "有效的 pull 模式",
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 7,
+			},
+			wantError: false,
+		},
+		{
+			name: "有效的 local 模式",
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModeLocal,
+				RenewBeforeDays: 30,
+			},
+			wantError: false,
+		},
+		{
+			name: "pull 模式 RenewBeforeDays >= 14 应报错",
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 14,
+			},
+			wantError: true,
+		},
+		{
+			name: "local 模式 RenewBeforeDays <= 14 应报错",
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModeLocal,
+				RenewBeforeDays: 14,
+			},
+			wantError: true,
+		},
+		{
+			name: "默认值（0）应通过",
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 0,
+			},
+			wantError: false,
+		},
+		{
+			name: "无效的 renew_mode",
+			schedule: ScheduleConfig{
+				RenewMode:       "invalid",
+				RenewBeforeDays: 10,
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSchedule(&tt.schedule)
+			if (err != nil) != tt.wantError {
+				t.Errorf("ValidateSchedule() error = %v, wantError = %v", err, tt.wantError)
+			}
+		})
+	}
+}
+
+// TestValidateValidationMethod 测试验证方法校验
+func TestValidateValidationMethod(t *testing.T) {
+	tests := []struct {
+		name    string
+		domain  string
+		method  string
+		wantErr bool
+	}{
+		{"正常域名-file", "example.com", ValidationMethodFile, false},
+		{"正常域名-delegation", "example.com", ValidationMethodDelegation, false},
+		{"通配符-file 应报错", "*.example.com", ValidationMethodFile, true},
+		{"通配符-delegation", "*.example.com", ValidationMethodDelegation, false},
+		{"IP-file", "192.168.1.1", ValidationMethodFile, false},
+		{"IP-delegation 应报错", "192.168.1.1", ValidationMethodDelegation, true},
+		{"IPv6-delegation 应报错", "2001:db8::1", ValidationMethodDelegation, true},
+		{"空方法", "example.com", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateValidationMethod(tt.domain, tt.method)
+			hasErr := result != ""
+			if hasErr != tt.wantErr {
+				t.Errorf("ValidateValidationMethod(%s, %s) = %q, wantErr = %v", tt.domain, tt.method, result, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestGetEnvWithDefault 测试环境变量默认值
+func TestGetEnvWithDefault(t *testing.T) {
+	// 测试默认值
+	result := GetEnvWithDefault("NONEXISTENT_ENV_VAR_12345", "default-value")
+	if result != "default-value" {
+		t.Errorf("GetEnvWithDefault() = %s, 期望 default-value", result)
+	}
+
+	// 测试实际环境变量
+	testKey := "TEST_ENV_VAR_FOR_CONFIG"
+	testValue := "test-value"
+	_ = os.Setenv(testKey, testValue)
+	defer func() { _ = os.Unsetenv(testKey) }()
+
+	result = GetEnvWithDefault(testKey, "default")
+	if result != testValue {
+		t.Errorf("GetEnvWithDefault() = %s, 期望 %s", result, testValue)
+	}
+}
+
+// TestValidateLogLevel 测试日志级别验证
+func TestValidateLogLevel(t *testing.T) {
+	tests := []struct {
+		level   string
+		wantErr bool
+	}{
+		{"debug", false},
+		{"info", false},
+		{"warn", false},
+		{"error", false},
+		{"DEBUG", false}, // 大小写不敏感
+		{"INFO", false},
+		{"invalid", true},
+		{"trace", true},
+		{"", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			err := ValidateLogLevel(tt.level)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateLogLevel(%s) error = %v, wantErr = %v", tt.level, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestServerTypeConstants 测试服务器类型常量
+func TestServerTypeConstants(t *testing.T) {
+	// 验证常量值
+	if ServerTypeNginx != "nginx" {
+		t.Errorf("ServerTypeNginx = %s, 期望 nginx", ServerTypeNginx)
+	}
+	if ServerTypeApache != "apache" {
+		t.Errorf("ServerTypeApache = %s, 期望 apache", ServerTypeApache)
+	}
+	if ServerTypeDockerNginx != "docker-nginx" {
+		t.Errorf("ServerTypeDockerNginx = %s, 期望 docker-nginx", ServerTypeDockerNginx)
+	}
+	if ServerTypeDockerApache != "docker-apache" {
+		t.Errorf("ServerTypeDockerApache = %s, 期望 docker-apache", ServerTypeDockerApache)
+	}
+}
+
+// TestRenewModeConstants 测试续签模式常量
+func TestRenewModeConstants(t *testing.T) {
+	if RenewModeLocal != "local" {
+		t.Errorf("RenewModeLocal = %s, 期望 local", RenewModeLocal)
+	}
+	if RenewModePull != "pull" {
+		t.Errorf("RenewModePull = %s, 期望 pull", RenewModePull)
+	}
+}
+
+// TestMatchType 测试匹配类型
+func TestMatchType(t *testing.T) {
+	if MatchTypeFull != "full" {
+		t.Errorf("MatchTypeFull = %s, 期望 full", MatchTypeFull)
+	}
+	if MatchTypePartial != "partial" {
+		t.Errorf("MatchTypePartial = %s, 期望 partial", MatchTypePartial)
+	}
+	if MatchTypeNone != "none" {
+		t.Errorf("MatchTypeNone = %s, 期望 none", MatchTypeNone)
+	}
+}
+
+// TestMatchResult 测试匹配结果
+func TestMatchResult(t *testing.T) {
+	result := MatchResult{
+		Type:           MatchTypeFull,
+		MatchedDomains: []string{"example.com", "www.example.com"},
+		MissedDomains:  []string{},
+	}
+
+	if result.Type != MatchTypeFull {
+		t.Errorf("Type = %s, 期望 %s", result.Type, MatchTypeFull)
+	}
+	if len(result.MatchedDomains) != 2 {
+		t.Errorf("MatchedDomains 长度 = %d, 期望 2", len(result.MatchedDomains))
+	}
+	if len(result.MissedDomains) != 0 {
+		t.Errorf("MissedDomains 长度 = %d, 期望 0", len(result.MissedDomains))
+	}
+}
+
+// TestCertMetadata 测试证书元数据
+func TestCertMetadata(t *testing.T) {
+	metadata := CertMetadata{
+		CertSerial:      "ABC123",
+		LastIssueState:  "issued",
+		IssueRetryCount: 0,
+	}
+
+	if metadata.CertSerial != "ABC123" {
+		t.Errorf("CertSerial = %s, 期望 ABC123", metadata.CertSerial)
+	}
+	if metadata.LastIssueState != "issued" {
+		t.Errorf("LastIssueState = %s, 期望 issued", metadata.LastIssueState)
+	}
+	if metadata.IssueRetryCount != 0 {
+		t.Errorf("IssueRetryCount = %d, 期望 0", metadata.IssueRetryCount)
+	}
+}
+
+// TestTimeConstants 测试时间相关常量
+func TestTimeConstants(t *testing.T) {
+	if ServerAutoRenewDays != 14 {
+		t.Errorf("ServerAutoRenewDays = %d, 期望 14", ServerAutoRenewDays)
+	}
+	if LocalRenewDefaultDay != 15 {
+		t.Errorf("LocalRenewDefaultDay = %d, 期望 15", LocalRenewDefaultDay)
+	}
+	if PullRenewDefaultDay != 13 {
+		t.Errorf("PullRenewDefaultDay = %d, 期望 13", PullRenewDefaultDay)
+	}
+	if DefaultCheckIntervalHours != 6 {
+		t.Errorf("DefaultCheckIntervalHours = %d, 期望 6", DefaultCheckIntervalHours)
+	}
+}
+
+// TestEnvConstants 测试环境变量常量
+func TestEnvConstants(t *testing.T) {
+	if EnvAPIToken != "CERT_DEPLOY_API_TOKEN" {
+		t.Errorf("EnvAPIToken = %s", EnvAPIToken)
+	}
+	if EnvAPIURL != "CERT_DEPLOY_API_URL" {
+		t.Errorf("EnvAPIURL = %s", EnvAPIURL)
+	}
+}

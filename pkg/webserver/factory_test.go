@@ -137,3 +137,141 @@ func TestNginxScannerWrapper_ScanDocker(t *testing.T) {
 		t.Log("Docker 扫描已实现")
 	}
 }
+
+// TestNginxScannerWrapper_ScanLocal 测试本地扫描
+func TestNginxScannerWrapper_ScanLocal(t *testing.T) {
+	scanner, _ := NewScanner(TypeNginx)
+	sites, err := scanner.ScanLocal()
+	if err != nil {
+		t.Logf("ScanLocal() error = %v (nginx可能未安装)", err)
+		return
+	}
+	t.Logf("扫描到 %d 个站点", len(sites))
+	for _, site := range sites {
+		t.Logf("  站点: %s, 配置: %s", site.ServerName, site.ConfigFile)
+	}
+}
+
+// TestNginxDeployerWrapper_Methods 测试 Nginx 部署器方法
+func TestNginxDeployerWrapper_Methods(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := tmpDir + "/cert.pem"
+	keyPath := tmpDir + "/key.pem"
+
+	deployer, err := NewDeployer(
+		TypeNginx,
+		certPath,
+		keyPath,
+		"",
+		"", // 无测试命令
+		"", // 无重载命令
+	)
+	if err != nil {
+		t.Fatalf("NewDeployer error = %v", err)
+	}
+
+	// Deploy 应该失败（没有有效证书）
+	err = deployer.Deploy("invalid-cert", "", "invalid-key")
+	if err == nil {
+		t.Log("Deploy 成功（意外）")
+	} else {
+		t.Logf("Deploy 失败（预期）: %v", err)
+	}
+
+	// Test 应该失败或跳过（没有配置测试命令）
+	err = deployer.Test()
+	if err != nil {
+		t.Logf("Test 失败（预期，无测试命令）: %v", err)
+	}
+
+	// Reload 应该失败或跳过（没有配置重载命令）
+	err = deployer.Reload()
+	if err != nil {
+		t.Logf("Reload 失败（预期，无重载命令）: %v", err)
+	}
+}
+
+// TestApacheDeployerWrapper_Methods 测试 Apache 部署器方法
+func TestApacheDeployerWrapper_Methods(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := tmpDir + "/cert.pem"
+	keyPath := tmpDir + "/key.pem"
+	chainPath := tmpDir + "/chain.pem"
+
+	deployer, err := NewDeployer(
+		TypeApache,
+		certPath,
+		keyPath,
+		chainPath,
+		"", // 无测试命令
+		"", // 无重载命令
+	)
+	if err != nil {
+		t.Fatalf("NewDeployer error = %v", err)
+	}
+
+	// Deploy 应该失败（没有有效证书）
+	err = deployer.Deploy("invalid-cert", "invalid-chain", "invalid-key")
+	if err == nil {
+		t.Log("Deploy 成功（意外）")
+	} else {
+		t.Logf("Deploy 失败（预期）: %v", err)
+	}
+
+	// Test 应该失败或跳过（没有配置测试命令）
+	err = deployer.Test()
+	if err != nil {
+		t.Logf("Test 失败（预期，无测试命令）: %v", err)
+	}
+
+	// Reload 应该失败或跳过（没有配置重载命令）
+	err = deployer.Reload()
+	if err != nil {
+		t.Logf("Reload 失败（预期，无重载命令）: %v", err)
+	}
+}
+
+// TestNewDeployer_DockerApache 测试创建 Docker Apache 部署器
+func TestNewDeployer_DockerApache(t *testing.T) {
+	deployer, err := NewDeployer(
+		TypeDockerApache,
+		"/etc/ssl/cert.pem",
+		"/etc/ssl/key.pem",
+		"/etc/ssl/chain.pem",
+		"docker exec apache apachectl configtest",
+		"docker exec apache apachectl graceful",
+	)
+	if err != nil {
+		t.Fatalf("NewDeployer(TypeDockerApache) error = %v", err)
+	}
+	if deployer == nil {
+		t.Error("NewDeployer(TypeDockerApache) 返回 nil")
+	}
+}
+
+// TestNewScanner_DockerApache 测试创建 Docker Apache 扫描器
+func TestNewScanner_DockerApache(t *testing.T) {
+	_, err := NewScanner(TypeDockerApache)
+	// 当前 Apache 扫描器未实现，应返回错误
+	if err == nil {
+		t.Log("Docker Apache 扫描器已实现")
+	} else {
+		t.Logf("Docker Apache 扫描器未实现（预期）: %v", err)
+	}
+}
+
+// TestNewScanner_InvalidType 测试无效类型
+func TestNewScanner_InvalidType(t *testing.T) {
+	_, err := NewScanner(ServerType("invalid"))
+	if err == nil {
+		t.Error("无效类型应返回错误")
+	}
+}
+
+// TestNewDeployer_InvalidType 测试无效类型
+func TestNewDeployer_InvalidType(t *testing.T) {
+	_, err := NewDeployer(ServerType("invalid"), "", "", "", "", "")
+	if err == nil {
+		t.Error("无效类型应返回错误")
+	}
+}

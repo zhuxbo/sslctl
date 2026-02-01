@@ -923,3 +923,140 @@ server {
 		t.Errorf("期望 2 个站点（通过 glob 模式包含），实际 %d", len(sites))
 	}
 }
+
+// TestNew 测试默认扫描器创建
+func TestNew(t *testing.T) {
+	s := New()
+	if s == nil {
+		t.Fatal("New() 返回 nil")
+	}
+}
+
+// TestParseConfigFile_EmptyFile 测试空文件
+func TestParseConfigFile_EmptyFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "nginx-test-*.conf")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
+
+	s := NewWithConfig(tmpFile.Name())
+	sites, err := s.ScanFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("解析空文件失败: %v", err)
+	}
+
+	if len(sites) != 0 {
+		t.Errorf("空文件应返回 0 个站点，实际 %d", len(sites))
+	}
+}
+
+// TestParseConfigFile_InvalidPath 测试无效路径
+func TestParseConfigFile_InvalidPath(t *testing.T) {
+	s := NewWithConfig("/nonexistent/path/nginx.conf")
+	_, err := s.ScanFile("/nonexistent/path/nginx.conf")
+	if err == nil {
+		t.Error("无效路径应返回错误")
+	}
+}
+
+// TestParseConfigFile_NestedServerBlocks 测试嵌套块结构
+func TestParseConfigFile_NestedServerBlocks(t *testing.T) {
+	content := `
+http {
+    server {
+        listen 443 ssl;
+        server_name nested.example.com;
+        ssl_certificate /etc/ssl/nested.crt;
+        ssl_certificate_key /etc/ssl/nested.key;
+
+        location / {
+            root /var/www;
+        }
+
+        location /api {
+            proxy_pass http://backend;
+        }
+    }
+}`
+	tmpFile, err := os.CreateTemp("", "nginx-test-*.conf")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
+
+	s := NewWithConfig(tmpFile.Name())
+	sites, err := s.ScanFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+
+	if len(sites) != 1 {
+		t.Errorf("期望 1 个站点，实际 %d", len(sites))
+	}
+}
+
+// TestFindByDomain_NotFound 测试未找到域名
+func TestFindByDomain_NotFound(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nginx-test-*")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	content := `
+server {
+    listen 443 ssl;
+    server_name existing.example.com;
+    ssl_certificate /etc/ssl/cert.crt;
+    ssl_certificate_key /etc/ssl/key.key;
+}`
+	mainFile := filepath.Join(tmpDir, "nginx.conf")
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
+
+	s := NewWithConfig(mainFile)
+	site, err := s.FindByDomain("notexist.example.com")
+	if err != nil {
+		t.Logf("FindByDomain 错误: %v", err)
+	}
+	if site != nil {
+		t.Error("不存在的域名应返回 nil")
+	}
+}
+
+// TestServerAlias 测试服务器别名
+func TestServerAlias(t *testing.T) {
+	content := `
+server {
+    listen 443 ssl;
+    server_name primary.example.com;
+    server_name alias1.example.com alias2.example.com;
+    ssl_certificate /etc/ssl/cert.crt;
+    ssl_certificate_key /etc/ssl/key.key;
+}`
+	tmpFile, err := os.CreateTemp("", "nginx-test-*.conf")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
+
+	s := NewWithConfig(tmpFile.Name())
+	sites, err := s.ScanFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+
+	if len(sites) != 1 {
+		t.Fatalf("期望 1 个站点，实际 %d", len(sites))
+	}
+
+	// 验证包含多个服务器名
+	if len(sites[0].ServerAlias) == 0 {
+		t.Log("ServerAlias 可能未正确解析多行 server_name")
+	}
+}

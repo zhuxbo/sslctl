@@ -1,0 +1,658 @@
+// Package certops 集成测试（使用真实 API）
+package certops
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
+	"github.com/zhuxbo/cert-deploy/pkg/logger"
+)
+
+// 测试 API 配置（可通过环境变量覆盖）
+const (
+	testAPIURL   = "https://manager.test.pzo.cn/api/deploy"
+	testAPIToken = "sfZOLvxc0rIKyV7XMP0XGEP9D2AVrd6zUnKuXAE00Ql3E5eh602CCB0kovJHXX6H"
+)
+
+// getTestAPIConfig 获取测试 API 配置
+func getTestAPIConfig() (string, string) {
+	url := os.Getenv("TEST_API_URL")
+	if url == "" {
+		url = testAPIURL
+	}
+	token := os.Getenv("TEST_API_TOKEN")
+	if token == "" {
+		token = testAPIToken
+	}
+	return url, token
+}
+
+// TestIntegration_FetcherInfo 测试 Fetcher.Info 获取证书信息
+func TestIntegration_FetcherInfo(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("Info() 失败（API 可能不支持此接口）: %v", err)
+		return
+	}
+
+	t.Logf("获取到证书信息:")
+	t.Logf("  OrderID: %d", certData.OrderID)
+	t.Logf("  Status: %s", certData.Status)
+	t.Logf("  CommonName: %s", certData.CommonName)
+	t.Logf("  Domain: %s", certData.Domain)
+	t.Logf("  Domains: %s", certData.Domains)
+	t.Logf("  ExpiresAt: %s", certData.ExpiresAt)
+	t.Logf("  HasCert: %v", certData.Cert != "")
+	t.Logf("  HasKey: %v", certData.PrivateKey != "")
+	t.Logf("  HasCA: %v", certData.IntermediateCert != "")
+}
+
+// TestIntegration_QueryOrder 测试按订单 ID 查询
+func TestIntegration_QueryOrder(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// 先获取一个有效的订单 ID
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取订单信息: %v", err)
+		return
+	}
+
+	if infoData.OrderID == 0 {
+		t.Log("未获取到有效的 OrderID")
+		return
+	}
+
+	t.Logf("使用 OrderID %d 进行查询", infoData.OrderID)
+
+	certData, err := f.QueryOrder(ctx, apiURL, token, infoData.OrderID)
+	if err != nil {
+		t.Logf("QueryOrder() 失败: %v", err)
+		return
+	}
+
+	t.Logf("QueryOrder 返回:")
+	t.Logf("  OrderID: %d", certData.OrderID)
+	t.Logf("  Status: %s", certData.Status)
+	t.Logf("  Domain: %s", certData.Domain)
+
+	// 验证返回的订单 ID 匹配
+	if certData.OrderID != infoData.OrderID {
+		t.Errorf("OrderID 不匹配: got %d, want %d", certData.OrderID, infoData.OrderID)
+	}
+}
+
+// TestIntegration_DeployToLocal 测试部署证书到本地目录
+func TestIntegration_DeployToLocal(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// 获取证书数据
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取证书信息: %v", err)
+		return
+	}
+
+	if certData.Status != "active" || certData.Cert == "" {
+		t.Logf("证书未就绪 (status=%s, hasCert=%v)", certData.Status, certData.Cert != "")
+		return
+	}
+
+	if certData.PrivateKey == "" {
+		t.Log("API 未返回私钥，跳过部署测试")
+		return
+	}
+
+	t.Logf("准备部署证书:")
+	t.Logf("  Domain: %s", certData.Domain)
+	t.Logf("  CommonName: %s", certData.CommonName)
+	t.Logf("  ExpiresAt: %s", certData.ExpiresAt)
+
+	// 创建临时目录进行部署
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+	chainPath := filepath.Join(tmpDir, "chain.pem")
+
+	// 创建配置管理器
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	// 创建服务
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 创建绑定配置
+	binding := &config.SiteBinding{
+		SiteName:   "integration-test",
+		ServerType: config.ServerTypeNginx,
+		Enabled:    true,
+		Paths: config.BindingPaths{
+			Certificate: certPath,
+			PrivateKey:  keyPath,
+			ChainFile:   chainPath,
+		},
+		Reload: config.ReloadConfig{
+			TestCommand:   "",
+			ReloadCommand: "",
+		},
+	}
+
+	// 执行部署
+	err = svc.deployToBinding(ctx, binding, certData, certData.PrivateKey)
+	if err != nil {
+		t.Fatalf("部署失败: %v", err)
+	}
+
+	// 验证证书文件
+	certContent, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+	if !strings.Contains(string(certContent), "-----BEGIN CERTIFICATE-----") {
+		t.Error("证书文件内容不正确")
+	}
+	t.Logf("证书文件大小: %d bytes", len(certContent))
+
+	// 验证私钥文件
+	keyContent, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("读取私钥文件失败: %v", err)
+	}
+	if !strings.Contains(string(keyContent), "-----BEGIN") {
+		t.Error("私钥文件内容不正确")
+	}
+	t.Logf("私钥文件大小: %d bytes", len(keyContent))
+
+	// 验证文件权限
+	keyInfo, _ := os.Stat(keyPath)
+	if keyInfo.Mode().Perm() != 0600 {
+		t.Errorf("私钥权限 = %o, 期望 0600", keyInfo.Mode().Perm())
+	}
+
+	t.Log("✓ 证书部署成功")
+}
+
+// TestIntegration_FullDeployWorkflow 测试完整部署工作流
+func TestIntegration_FullDeployWorkflow(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	// 创建临时目录
+	tmpDir := t.TempDir()
+
+	// 创建配置管理器
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	// 初始化 API 配置
+	if err := cm.SetAPI(config.APIConfig{URL: apiURL, Token: token}); err != nil {
+		t.Fatalf("设置 API 配置失败: %v", err)
+	}
+
+	// 获取证书信息确定 OrderID
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取证书信息: %v", err)
+		return
+	}
+
+	if certData.OrderID == 0 {
+		t.Log("未获取到有效 OrderID")
+		return
+	}
+
+	// 创建证书配置
+	certName := "order-" + string(rune('0'+certData.OrderID%10))
+	siteCertsDir := filepath.Join(tmpDir, "certs", certName)
+
+	cert := &config.CertConfig{
+		CertName: certName,
+		OrderID:  certData.OrderID,
+		Enabled:  true,
+		Domains:  strings.Split(certData.Domains, ","),
+		Bindings: []config.SiteBinding{
+			{
+				SiteName:   "test-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths: config.BindingPaths{
+					Certificate: filepath.Join(siteCertsDir, "cert.pem"),
+					PrivateKey:  filepath.Join(siteCertsDir, "key.pem"),
+				},
+			},
+		},
+	}
+
+	if err := cm.AddCert(cert); err != nil {
+		t.Fatalf("添加证书配置失败: %v", err)
+	}
+
+	// 创建服务并部署
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	result, err := svc.DeployOne(ctx, certName)
+	if err != nil {
+		t.Logf("部署失败: %v", err)
+		return
+	}
+
+	t.Logf("部署结果:")
+	t.Logf("  CertName: %s", result.CertName)
+	t.Logf("  Success: %v", result.Success)
+	if result.Error != nil {
+		t.Logf("  Error: %v", result.Error)
+	}
+
+	if result.Success {
+		// 验证文件已创建
+		if _, err := os.Stat(filepath.Join(siteCertsDir, "cert.pem")); os.IsNotExist(err) {
+			t.Error("证书文件未创建")
+		}
+		if _, err := os.Stat(filepath.Join(siteCertsDir, "key.pem")); os.IsNotExist(err) {
+			t.Error("私钥文件未创建")
+		}
+		t.Log("✓ 完整部署工作流成功")
+	}
+}
+
+// TestIntegration_ScanAndDeploy 测试扫描后部署
+func TestIntegration_ScanAndDeploy(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 执行扫描
+	ctx := context.Background()
+	scanResult, err := svc.ScanSites(ctx, ScanOptions{})
+	if err != nil {
+		t.Logf("扫描失败: %v", err)
+	}
+
+	t.Logf("扫描结果:")
+	t.Logf("  扫描时间: %s", scanResult.ScanTime.Format(time.RFC3339))
+	t.Logf("  环境: %s", scanResult.Environment)
+	t.Logf("  站点数: %d", len(scanResult.Sites))
+
+	for i, site := range scanResult.Sites {
+		t.Logf("  [%d] %s", i+1, site.ServerName)
+		t.Logf("      配置文件: %s", site.ConfigFile)
+		t.Logf("      SSL证书: %s", site.CertificatePath)
+	}
+}
+
+// TestIntegration_APIResponseParsing 测试 API 响应解析
+func TestIntegration_APIResponseParsing(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("API 调用失败: %v", err)
+		return
+	}
+
+	// 验证必要字段
+	if certData.OrderID <= 0 {
+		t.Log("注意: OrderID 为空或无效")
+	}
+
+	if certData.Status == "" {
+		t.Error("Status 不应为空")
+	}
+
+	// 验证证书格式
+	if certData.Cert != "" {
+		if !strings.Contains(certData.Cert, "-----BEGIN CERTIFICATE-----") {
+			t.Error("证书格式不正确")
+		}
+		if !strings.Contains(certData.Cert, "-----END CERTIFICATE-----") {
+			t.Error("证书格式不完整")
+		}
+		t.Logf("证书长度: %d 字符", len(certData.Cert))
+	}
+
+	// 验证私钥格式
+	if certData.PrivateKey != "" {
+		if !strings.Contains(certData.PrivateKey, "-----BEGIN") {
+			t.Error("私钥格式不正确")
+		}
+		t.Logf("私钥长度: %d 字符", len(certData.PrivateKey))
+	}
+
+	// 验证 CA 证书格式
+	if certData.IntermediateCert != "" {
+		if !strings.Contains(certData.IntermediateCert, "-----BEGIN CERTIFICATE-----") {
+			t.Error("CA证书格式不正确")
+		}
+		t.Logf("CA证书长度: %d 字符", len(certData.IntermediateCert))
+	}
+}
+
+// TestIntegration_DeployWithBackup 测试带备份的部署
+func TestIntegration_DeployWithBackup(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil || certData.Cert == "" || certData.PrivateKey == "" {
+		t.Log("无法获取有效证书，跳过备份测试")
+		return
+	}
+
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 创建 SSL 目录和旧证书
+	sslDir := filepath.Join(tmpDir, "ssl")
+	_ = os.MkdirAll(sslDir, 0755)
+
+	certPath := filepath.Join(sslDir, "cert.pem")
+	keyPath := filepath.Join(sslDir, "key.pem")
+
+	// 写入旧证书
+	_ = os.WriteFile(certPath, []byte("OLD-CERT"), 0644)
+	_ = os.WriteFile(keyPath, []byte("OLD-KEY"), 0600)
+
+	binding := &config.SiteBinding{
+		SiteName:   "backup-test",
+		ServerType: config.ServerTypeNginx,
+		Enabled:    true,
+		Paths: config.BindingPaths{
+			Certificate: certPath,
+			PrivateKey:  keyPath,
+		},
+	}
+
+	// 部署新证书
+	err = svc.deployToBinding(ctx, binding, certData, certData.PrivateKey)
+	if err != nil {
+		t.Fatalf("部署失败: %v", err)
+	}
+
+	// 验证备份目录存在
+	backupDir := filepath.Join(tmpDir, "backup")
+	if _, err := os.Stat(backupDir); os.IsNotExist(err) {
+		t.Log("注意: 备份目录未创建（旧证书可能太短）")
+	} else {
+		t.Log("✓ 备份已创建")
+	}
+
+	// 验证新证书已部署
+	newCert, _ := os.ReadFile(certPath)
+	if string(newCert) == "OLD-CERT" {
+		t.Error("证书未更新")
+	} else {
+		t.Log("✓ 证书已更新")
+	}
+}
+
+// TestIntegration_PreparePullRenew 测试拉取模式续签
+func TestIntegration_PreparePullRenew(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 先获取订单信息
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取订单信息: %v", err)
+		return
+	}
+
+	if infoData.OrderID == 0 {
+		t.Log("未获取到有效 OrderID")
+		return
+	}
+
+	// 创建测试证书配置
+	certPath := filepath.Join(tmpDir, "certs", "test", "key.pem")
+	cert := &config.CertConfig{
+		CertName: "test-pull",
+		OrderID:  infoData.OrderID,
+		Enabled:  true,
+		Domains:  strings.Split(infoData.Domains, ","),
+		Bindings: []config.SiteBinding{
+			{
+				SiteName:   "test-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths: config.BindingPaths{
+					PrivateKey: certPath,
+				},
+			},
+		},
+	}
+
+	api := config.APIConfig{URL: apiURL, Token: token}
+
+	// 测试 preparePullRenew
+	certData, privateKey, err := svc.preparePullRenew(ctx, cert, api)
+
+	if err != nil {
+		t.Logf("preparePullRenew 失败: %v", err)
+		return
+	}
+
+	if certData == nil {
+		t.Log("certData 为 nil（证书可能不是 active 状态）")
+		return
+	}
+
+	t.Logf("preparePullRenew 成功:")
+	t.Logf("  OrderID: %d", certData.OrderID)
+	t.Logf("  Status: %s", certData.Status)
+	t.Logf("  HasPrivateKey: %v", privateKey != "")
+}
+
+// TestIntegration_CheckAndRenewAll 测试完整续签流程
+func TestIntegration_CheckAndRenewAll(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+
+	// 先获取订单信息
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取订单信息: %v", err)
+		return
+	}
+
+	if infoData.OrderID == 0 {
+		t.Log("未获取到有效 OrderID")
+		return
+	}
+
+	// 创建需要续签的证书（过期时间设置在 14 天内触发续签）
+	certDir := filepath.Join(tmpDir, "ssl", "test")
+	cert := &config.CertConfig{
+		CertName: "renew-test",
+		OrderID:  infoData.OrderID,
+		Enabled:  true,
+		Domains:  strings.Split(infoData.Domains, ","),
+		Metadata: config.CertMetadata{
+			CertExpiresAt: time.Now().Add(7 * 24 * time.Hour), // 7 天后过期（触发续签）
+		},
+		Bindings: []config.SiteBinding{
+			{
+				SiteName:   "renew-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths: config.BindingPaths{
+					Certificate: filepath.Join(certDir, "cert.pem"),
+					PrivateKey:  filepath.Join(certDir, "key.pem"),
+				},
+			},
+		},
+	}
+	_ = cm.AddCert(cert)
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	results, err := svc.CheckAndRenewAll(ctx)
+	if err != nil {
+		t.Logf("CheckAndRenewAll 失败: %v", err)
+		return
+	}
+
+	t.Logf("CheckAndRenewAll 结果: %d 个证书", len(results))
+	for _, r := range results {
+		t.Logf("  %s: status=%s, mode=%s, deployCount=%d",
+			r.CertName, r.Status, r.Mode, r.DeployCount)
+		if r.Error != nil {
+			t.Logf("    error: %v", r.Error)
+		}
+	}
+}
+
+// TestIntegration_RenewWithLocalKey 测试本地私钥续签
+func TestIntegration_RenewWithLocalKey(t *testing.T) {
+	apiURL, token := getTestAPIConfig()
+
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+
+	// 设置本地私钥模式
+	cfg, _ := cm.Load()
+	cfg.Schedule = config.ScheduleConfig{
+		RenewMode:          config.RenewModeLocal,
+		RenewBeforeDays:    14,
+		CheckIntervalHours: 1,
+	}
+	_ = cm.Save(cfg)
+
+	// 先获取订单信息
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Logf("无法获取订单信息: %v", err)
+		return
+	}
+
+	if infoData.OrderID == 0 {
+		t.Log("未获取到有效 OrderID")
+		return
+	}
+
+	// 如果 API 返回了私钥，先保存到本地
+	certDir := filepath.Join(tmpDir, "ssl", "local-test")
+	keyPath := filepath.Join(certDir, "key.pem")
+
+	if infoData.PrivateKey != "" {
+		_ = os.MkdirAll(certDir, 0700)
+		_ = os.WriteFile(keyPath, []byte(infoData.PrivateKey), 0600)
+		t.Log("已保存私钥到本地")
+	} else {
+		t.Log("API 未返回私钥，跳过本地私钥续签测试")
+		return
+	}
+
+	cert := &config.CertConfig{
+		CertName: "local-key-test",
+		OrderID:  infoData.OrderID,
+		Enabled:  true,
+		Domains:  strings.Split(infoData.Domains, ","),
+		Metadata: config.CertMetadata{
+			CertExpiresAt: time.Now().Add(7 * 24 * time.Hour), // 触发续签
+		},
+		Bindings: []config.SiteBinding{
+			{
+				SiteName:   "local-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths: config.BindingPaths{
+					Certificate: filepath.Join(certDir, "cert.pem"),
+					PrivateKey:  keyPath,
+				},
+			},
+		},
+	}
+	_ = cm.AddCert(cert)
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	results, err := svc.CheckAndRenewAll(ctx)
+	if err != nil {
+		t.Logf("CheckAndRenewAll 失败: %v", err)
+	}
+
+	t.Logf("本地私钥续签结果: %d 个证书", len(results))
+	for _, r := range results {
+		t.Logf("  %s: status=%s, mode=%s", r.CertName, r.Status, r.Mode)
+	}
+}

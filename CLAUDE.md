@@ -81,6 +81,10 @@ bash build/test-linux.sh                   # Linux 容器测试
 | `local` | 本地私钥模式   | `--local-key` 或配置 `renew_mode: "local"` |
 | `pull`  | 拉取模式（默认）| 默认行为                                   |
 
+## 知识管理
+
+开发中发现重要信息时，更新 `skills/` 目录：
+
 ## 开发规范
 
 详见 `skills/` 目录：

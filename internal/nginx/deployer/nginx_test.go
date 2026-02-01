@@ -283,3 +283,129 @@ func TestAllowedCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestNginxDeployer_Deploy_WithChain 测试带证书链的部署
+func TestNginxDeployer_Deploy_WithChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	d := NewNginxDeployer(certPath, keyPath, "", "")
+
+	cert := "-----BEGIN CERTIFICATE-----\nleaf-cert\n-----END CERTIFICATE-----"
+	intermediate := "-----BEGIN CERTIFICATE-----\nintermediate-cert\n-----END CERTIFICATE-----"
+	key := "-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"
+
+	err := d.Deploy(cert, intermediate, key)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+
+	// 验证证书文件包含叶子证书和中间证书
+	certData, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+
+	expectedCert := cert + "\n" + intermediate
+	if string(certData) != expectedCert {
+		t.Error("证书内容应包含叶子证书和中间证书")
+	}
+}
+
+// TestNginxDeployer_Deploy_NoIntermediate 测试无中间证书的部署
+func TestNginxDeployer_Deploy_NoIntermediate(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	d := NewNginxDeployer(certPath, keyPath, "", "")
+
+	cert := "-----BEGIN CERTIFICATE-----\nonly-cert\n-----END CERTIFICATE-----"
+	key := "-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"
+
+	err := d.Deploy(cert, "", key)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+
+	// 验证证书文件内容
+	certData, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+
+	// 证书 + 换行 + 空字符串
+	expectedCert := cert + "\n"
+	if string(certData) != expectedCert {
+		t.Errorf("证书内容不正确: got %q, want %q", string(certData), expectedCert)
+	}
+}
+
+// TestNginxDeployer_Rollback_BackupNotExist 测试备份不存在的回滚
+func TestNginxDeployer_Rollback_BackupNotExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	d := NewNginxDeployer(certPath, keyPath, "", "")
+
+	// 尝试从不存在的备份回滚
+	err := d.Rollback("/nonexistent/backup/cert.pem", "/nonexistent/backup/key.pem")
+	if err == nil {
+		t.Error("备份不存在时 Rollback 应返回错误")
+	}
+}
+
+// TestNginxDeployer_Deploy_NestedDirectory 测试深层嵌套目录
+func TestNginxDeployer_Deploy_NestedDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "a", "b", "c", "cert.pem")
+	keyPath := filepath.Join(tmpDir, "x", "y", "z", "key.pem")
+
+	d := NewNginxDeployer(certPath, keyPath, "", "")
+
+	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
+	key := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+
+	err := d.Deploy(cert, "", key)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+
+	// 验证目录和文件已创建
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		t.Error("证书文件未创建")
+	}
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		t.Error("私钥文件未创建")
+	}
+}
+
+// TestNginxDeployer_CertPermissions 测试证书文件权限
+func TestNginxDeployer_CertPermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	d := NewNginxDeployer(certPath, keyPath, "", "")
+
+	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
+	key := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+
+	err := d.Deploy(cert, "", key)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+
+	// 验证证书权限（应为 0644）
+	certInfo, err := os.Stat(certPath)
+	if err != nil {
+		t.Fatalf("获取证书文件信息失败: %v", err)
+	}
+
+	perm := certInfo.Mode().Perm()
+	if perm != 0644 {
+		t.Errorf("证书权限 = %o, 期望 0644", perm)
+	}
+}
