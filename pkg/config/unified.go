@@ -85,6 +85,11 @@ func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	return cm.loadLocked()
+}
+
+// loadLocked 加载配置（调用者需持有锁）
+func (cm *ConfigManager) loadLocked() (*Config, error) {
 	// 双重检查
 	if cm.config != nil {
 		return cm.config, nil
@@ -128,6 +133,11 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	return cm.saveLocked(cfg)
+}
+
+// saveLocked 保存配置（调用者需持有锁）
+func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	cfg.Metadata.UpdatedAt = time.Now()
 	if cfg.Metadata.CreatedAt.IsZero() {
 		cfg.Metadata.CreatedAt = time.Now()
@@ -206,7 +216,10 @@ func (cm *ConfigManager) GetCertByOrderID(orderID int) (*CertConfig, error) {
 
 // AddCert 添加证书配置
 func (cm *ConfigManager) AddCert(cert *CertConfig) error {
-	cfg, err := cm.Load()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
 	if err != nil {
 		return err
 	}
@@ -216,17 +229,20 @@ func (cm *ConfigManager) AddCert(cert *CertConfig) error {
 		if cfg.Certificates[i].CertName == cert.CertName {
 			// 更新现有配置
 			cfg.Certificates[i] = *cert
-			return cm.Save(cfg)
+			return cm.saveLocked(cfg)
 		}
 	}
 
 	cfg.Certificates = append(cfg.Certificates, *cert)
-	return cm.Save(cfg)
+	return cm.saveLocked(cfg)
 }
 
 // UpdateCert 更新证书配置
 func (cm *ConfigManager) UpdateCert(cert *CertConfig) error {
-	cfg, err := cm.Load()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
 	if err != nil {
 		return err
 	}
@@ -234,7 +250,7 @@ func (cm *ConfigManager) UpdateCert(cert *CertConfig) error {
 	for i := range cfg.Certificates {
 		if cfg.Certificates[i].CertName == cert.CertName {
 			cfg.Certificates[i] = *cert
-			return cm.Save(cfg)
+			return cm.saveLocked(cfg)
 		}
 	}
 	return fmt.Errorf("certificate not found: %s", cert.CertName)
@@ -242,7 +258,10 @@ func (cm *ConfigManager) UpdateCert(cert *CertConfig) error {
 
 // DeleteCert 删除证书配置
 func (cm *ConfigManager) DeleteCert(certName string) error {
-	cfg, err := cm.Load()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
 	if err != nil {
 		return err
 	}
@@ -250,7 +269,7 @@ func (cm *ConfigManager) DeleteCert(certName string) error {
 	for i := range cfg.Certificates {
 		if cfg.Certificates[i].CertName == certName {
 			cfg.Certificates = append(cfg.Certificates[:i], cfg.Certificates[i+1:]...)
-			return cm.Save(cfg)
+			return cm.saveLocked(cfg)
 		}
 	}
 	return fmt.Errorf("certificate not found: %s", certName)
