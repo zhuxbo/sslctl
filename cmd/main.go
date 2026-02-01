@@ -5,7 +5,6 @@ package main
 import (
 	"bufio"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,12 +18,13 @@ import (
 	"time"
 
 	"github.com/zhuxbo/cert-deploy/cmd/apache"
+	"github.com/zhuxbo/cert-deploy/cmd/daemon"
+	"github.com/zhuxbo/cert-deploy/cmd/deploy"
 	"github.com/zhuxbo/cert-deploy/cmd/nginx"
+	"github.com/zhuxbo/cert-deploy/cmd/setup"
 	apacheScanner "github.com/zhuxbo/cert-deploy/internal/apache/scanner"
 	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
 	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
 	"github.com/zhuxbo/cert-deploy/pkg/service"
 )
 
@@ -76,7 +76,7 @@ func main() {
 	case "scan":
 		runAutoCommand("scan", subArgs, debug)
 	case "deploy":
-		runAutoCommand("deploy", subArgs, debug)
+		deploy.Run(subArgs, version, buildTime, debug)
 	case "issue":
 		runAutoCommand("issue", subArgs, debug)
 	case "install-https":
@@ -84,7 +84,7 @@ func main() {
 	case "init":
 		runAutoCommand("init", subArgs, debug)
 	case "daemon":
-		runAutoCommand("daemon", subArgs, debug)
+		daemon.Run(subArgs, version, buildTime, debug)
 	case "status":
 		runStatus()
 	case "upgrade":
@@ -92,7 +92,7 @@ func main() {
 	case "service":
 		runService(subArgs)
 	case "setup":
-		runSetup(subArgs, debug)
+		setup.Run(subArgs, version, buildTime, debug)
 	case "uninstall":
 		runUninstall(subArgs)
 	case "version", "-v", "--version":
@@ -135,14 +135,17 @@ func printUsage() {
   cert-deploy deploy --site <name>          部署指定站点
   cert-deploy issue --site <name>           签发证书
   cert-deploy install-https                 安装 HTTPS 配置
-  cert-deploy init --url <url> --token <token>   生成站点配置
+  cert-deploy init --url <url> --token <token>              生成站点配置
+  cert-deploy init --url <url> --token <token> --local-key  本地私钥模式
   cert-deploy status                        查看服务状态
   cert-deploy upgrade                       升级到最新版本
   cert-deploy upgrade --check               检查更新
   cert-deploy service repair                修复 systemd 服务
 
 一键部署:
-  cert-deploy setup --url <base_url> --token <token> --domain <domain>
+  cert-deploy setup --url <url> --token <token> --order <order_id>
+  cert-deploy setup --url <url> --token <token> --order <order_id> --local-key
+  cert-deploy setup --url <url> --token <token> --order <order_id> --yes --no-service
 
 卸载:
   cert-deploy uninstall           # 卸载程序
@@ -151,7 +154,7 @@ func printUsage() {
 示例:
   cert-deploy scan
   cert-deploy --debug deploy --site example.com
-  cert-deploy setup --url https://api.example.com --token abc123 --domain example.com
+  cert-deploy setup --url https://api.example.com --token abc123 --order 12345
 
 更多信息请访问: https://github.com/zhuxbo/cert-deploy
 `, version)
@@ -160,17 +163,7 @@ func printUsage() {
 // runWindowsService 以 Windows 服务方式运行
 func runWindowsService() {
 	err := service.RunAsService("cert-deploy", func() {
-		// 检测 Web 服务器类型并运行 daemon
-		serverType := detectWebServer()
-		if serverType == "" {
-			serverType = "nginx" // 默认使用 nginx
-		}
-
-		if serverType == "nginx" {
-			nginx.Run([]string{"daemon"}, version, buildTime, false)
-		} else {
-			apache.Run([]string{"daemon"}, version, buildTime, false)
-		}
+		daemon.Run(nil, version, buildTime, false)
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Windows 服务运行失败: %v\n", err)
@@ -553,215 +546,6 @@ func normalizeVersion(ver string) string {
 	return ver
 }
 
-// runSetup 一键部署命令
-func runSetup(args []string, debug bool) {
-	fs := flag.NewFlagSet("setup", flag.ExitOnError)
-	apiURL := fs.String("url", "", "证书 API 基础地址")
-	token := fs.String("token", "", "API 认证 Token")
-	domain := fs.String("domain", "", "要部署的域名")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy setup --url <base_url> --token <token> --domain <domain>\n\n选项:\n")
-		fs.PrintDefaults()
-	}
-
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
-
-	if *apiURL == "" || *token == "" || *domain == "" {
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	// 1. 检测 Web 服务类型
-	serverType := detectWebServer()
-	if serverType == "" {
-		fmt.Fprintln(os.Stderr, "未检测到 Nginx 或 Apache 服务")
-		os.Exit(1)
-	}
-	fmt.Printf("检测到 Web 服务: %s\n", serverType)
-
-	// 2. 初始化配置管理器
-	cfgManager, err := config.NewManager()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 初始化日志
-	logDir := cfgManager.GetLogsDir()
-	if debug {
-		logDir = filepath.Join(logDir, "debug")
-	}
-	log, err := logger.New(logDir, "setup")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "创建日志失败: %v\n", err)
-		os.Exit(1)
-	}
-	defer log.Close()
-
-	if debug {
-		log.SetLevel(logger.LevelDebug)
-	}
-
-	// 3. 扫描站点找到匹配域名
-	fmt.Printf("扫描站点寻找域名: %s\n", *domain)
-
-	var site *config.ScannedSite
-	var hasSSL bool
-
-	if serverType == "nginx" {
-		s := nginxScanner.New()
-		allSites, err := s.ScanAll()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "扫描失败: %v\n", err)
-			os.Exit(1)
-		}
-
-		// 收集所有匹配的站点，优先选择有 SSL 的
-		var matchedSite *nginxScanner.Site
-		for _, ss := range allSites {
-			if matchesDomain(ss.ServerName, *domain) || containsDomain(ss.ServerAlias, *domain) {
-				if matchedSite == nil || (!matchedSite.HasSSL && ss.HasSSL) {
-					matchedSite = ss
-				}
-			}
-		}
-		if matchedSite != nil {
-			site = &config.ScannedSite{
-				ID:              matchedSite.ServerName,
-				ServerName:      matchedSite.ServerName,
-				ServerAlias:     matchedSite.ServerAlias,
-				ConfigFile:      matchedSite.ConfigFile,
-				ListenPorts:     matchedSite.ListenPorts,
-				Webroot:         matchedSite.Webroot,
-				CertificatePath: matchedSite.CertificatePath,
-				PrivateKeyPath:  matchedSite.PrivateKeyPath,
-				Source:          "local",
-			}
-			hasSSL = matchedSite.HasSSL
-		}
-	} else {
-		s := apacheScanner.New()
-		allSites, err := s.ScanAll()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "扫描失败: %v\n", err)
-			os.Exit(1)
-		}
-
-		// 收集所有匹配的站点，优先选择有 SSL 的
-		var matchedSite *apacheScanner.Site
-		for _, ss := range allSites {
-			if matchesDomain(ss.ServerName, *domain) || containsDomain(ss.ServerAlias, *domain) {
-				if matchedSite == nil || (!matchedSite.HasSSL && ss.HasSSL) {
-					matchedSite = ss
-				}
-			}
-		}
-		if matchedSite != nil {
-			site = &config.ScannedSite{
-				ID:              matchedSite.ServerName,
-				ServerName:      matchedSite.ServerName,
-				ServerAlias:     matchedSite.ServerAlias,
-				ConfigFile:      matchedSite.ConfigFile,
-				ListenPorts:     matchedSite.ListenPorts,
-				Webroot:         matchedSite.Webroot,
-				CertificatePath: matchedSite.CertificatePath,
-				PrivateKeyPath:  matchedSite.PrivateKeyPath,
-				Source:          "local",
-			}
-			hasSSL = matchedSite.HasSSL
-		}
-	}
-
-	if site == nil {
-		fmt.Fprintf(os.Stderr, "未找到域名 %s 对应的站点配置\n", *domain)
-		os.Exit(1)
-	}
-
-	fmt.Printf("找到站点: %s (SSL: %v)\n", site.ServerName, hasSSL)
-
-	// 4. 若无 SSL 配置，提示安装
-	if !hasSSL {
-		fmt.Printf("站点 %s 尚未配置 HTTPS\n", site.ServerName)
-		fmt.Println("请先使用以下命令安装 HTTPS 配置:")
-		fmt.Printf("  cert-deploy install-https --site %s\n", site.ServerName)
-		os.Exit(1)
-	}
-
-	// 5. 调用 API 查询订单获取证书
-	fmt.Println("查询证书信息...")
-	f := fetcher.New(30 * time.Second)
-	ctx := context.Background()
-	certData, err := f.Query(ctx, *apiURL, *token, *domain)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "查询证书失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	if certData.Status != "active" || certData.Cert == "" {
-		fmt.Fprintf(os.Stderr, "证书未就绪: status=%s\n", certData.Status)
-		os.Exit(1)
-	}
-
-	fmt.Printf("证书已就绪，订单 ID: %d\n", certData.OrderID)
-
-	// 6. 生成站点配置
-	siteCfg := &config.SiteConfig{
-		Version:    "1.0",
-		SiteName:   site.ServerName,
-		Enabled:    true,
-		ServerType: serverType,
-		API: config.APIConfig{
-			URL:         *apiURL,
-			Token:       *token,
-			CallbackURL: buildCallbackURL(*apiURL),
-		},
-		Domains: append([]string{site.ServerName}, site.ServerAlias...),
-		Paths: config.PathsConfig{
-			Certificate: site.CertificatePath,
-			PrivateKey:  site.PrivateKeyPath,
-			ConfigFile:  site.ConfigFile,
-			Webroot:     site.Webroot,
-		},
-		Validation: config.ValidationConfig{
-			VerifyDomain: true, // 默认启用证书域名校验
-		},
-		Reload: getReloadConfig(serverType),
-		Backup: config.BackupConfig{
-			Enabled:      true,
-			KeepVersions: 3,
-		},
-		Schedule: config.ScheduleConfig{
-			CheckIntervalHours: 12,
-			RenewBeforeDays:    30,
-		},
-	}
-
-	if err := cfgManager.SaveSite(siteCfg); err != nil {
-		fmt.Fprintf(os.Stderr, "保存站点配置失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	configPath := filepath.Join(cfgManager.GetSitesDir(), site.ServerName+".json")
-	fmt.Printf("站点配置已生成: %s\n", configPath)
-
-	// 7. 部署证书
-	fmt.Println("开始部署证书...")
-	if serverType == "nginx" {
-		nginx.Run([]string{"deploy", "--site", site.ServerName}, version, buildTime, debug)
-	} else {
-		apache.Run([]string{"deploy", "--site", site.ServerName}, version, buildTime, debug)
-	}
-
-	// 8. 配置 systemd 服务
-	fmt.Println("\n部署完成！")
-	fmt.Println("\n下一步（可选）:")
-	fmt.Println("  systemctl enable cert-deploy   # 开机自启")
-	fmt.Println("  systemctl start cert-deploy    # 启动守护进程")
-}
-
 // runUninstall 卸载命令
 func runUninstall(args []string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
@@ -842,55 +626,3 @@ func detectWebServer() string {
 	return ""
 }
 
-// containsDomain 检查域名列表是否包含指定域名
-// matchesDomain 检查 serverName 是否匹配目标域名（支持通配符）
-func matchesDomain(serverName, domain string) bool {
-	if serverName == domain {
-		return true
-	}
-	// 支持通配符匹配: *.example.com 匹配 www.example.com
-	if strings.HasPrefix(serverName, "*.") && strings.HasSuffix(domain, serverName[1:]) {
-		return true
-	}
-	return false
-}
-
-func containsDomain(domains []string, domain string) bool {
-	for _, d := range domains {
-		if matchesDomain(d, domain) {
-			return true
-		}
-	}
-	return false
-}
-
-// getReloadConfig 获取重载配置
-func getReloadConfig(serverType string) config.ReloadConfig {
-	if serverType == "nginx" {
-		return config.ReloadConfig{
-			TestCommand:   "nginx -t",
-			ReloadCommand: "nginx -s reload",
-		}
-	}
-	return config.ReloadConfig{
-		TestCommand:   "apache2ctl -t",
-		ReloadCommand: "systemctl reload apache2",
-	}
-}
-
-// buildCallbackURL 构建回调 URL
-// 如果 baseURL 已包含 /api/deploy 路径，则添加 /callback
-// 否则添加完整的 /api/deploy/callback
-func buildCallbackURL(baseURL string) string {
-	// 先去掉尾部斜杠，统一处理
-	base := strings.TrimSuffix(baseURL, "/")
-	if strings.HasSuffix(base, "/api/deploy") {
-		return base + "/callback"
-	}
-	return base + "/api/deploy/callback"
-}
-
-// SetDebugLogger 设置调试日志记录器
-func SetDebugLogger(log *logger.Logger) {
-	log.SetLevel(logger.LevelDebug)
-}

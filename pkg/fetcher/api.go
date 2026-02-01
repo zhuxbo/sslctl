@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -30,12 +29,12 @@ type RetryConfig struct {
 	Multiplier  float64       // 退避乘数
 }
 
-// DefaultRetryConfig 默认重试配置
+// DefaultRetryConfig 默认重试配置（线性退避：1s, 2s, 3s）
 var DefaultRetryConfig = RetryConfig{
 	MaxRetries:  3,
 	InitialWait: 1 * time.Second,
-	MaxWait:     30 * time.Second,
-	Multiplier:  2.0,
+	MaxWait:     3 * time.Second,
+	Multiplier:  1.0,
 }
 
 type FileChallenge struct {
@@ -175,7 +174,6 @@ func isRetryable(err error, statusCode int) bool {
 // doWithRetry 带重试的 HTTP 请求
 func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Request, error)) (*http.Response, error) {
 	var lastErr error
-	wait := f.retryConfig.InitialWait
 
 	for attempt := 0; attempt <= f.retryConfig.MaxRetries; attempt++ {
 		req, err := newRequest()
@@ -210,9 +208,8 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 			break
 		}
 
-		// 指数退避 + 随机抖动
-		jitter := time.Duration(rand.IntN(int(wait / 2)))
-		sleepTime := wait + jitter
+		// 线性退避：1s, 2s, 3s（attempt 从 0 开始）
+		sleepTime := f.retryConfig.InitialWait + time.Duration(attempt)*time.Second
 		if sleepTime > f.retryConfig.MaxWait {
 			sleepTime = f.retryConfig.MaxWait
 		}
@@ -222,8 +219,6 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 			return nil, ctx.Err()
 		case <-time.After(sleepTime):
 		}
-
-		wait = time.Duration(float64(wait) * f.retryConfig.Multiplier)
 	}
 
 	return nil, lastErr
@@ -503,4 +498,55 @@ func (f *Fetcher) Update(ctx context.Context, baseURL, token string, orderID int
 func (f *Fetcher) CallbackNew(ctx context.Context, baseURL, token string, callbackReq *CallbackRequest) error {
 	callbackURL := buildAPIURL(baseURL, "/callback")
 	return f.Callback(ctx, callbackURL, token, callbackReq)
+}
+
+// QueryOrder 按 OrderID 查询订单状态
+// GET {baseURL}/api/deploy?order_id=xxx
+func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID int) (*CertData, error) {
+	apiURL := buildAPIURL(baseURL, "")
+	if err := mustValidURL(apiURL); err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+
+	// 构建带 order_id 参数的 URL
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+	q := u.Query()
+	q.Set("order_id", fmt.Sprintf("%d", orderID))
+	u.RawQuery = q.Encode()
+	fullURL := u.String()
+
+	newRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	}
+
+	resp, err := f.doWithRetry(ctx, newRequest)
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to query order", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+	const maxResponseSize = 512 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to read response body", err)
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, errors.NewNetworkError("failed to parse JSON response", err)
+	}
+	if apiResp.Code != APICodeSuccess {
+		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
+	}
+	return apiResp.ParseData()
 }

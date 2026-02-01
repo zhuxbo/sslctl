@@ -163,11 +163,25 @@ sudo journalctl -u cert-deploy -f
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/deploy` | 查询订单，`?domain=xxx` 按域名查询 |
-| POST | `/api/deploy` | 更新/续费证书 |
+| GET | `/api/deploy?order_id=xxx` | 按订单 ID 查询（推荐） |
+| GET | `/api/deploy?domain=xxx` | 按域名查询（首次获取 order_id） |
+| POST | `/api/deploy` | 更新/续费证书（需要 order_id） |
 | POST | `/api/deploy/callback` | 部署结果回调 |
 
 认证：`Authorization: Bearer {deploy_token}`
+
+### POST 请求参数
+
+```json
+{
+  "order_id": 12345,           // 必需（重签/续费时）
+  "csr": "-----BEGIN...",      // 可选：有=本地私钥，空=服务端生成
+  "domains": "a.com,b.com",    // 可选
+  "validation_method": "file"  // 可选
+}
+```
+
+**关键逻辑**：`csr` 为空时服务端设置 `csr_generate=1` 自动生成私钥
 
 ### 响应格式
 
@@ -249,3 +263,88 @@ cert-deploy                    Manager API                    CA
 1. 检查服务配置语法
 2. 检查服务是否运行
 3. 手动重载测试
+
+---
+
+## 续签模式
+
+服务端在证书到期前 **14 天**自动续签，本地需配合选择续签模式：
+
+| 模式 | 说明 | 时间限制 | 默认值 |
+|------|------|----------|--------|
+| `local` | 本地私钥模式，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
+| `pull` | 拉取模式，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
+
+### 命令行启用
+
+```bash
+# 初始化时启用本地私钥模式
+cert-deploy init --url <url> --token <token> --local-key
+```
+
+### 配置文件
+
+```json
+{
+  "schedule": {
+    "renew_mode": "local",
+    "renew_before_days": 15
+  }
+}
+```
+
+### 本地私钥模式流程
+
+```
+定时任务 → NeedsRenewal() == true
+    │
+    └─ renewLocalKeyMode() → issuer.CheckAndIssue()
+        │
+        ├─ OrderID > 0 → QueryOrder(order_id)
+        │   ├─ processing → 跳过，等待下次
+        │   ├─ active → 检查私钥匹配 → 部署
+        │   └─ 失败/其他 → Update(order_id, csr) 重签
+        │
+        └─ OrderID == 0 → Update(0, csr) 首次提交
+            └─ 保存返回的 order_id
+```
+
+关键方法：`issuer.CheckAndIssue()`
+
+### 拉取模式流程
+
+```
+定时任务 → NeedsRenewal() == true
+    │
+    └─ renewPullMode()
+        │
+        ├─ 保存 order_id（无论状态）
+        │
+        ├─ OrderID > 0 → QueryOrder(order_id)
+        │   ├─ processing + File → 放置验证文件，等待下次
+        │   ├─ processing 无 File → 等待下次
+        │   ├─ 失败/非 active → 跳过
+        │   └─ active → 部署
+        │
+        └─ OrderID == 0 → Query(domain)
+            └─ 获取初始 order_id，保存并部署
+```
+
+### order_id 处理规则
+
+1. **两种模式都保存 order_id** - 用于后续查询和重签
+2. **通过 order_id 查询** - 优先使用 `QueryOrder(order_id)`
+3. **本地私钥模式 POST 带 order_id** - `Update(order_id, csr)` 用于重签/续费
+4. **首次部署用域名查询** - `Query(domain)` 获取初始 order_id
+
+### 验证方法校验
+
+使用 `config.ValidateValidationMethod(domain, method)` 校验域名与验证方法的兼容性：
+
+| 域名类型 | file 验证 | delegation 验证 |
+|---------|----------|-----------------|
+| 普通域名 | ✅ | ✅ |
+| 通配符域名 | ❌ 报错 | ✅ |
+| IP 地址 | ✅ | ❌ 报错 |
+
+**注意**：不兼容时直接报错，不自动切换验证方式。校验函数位于 `pkg/config/base.go`

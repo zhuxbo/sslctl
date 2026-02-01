@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zhuxbo/cert-deploy/pkg/config"
@@ -13,6 +14,7 @@ import (
 	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
 	"github.com/zhuxbo/cert-deploy/pkg/logger"
 	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/cert-deploy/pkg/validator"
 )
 
 // IssueResult 签发结果
@@ -196,4 +198,202 @@ func (i *Issuer) log(format string, args ...interface{}) {
 	if i.logger != nil {
 		i.logger.Info(format, args...)
 	}
+}
+
+// IssueAction 签发动作
+const (
+	ActionSkip      = "skip"      // 跳过（processing 状态）
+	ActionDeployed  = "deployed"  // 已部署
+	ActionSubmitted = "submitted" // 已提交 CSR，等待下次
+	ActionError     = "error"     // 错误
+)
+
+// CheckAndIssueResult CheckAndIssue 的返回结果
+type CheckAndIssueResult struct {
+	CertData   *fetcher.CertData // 证书数据（仅 deployed 时有效）
+	PrivateKey string            // 私钥（仅 deployed 时有效）
+	Action     string            // 动作: skip, deployed, submitted, error
+	OrderID    int               // 订单 ID（submitted 时需要保存）
+}
+
+// CheckAndIssue 检查订单状态并决定下一步操作（用于本地私钥模式）
+// 流程:
+//   - OrderID > 0: 查询订单状态
+//     - processing: return skip
+//     - active: handleActiveCert
+//     - 失败/其他: submitNewCSR
+//   - OrderID == 0: submitNewCSR
+func (i *Issuer) CheckAndIssue(ctx context.Context, site *config.SiteConfig, keyPath string, opts IssueOptions) (*CheckAndIssueResult, error) {
+	// 合并默认选项
+	if opts.MaxWait == 0 {
+		opts.MaxWait = DefaultIssueOptions.MaxWait
+	}
+	if opts.CheckInterval == 0 {
+		opts.CheckInterval = DefaultIssueOptions.CheckInterval
+	}
+
+	orderID := site.Metadata.OrderID
+
+	// 如果有订单 ID，先查询状态
+	if orderID > 0 {
+		i.log("查询订单状态: OrderID=%d", orderID)
+		certData, err := i.fetcher.QueryOrder(ctx, site.API.URL, site.API.Token, orderID)
+		if err != nil {
+			i.log("查询订单失败: %v，将重新提交 CSR", err)
+			return i.submitNewCSR(ctx, site, keyPath, opts)
+		}
+
+		switch certData.Status {
+		case "processing":
+			i.log("订单仍在处理中，跳过")
+			return &CheckAndIssueResult{Action: ActionSkip}, nil
+		case "active":
+			return i.handleActiveCert(ctx, site, certData, keyPath, opts)
+		default:
+			i.log("订单状态异常: %s，将重新提交 CSR", certData.Status)
+			return i.submitNewCSR(ctx, site, keyPath, opts)
+		}
+	}
+
+	// 没有订单 ID，提交新 CSR
+	return i.submitNewCSR(ctx, site, keyPath, opts)
+}
+
+// handleActiveCert 处理已签发的证书
+func (i *Issuer) handleActiveCert(ctx context.Context, site *config.SiteConfig, certData *fetcher.CertData, keyPath string, opts IssueOptions) (*CheckAndIssueResult, error) {
+	i.log("证书已签发，检查私钥")
+
+	// API 返回了私钥，直接使用
+	if certData.PrivateKey != "" {
+		i.log("使用 API 返回的私钥")
+		return &CheckAndIssueResult{
+			CertData:   certData,
+			PrivateKey: certData.PrivateKey,
+			Action:     ActionDeployed,
+			OrderID:    certData.OrderID,
+		}, nil
+	}
+
+	// 尝试读取本地私钥
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		i.log("本地私钥不存在，将重新提交 CSR: %v", err)
+		return i.submitNewCSR(ctx, site, keyPath, opts)
+	}
+
+	privateKey := string(keyBytes)
+
+	// 验证私钥与证书是否匹配
+	if !i.validateKeyPair(certData.Cert, privateKey) {
+		i.log("本地私钥与证书不匹配，删除旧私钥并重新提交 CSR")
+		os.Remove(keyPath)
+		return i.submitNewCSR(ctx, site, keyPath, opts)
+	}
+
+	i.log("本地私钥与证书匹配")
+	return &CheckAndIssueResult{
+		CertData:   certData,
+		PrivateKey: privateKey,
+		Action:     ActionDeployed,
+		OrderID:    certData.OrderID,
+	}, nil
+}
+
+// submitNewCSR 生成新的 CSR 并提交
+func (i *Issuer) submitNewCSR(ctx context.Context, site *config.SiteConfig, keyPath string, opts IssueOptions) (*CheckAndIssueResult, error) {
+	// 生成私钥和 CSR
+	keyOpts := csr.KeyOptions{
+		Type:  site.Key.Type,
+		Size:  site.Key.Size,
+		Curve: site.Key.Curve,
+	}
+
+	commonName := site.CSR.CommonName
+	if commonName == "" && len(site.Domains) > 0 {
+		commonName = site.Domains[0]
+	}
+
+	csrOpts := csr.CSROptions{
+		CommonName:   commonName,
+		Organization: site.CSR.Organization,
+		Country:      site.CSR.Country,
+		State:        site.CSR.State,
+		Locality:     site.CSR.Locality,
+		Email:        site.CSR.Email,
+	}
+
+	i.log("生成私钥和 CSR: CN=%s", commonName)
+
+	privateKey, csrPEM, csrHash, err := csr.GenerateKeyAndCSR(keyOpts, csrOpts)
+	if err != nil {
+		return nil, fmt.Errorf("生成 CSR 失败: %w", err)
+	}
+
+	// 保存私钥到本地
+	keyDir := filepath.Dir(keyPath)
+	if err := os.MkdirAll(keyDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建私钥目录失败: %w", err)
+	}
+	if err := os.WriteFile(keyPath, []byte(privateKey), 0600); err != nil {
+		return nil, fmt.Errorf("保存私钥失败: %w", err)
+	}
+	i.log("私钥已保存: %s", keyPath)
+
+	// 提交 CSR 到 API（通过 POST 部署接口）
+	// 传入现有 order_id 用于重签/续费场景，首次提交时 order_id 为 0
+	i.log("提交 CSR 到 API: %s (OrderID=%d)", site.API.URL, site.Metadata.OrderID)
+
+	certData, err := i.fetcher.Update(ctx, site.API.URL, site.API.Token,
+		site.Metadata.OrderID,
+		csrPEM,
+		strings.Join(site.Domains, ","),
+		opts.ValidationMethod)
+	if err != nil {
+		return nil, fmt.Errorf("提交 CSR 失败: %w", err)
+	}
+
+	// 更新元数据
+	site.Metadata.CSRSubmittedAt = time.Now()
+	site.Metadata.LastCSRHash = csrHash
+	site.Metadata.LastIssueState = certData.Status
+	site.Metadata.OrderID = certData.OrderID
+
+	// 处理 file 验证
+	if certData.Status == "processing" && certData.File != nil {
+		certData, err = i.handleFileValidation(ctx, site, certData, opts)
+		if err != nil {
+			return &CheckAndIssueResult{
+				Action:  ActionSubmitted,
+				OrderID: site.Metadata.OrderID,
+			}, nil // file 验证失败不算致命错误，等待下次
+		}
+	}
+
+	// 如果还在 processing 状态，等待下次
+	if certData.Status == "processing" {
+		i.log("CSR 已提交，等待签发: OrderID=%d", certData.OrderID)
+		return &CheckAndIssueResult{
+			Action:  ActionSubmitted,
+			OrderID: certData.OrderID,
+		}, nil
+	}
+
+	// 证书已签发
+	if certData.Status == "active" && certData.Cert != "" {
+		i.log("证书签发完成")
+		return &CheckAndIssueResult{
+			CertData:   certData,
+			PrivateKey: privateKey,
+			Action:     ActionDeployed,
+			OrderID:    certData.OrderID,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("证书签发状态异常: status=%s", certData.Status)
+}
+
+// validateKeyPair 验证私钥与证书是否匹配
+func (i *Issuer) validateKeyPair(certPEM, keyPEM string) bool {
+	v := validator.New("")
+	return v.ValidateCertKeyPair(certPEM, keyPEM) == nil
 }

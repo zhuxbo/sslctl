@@ -122,6 +122,11 @@ func (m *Manager) LoadSite(siteName string) (*SiteConfig, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// 验证调度配置
+	if err := ValidateSchedule(&config.Schedule); err != nil {
+		return nil, err
+	}
+
 	// 写入缓存
 	if m.cacheTTL > 0 {
 		m.mu.Lock()
@@ -139,6 +144,11 @@ func (m *Manager) LoadSite(siteName string) (*SiteConfig, error) {
 
 // SaveSite 保存站点配置
 func (m *Manager) SaveSite(config *SiteConfig) error {
+	// 验证调度配置
+	if err := ValidateSchedule(&config.Schedule); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	configPath := m.getSiteConfigPath(config.SiteName)

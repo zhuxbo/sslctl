@@ -41,6 +41,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		installHTTPS = fs.Bool("install-https", false, "为 HTTP 站点安装 HTTPS 配置")
 		daemon       = fs.Bool("daemon", false, "守护进程模式")
 		initConfig   = fs.Bool("init", false, "根据扫描结果生成站点配置")
+		localKey     = fs.Bool("local-key", false, "使用本地私钥模式（本地生成私钥和 CSR）")
 		apiURL       = fs.String("url", "", "证书 API 地址")
 		token        = fs.String("token", "", "API 认证 Token")
 		domains      = fs.String("domains", "", "域名列表（逗号分隔）")
@@ -114,7 +115,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	if *scanOnly {
 		runScan(log, *sslOnly)
 	} else if *initConfig {
-		if err := runInit(*apiURL, *token, *domains, fs.Arg(0)); err != nil {
+		if err := runInit(*apiURL, *token, *domains, *localKey, fs.Arg(0)); err != nil {
 			fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -425,8 +426,8 @@ func runDaemon(cfgManager *config.Manager, log *logger.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// 检查间隔（默认 10 分钟）
-	interval := 10 * time.Minute
+	// 检查间隔
+	interval := time.Duration(config.DefaultCheckIntervalHours) * time.Hour
 	log.Info("检查间隔: %v", interval)
 
 	ticker := time.NewTicker(interval)
@@ -512,12 +513,174 @@ func checkAndDeploy(ctx context.Context, cfgManager *config.Manager, log *logger
 			continue
 		}
 
-		if err := deploySiteConfig(ctx, cfgManager, siteCfg, certPath, keyPath, webroot, log); err != nil {
-			log.Error("部署站点 %s 失败: %v", siteCfg.SiteName, err)
+		// 根据续签模式选择处理逻辑
+		if siteCfg.IsLocalKeyMode() {
+			if err := renewLocalKeyMode(ctx, cfgManager, siteCfg, certPath, keyPath, webroot, log); err != nil {
+				log.Error("站点 %s 本地私钥模式续签失败: %v", siteCfg.SiteName, err)
+			}
+		} else {
+			if err := renewPullMode(ctx, cfgManager, siteCfg, certPath, keyPath, webroot, log); err != nil {
+				log.Error("站点 %s 拉取模式续签失败: %v", siteCfg.SiteName, err)
+			}
 		}
 	}
 
 	log.Info("检查完成")
+}
+
+// renewLocalKeyMode 本地私钥模式续签
+// 流程:
+//   - issuer.CheckAndIssue()
+//   - "skip": 跳过（processing 状态）
+//   - "submitted": 保存配置，等待下次
+//   - "deployed": deployWithCertData()
+func renewLocalKeyMode(ctx context.Context, cfgManager *config.Manager, site *config.SiteConfig, certPath, keyPath, webroot string, log *logger.Logger) error {
+	log.Info("站点 %s 使用本地私钥模式", site.SiteName)
+
+	iss := issuer.New(log)
+
+	// 确定验证方式并校验兼容性
+	method := site.Validation.Method
+	if method == "" {
+		method = config.ValidationMethodFile
+	}
+	for _, d := range site.Domains {
+		if errMsg := config.ValidateValidationMethod(d, method); errMsg != "" {
+			return fmt.Errorf("域名 %s 验证方式不兼容: %s", d, errMsg)
+		}
+	}
+
+	opts := issuer.IssueOptions{
+		Webroot:          webroot,
+		ValidationMethod: method,
+	}
+
+	// 增加重试计数
+	site.IncrementRetryCount()
+	if err := cfgManager.SaveSite(site); err != nil {
+		log.Warn("保存重试计数失败: %v", err)
+	}
+
+	result, err := iss.CheckAndIssue(ctx, site, keyPath, opts)
+	if err != nil {
+		return fmt.Errorf("CheckAndIssue 失败: %w", err)
+	}
+
+	switch result.Action {
+	case issuer.ActionSkip:
+		log.Info("站点 %s 订单处理中，跳过", site.SiteName)
+		return nil
+
+	case issuer.ActionSubmitted:
+		// 保存 OrderID 和元数据
+		site.Metadata.OrderID = result.OrderID
+		if err := cfgManager.SaveSite(site); err != nil {
+			log.Warn("保存 OrderID 失败: %v", err)
+		}
+		log.Info("站点 %s CSR 已提交，OrderID=%d，等待下次检查", site.SiteName, result.OrderID)
+		return nil
+
+	case issuer.ActionDeployed:
+		// 部署证书
+		site.Metadata.OrderID = result.OrderID
+		return deployWithCertData(cfgManager, site, certPath, keyPath, result.CertData, result.PrivateKey, log)
+
+	default:
+		return fmt.Errorf("未知的操作: %s", result.Action)
+	}
+}
+
+// renewPullMode 拉取模式续签
+// 流程:
+//   - OrderID > 0: QueryOrder(order_id) 查询
+//   - OrderID == 0: Query(domain) 获取初始 order_id
+//   - 失败/status != active: 跳过
+//   - 保存 order_id 并部署
+func renewPullMode(ctx context.Context, cfgManager *config.Manager, site *config.SiteConfig, certPath, keyPath, webroot string, log *logger.Logger) error {
+	log.Info("站点 %s 使用拉取模式", site.SiteName)
+
+	f := fetcher.New(30 * time.Second)
+
+	var certData *fetcher.CertData
+	var err error
+
+	// 优先用 order_id 查询
+	if site.Metadata.OrderID > 0 {
+		log.Debug("使用 OrderID 查询: %d", site.Metadata.OrderID)
+		certData, err = f.QueryOrder(ctx, site.API.URL, site.API.Token, site.Metadata.OrderID)
+	} else {
+		// 首次：用 domain 查询获取 order_id
+		domain := site.SiteName
+		if len(site.Domains) > 0 {
+			domain = site.Domains[0]
+		}
+		log.Debug("使用域名查询: %s", domain)
+		certData, err = f.Query(ctx, site.API.URL, site.API.Token, domain)
+	}
+
+	if err != nil {
+		log.Warn("站点 %s 查询证书失败: %v，跳过", site.SiteName, err)
+		return nil
+	}
+
+	// 保存 order_id（无论状态如何，只要返回了 order_id）
+	if certData.OrderID > 0 && certData.OrderID != site.Metadata.OrderID {
+		site.Metadata.OrderID = certData.OrderID
+		if err := cfgManager.SaveSite(site); err != nil {
+			log.Warn("保存 OrderID 失败: %v", err)
+		} else {
+			log.Debug("已保存 OrderID: %d", certData.OrderID)
+		}
+	}
+
+	// 处理 processing 状态：可能需要文件验证
+	if certData.Status == "processing" {
+		if certData.File != nil && certData.File.Path != "" {
+			// 需要文件验证
+			if webroot == "" {
+				log.Warn("站点 %s 需要文件验证但未配置 webroot，跳过", site.SiteName)
+				return nil
+			}
+
+			// 放置验证文件
+			validationPath, err := util.JoinUnderDir(webroot, certData.File.Path)
+			if err != nil {
+				log.Warn("站点 %s 验证文件路径无效: %v，跳过", site.SiteName, err)
+				return nil
+			}
+			validationDir := filepath.Dir(validationPath)
+
+			if err := os.MkdirAll(validationDir, 0755); err != nil {
+				log.Warn("站点 %s 创建验证目录失败: %v，跳过", site.SiteName, err)
+				return nil
+			}
+
+			if err := os.WriteFile(validationPath, []byte(certData.File.Content), 0644); err != nil {
+				log.Warn("站点 %s 写入验证文件失败: %v，跳过", site.SiteName, err)
+				return nil
+			}
+
+			log.Info("站点 %s 验证文件已放置: %s，等待下次检查", site.SiteName, validationPath)
+		} else {
+			log.Debug("站点 %s 证书状态 processing，等待下次检查", site.SiteName)
+		}
+		return nil
+	}
+
+	// 检查状态
+	if certData.Status != "active" {
+		log.Debug("站点 %s 证书状态 %s，跳过", site.SiteName, certData.Status)
+		return nil
+	}
+
+	// 检查证书是否为空
+	if certData.Cert == "" {
+		log.Debug("站点 %s 证书内容为空，跳过", site.SiteName)
+		return nil
+	}
+
+	// 部署证书
+	return deployWithCertData(cfgManager, site, certPath, keyPath, certData, certData.PrivateKey, log)
 }
 
 // deploySite 部署指定站点
@@ -652,16 +815,14 @@ func issueSite(cfgManager *config.Manager, siteName string, log *logger.Logger) 
 
 	iss := issuer.New(log)
 
-	// 确定验证方式
+	// 确定验证方式并校验兼容性
 	method := site.Validation.Method
 	if method == "" {
-		method = "file" // 默认
+		method = config.ValidationMethodFile
 	}
-	// 通配符域名强制使用 delegation（不支持 file 验证）
 	for _, d := range site.Domains {
-		if strings.HasPrefix(d, "*") {
-			method = "delegation"
-			break
+		if errMsg := config.ValidateValidationMethod(d, method); errMsg != "" {
+			return fmt.Errorf("域名 %s 验证方式不兼容: %s", d, errMsg)
 		}
 	}
 
@@ -672,8 +833,15 @@ func issueSite(cfgManager *config.Manager, siteName string, log *logger.Logger) 
 
 	log.Info("开始签发证书: %s", site.SiteName)
 
+	// 增加重试计数（标记开始尝试）
+	site.IncrementRetryCount()
+	if err := cfgManager.SaveSite(site); err != nil {
+		log.Warn("保存重试计数失败: %v", err)
+	}
+
 	result, err := iss.Issue(context.Background(), site, opts)
 	if err != nil {
+		// 失败时保持增加后的计数，下次可以在 <= 14 天时重试
 		return fmt.Errorf("证书签发失败: %w", err)
 	}
 
@@ -762,6 +930,7 @@ func deployWithCertData(cfgManager *config.Manager, site *config.SiteConfig, cer
 	site.Metadata.CertSerial = fmt.Sprintf("%X", cert.SerialNumber)
 	site.Metadata.LastDeployAt = time.Now()
 	site.Metadata.LastCheckAt = time.Now()
+	site.ResetRetryCount() // 成功后重置重试计数
 
 	if err := cfgManager.SaveSite(site); err != nil {
 		log.Warn("保存站点元数据失败: %v", err)
@@ -1260,7 +1429,7 @@ func deployDockerSite(ctx context.Context, site *config.SiteConfig, cert, interm
 }
 
 // runInit 根据扫描结果生成站点配置
-func runInit(apiURL, token, domainsStr, siteID string) error {
+func runInit(apiURL, token, domainsStr string, localKey bool, siteID string) error {
 	if apiURL == "" {
 		return fmt.Errorf("缺少 -url 参数")
 	}
@@ -1324,7 +1493,7 @@ func runInit(apiURL, token, domainsStr, siteID string) error {
 		}
 	}
 
-	cfg := generateSiteConfig(site, apiURL, token, domains)
+	cfg := generateSiteConfig(site, apiURL, token, domains, localKey)
 
 	cfgManager, err := config.NewManager()
 	if err != nil {
@@ -1337,6 +1506,9 @@ func runInit(apiURL, token, domainsStr, siteID string) error {
 
 	configPath := filepath.Join(cfgManager.GetSitesDir(), site.ID+".json")
 	fmt.Printf("\n已生成配置文件: %s\n", configPath)
+	if localKey {
+		fmt.Printf("私钥模式: 本地生成\n")
+	}
 	fmt.Printf("\n下一步:\n")
 	fmt.Printf("  cert-deploy nginx deploy --site %s    # 部署证书\n", site.ID)
 
@@ -1344,14 +1516,14 @@ func runInit(apiURL, token, domainsStr, siteID string) error {
 }
 
 // generateSiteConfig 生成站点配置
-func generateSiteConfig(site *config.ScannedSite, apiURL, token string, domains []string) *config.SiteConfig {
+func generateSiteConfig(site *config.ScannedSite, apiURL, token string, domains []string, localKey bool) *config.SiteConfig {
 	cfg := &config.SiteConfig{
 		Version:    "1.0",
 		SiteName:   site.ID,
 		Enabled:    true,
 		ServerType: "nginx",
 		API: config.APIConfig{
-			URL:     apiURL,
+			URL:   apiURL,
 			Token: token,
 		},
 		Reload: config.ReloadConfig{
@@ -1364,8 +1536,14 @@ func generateSiteConfig(site *config.ScannedSite, apiURL, token string, domains 
 		},
 		Schedule: config.ScheduleConfig{
 			CheckIntervalHours: 12,
-			RenewBeforeDays:    30,
+			RenewBeforeDays:    config.PullRenewDefaultDay,
 		},
+	}
+
+	// 本地私钥模式
+	if localKey {
+		cfg.Schedule.RenewMode = config.RenewModeLocal
+		cfg.Schedule.RenewBeforeDays = config.LocalRenewDefaultDay // 15 天
 	}
 
 	if len(domains) > 0 {
