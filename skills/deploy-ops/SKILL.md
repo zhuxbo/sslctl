@@ -241,6 +241,61 @@ cert-deploy                    Manager API                    CA
 
 ---
 
+## 安全特性
+
+- **HTTPS 强制**：远程 API 必须使用 HTTPS（仅 localhost 允许 HTTP）
+- **命令白名单**：容器内只允许执行预定义的安全命令
+- **路径验证**：Docker 容器路径参数严格验证，防止命令注入和 glob 展开
+- **临时目录安全**：临时目录权限设置为 0700
+- **日志目录安全**：日志目录权限设置为 0700（防止日志泄露）
+- **配置文件锁**：并发写入保护（跨平台支持）
+- **部署回滚**：部署失败自动回滚到备份
+- **升级校验**：下载二进制时验证 SHA256 校验和
+- **日志轮转**：自动清理旧日志文件（保留 30 天/10 个）
+- **重试限制**：CSR 签发重试次数上限（10 次）
+- **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换
+- **环境变量**：支持通过环境变量配置敏感信息（优先级高于配置文件）
+
+---
+
+## 配置文件示例
+
+```json
+{
+  "version": "2.0",
+  "api": {
+    "url": "https://api.example.com",
+    "token": "xxx"
+  },
+  "schedule": {
+    "check_interval_hours": 6,
+    "renew_before_days": 13,
+    "renew_mode": "pull"
+  },
+  "certificates": [
+    {
+      "cert_name": "order-12345",
+      "order_id": 12345,
+      "enabled": true,
+      "domains": ["*.example.com", "example.com"],
+      "bindings": [
+        {
+          "site_name": "www.example.com",
+          "server_type": "nginx",
+          "enabled": true,
+          "paths": {
+            "certificate": "/opt/cert-deploy/certs/www.example.com/cert.pem",
+            "private_key": "/opt/cert-deploy/certs/www.example.com/key.pem"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
 ## 常见问题
 
 ### 权限不足

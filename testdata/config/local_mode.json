@@ -1,0 +1,13 @@
+{
+  "version": "2.0",
+  "api": {
+    "url": "https://api.example.com",
+    "token": "test-token"
+  },
+  "schedule": {
+    "check_interval_hours": 6,
+    "renew_before_days": 15,
+    "renew_mode": "local"
+  },
+  "certificates": []
+}

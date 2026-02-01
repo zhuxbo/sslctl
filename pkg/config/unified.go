@@ -31,6 +31,11 @@ func NewConfigManager() (*ConfigManager, error) {
 		workDir = "/opt/cert-deploy"
 	}
 
+	return NewConfigManagerWithDir(workDir)
+}
+
+// NewConfigManagerWithDir 创建指定工作目录的配置管理器（用于测试）
+func NewConfigManagerWithDir(workDir string) (*ConfigManager, error) {
 	cm := &ConfigManager{
 		workDir:    workDir,
 		configPath: filepath.Join(workDir, "config.json"),

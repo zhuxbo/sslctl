@@ -214,11 +214,18 @@ Docker 站点配置添加 `docker` 字段：
 ## 开发测试
 
 ```bash
+# 运行单元测试
+go test -v ./...
+
+# 运行测试并查看覆盖率
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out | grep total
+
 # Linux 发行版容器测试（需要 Docker）
 bash build/test-linux.sh
 ```
 
-测试覆盖 5 种发行版 × 3 种 init 系统：
+容器测试覆盖 5 种发行版 × 3 种 init 系统：
 - systemd: Ubuntu 22.04, Debian 12, AlmaLinux 9
 - OpenRC: Alpine 3.19
 - SysVinit: Devuan 5
