@@ -78,7 +78,7 @@ type Logger struct {
 // New 创建日志记录器
 // 日志级别通过 LOG_LEVEL 环境变量配置，支持: debug, info, warn, error
 func New(logDir, siteName string) (*Logger, error) {
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func (l *Logger) openLogFile() error {
 	filename := fmt.Sprintf("%s-%s.log", l.siteName, date)
 	logPath := filepath.Join(l.logDir, filename)
 
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -218,7 +218,7 @@ func (l *Logger) LogScan(configPath string, sitesFound int) {
 func (l *Logger) cleanOldLogs() {
 	pattern := filepath.Join(l.logDir, l.siteName+"-*.log")
 	files, err := filepath.Glob(pattern)
-	if err != nil || len(files) <= MaxLogBackups {
+	if err != nil || len(files) < MaxLogBackups {
 		return
 	}
 

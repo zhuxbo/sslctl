@@ -81,6 +81,8 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 		backupChainPath := filepath.Join(backupPath, "chain.pem")
 		if err := util.CopyFile(actualChainPath, backupChainPath); err != nil {
 			// chain 文件备份失败不影响整体备份
+			// 清空 actualChainPath 确保 metadata 不记录未备份的文件
+			// 这样回滚时不会尝试恢复不存在的 chain 文件
 			actualChainPath = ""
 		}
 	}
@@ -215,7 +217,7 @@ func (m *Manager) saveMetadata(path string, metadata *Metadata) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // DeleteBackup 删除指定备份

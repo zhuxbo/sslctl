@@ -54,7 +54,7 @@ func (cm *ConfigManager) ensureDirs() error {
 	}{
 		{cm.workDir, 0755},
 		{cm.certsDir, 0700},
-		{cm.logsDir, 0755},
+		{cm.logsDir, 0700},
 		{cm.backupDir, 0700},
 	}
 
@@ -106,6 +106,15 @@ func (cm *ConfigManager) Load() (*Config, error) {
 	}
 
 	cm.config = &cfg
+
+	// 环境变量优先级高于配置文件
+	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
+		cm.config.API.Token = envToken
+	}
+	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
+		cm.config.API.URL = envURL
+	}
+
 	return cm.config, nil
 }
 

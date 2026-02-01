@@ -43,6 +43,9 @@ type Site struct {
 	PrivateKeyPath  string   `json:"private_key_path,omitempty"` // 私钥路径 (ssl_certificate_key)
 }
 
+// maxScanDepth 最大扫描深度，防止符号链接环导致死循环
+const maxScanDepth = 100
+
 // Scanner Nginx 配置扫描器
 type Scanner struct {
 	mainConfigPath string            // 主配置文件路径
@@ -219,7 +222,7 @@ func (s *Scanner) Scan() ([]*SSLSite, error) {
 	}
 
 	// 从主配置文件开始递归扫描
-	return s.scanConfigFile(s.mainConfigPath)
+	return s.scanConfigFile(s.mainConfigPath, 0)
 }
 
 // ScanFile 扫描单个配置文件
@@ -228,7 +231,13 @@ func (s *Scanner) ScanFile(filePath string) ([]*SSLSite, error) {
 }
 
 // scanConfigFile 扫描配置文件（递归处理 include）
-func (s *Scanner) scanConfigFile(configPath string) ([]*SSLSite, error) {
+func (s *Scanner) scanConfigFile(configPath string, depth int) ([]*SSLSite, error) {
+	// 检查扫描深度限制
+	if depth > maxScanDepth {
+		s.logDebug("扫描深度超过限制 (%d)，跳过: %s", maxScanDepth, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -260,7 +269,7 @@ func (s *Scanner) scanConfigFile(configPath string) ([]*SSLSite, error) {
 
 	// 递归扫描 include 的文件
 	for _, inc := range includes {
-		incSites, err := s.scanConfigFile(inc)
+		incSites, err := s.scanConfigFile(inc, depth+1)
 		if err == nil {
 			sites = append(sites, incSites...)
 		}
@@ -559,11 +568,17 @@ func (s *Scanner) ScanHTTPSites() ([]*HTTPSite, error) {
 	s.scannedFiles = make(map[string]bool)
 
 	// 从主配置文件开始递归扫描
-	return s.scanHTTPConfigFile(s.mainConfigPath)
+	return s.scanHTTPConfigFile(s.mainConfigPath, 0)
 }
 
 // scanHTTPConfigFile 扫描配置文件中的 HTTP 站点（递归处理 include）
-func (s *Scanner) scanHTTPConfigFile(configPath string) ([]*HTTPSite, error) {
+func (s *Scanner) scanHTTPConfigFile(configPath string, depth int) ([]*HTTPSite, error) {
+	// 检查扫描深度限制
+	if depth > maxScanDepth {
+		s.logDebug("扫描深度超过限制 (%d)，跳过: %s", maxScanDepth, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -595,7 +610,7 @@ func (s *Scanner) scanHTTPConfigFile(configPath string) ([]*HTTPSite, error) {
 
 	// 递归扫描 include 的文件
 	for _, inc := range includes {
-		incSites, err := s.scanHTTPConfigFile(inc)
+		incSites, err := s.scanHTTPConfigFile(inc, depth+1)
 		if err == nil {
 			sites = append(sites, incSites...)
 		}
@@ -827,7 +842,7 @@ func (s *Scanner) ScanAll() ([]*Site, error) {
 	s.scannedFiles = make(map[string]bool)
 
 	// 从主配置文件开始递归扫描
-	return s.scanAllConfigFile(s.mainConfigPath)
+	return s.scanAllConfigFile(s.mainConfigPath, 0)
 }
 
 // findNginxBinary 查找 nginx 可执行文件路径
@@ -1202,7 +1217,13 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 }
 
 // scanAllConfigFile 扫描配置文件中的所有站点（递归处理 include）
-func (s *Scanner) scanAllConfigFile(configPath string) ([]*Site, error) {
+func (s *Scanner) scanAllConfigFile(configPath string, depth int) ([]*Site, error) {
+	// 检查扫描深度限制
+	if depth > maxScanDepth {
+		s.logDebug("扫描深度超过限制 (%d)，跳过: %s", maxScanDepth, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -1241,7 +1262,7 @@ func (s *Scanner) scanAllConfigFile(configPath string) ([]*Site, error) {
 
 	// 递归扫描 include 的文件
 	for _, inc := range includes {
-		incSites, err := s.scanAllConfigFile(inc)
+		incSites, err := s.scanAllConfigFile(inc, depth+1)
 		if err == nil {
 			sites = append(sites, incSites...)
 		}

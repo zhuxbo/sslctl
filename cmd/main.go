@@ -563,18 +563,32 @@ func runUpgrade(args []string) {
 
 	if err := os.Rename(tmpPath, binPath); err != nil {
 		// 跨文件系统移动，使用复制
-		src, _ := os.Open(tmpPath)
+		src, err := os.Open(tmpPath)
+		if err != nil {
+			os.Remove(tmpPath)
+			fmt.Fprintf(os.Stderr, "打开临时文件失败: %v\n", err)
+			os.Exit(1)
+		}
+		defer src.Close()
+
 		dst, err := os.Create(binPath)
 		if err != nil {
-			src.Close()
 			os.Remove(tmpPath)
 			fmt.Fprintf(os.Stderr, "安装失败: %v\n", err)
 			os.Exit(1)
 		}
-		io.Copy(dst, src)
-		src.Close()
-		dst.Close()
-		os.Chmod(binPath, 0755)
+		defer dst.Close()
+
+		if _, err := io.Copy(dst, src); err != nil {
+			os.Remove(tmpPath)
+			os.Remove(binPath)
+			fmt.Fprintf(os.Stderr, "复制失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := os.Chmod(binPath, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "设置权限失败: %v\n", err)
+		}
 		os.Remove(tmpPath)
 	}
 

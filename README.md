@@ -109,9 +109,24 @@ cert-deploy --debug deploy --site example.com
 - **命令白名单**：容器内只允许执行预定义的安全命令
 - **路径验证**：Docker 容器路径参数严格验证，防止命令注入
 - **临时目录安全**：临时目录权限设置为 0700
+- **日志目录安全**：日志目录权限设置为 0700
 - **配置文件锁**：并发写入保护
 - **部署回滚**：部署失败自动回滚到备份
 - **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换
+- **环境变量**：支持通过环境变量配置敏感信息，避免明文存储
+
+## 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `CERT_DEPLOY_API_TOKEN` | API Token（优先级高于配置文件） |
+| `CERT_DEPLOY_API_URL` | API URL（优先级高于配置文件） |
+
+使用示例：
+```bash
+export CERT_DEPLOY_API_TOKEN="your-secret-token"
+cert-deploy status
+```
 
 ## 配置结构
 

@@ -111,6 +111,12 @@ const (
 	DefaultCheckIntervalHours = 6 // 默认检查间隔（小时）
 )
 
+// 环境变量常量
+const (
+	EnvAPIToken = "CERT_DEPLOY_API_TOKEN" // API Token 环境变量
+	EnvAPIURL   = "CERT_DEPLOY_API_URL"   // API URL 环境变量
+)
+
 // ScheduleConfig 调度配置
 type ScheduleConfig struct {
 	CheckIntervalHours int    `json:"check_interval_hours"`       // 检查间隔(小时)

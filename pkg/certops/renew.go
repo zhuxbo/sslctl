@@ -168,8 +168,12 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	if cert.Metadata.LastIssueState == "processing" {
 		if !cert.Metadata.CSRSubmittedAt.IsZero() && time.Since(cert.Metadata.CSRSubmittedAt) > csrPendingTimeout {
 			s.log.Warn("证书 %s CSR 已提交超过 %s，尝试重新提交", cert.CertName, csrPendingTimeout)
+			cert.Metadata.IssueRetryCount++
 			cert.Metadata.LastIssueState = ""
 			cleanupPendingKey(workDir, cert.CertName)
+			if err := s.cfgManager.UpdateCert(cert); err != nil {
+				s.log.Warn("更新证书元数据失败: %v", err)
+			}
 		} else {
 			certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 			if err != nil {
@@ -350,12 +354,14 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 	// 移动文件
 	if err := os.Rename(pendingPath, targetPath); err != nil {
 		// 如果跨文件系统，使用复制+删除
-		data, err := os.ReadFile(pendingPath)
-		if err != nil {
-			return err
+		data, readErr := os.ReadFile(pendingPath)
+		if readErr != nil {
+			cleanupPendingKey(workDir, certName) // 确保清理
+			return readErr
 		}
-		if err := os.WriteFile(targetPath, data, 0600); err != nil {
-			return err
+		if writeErr := os.WriteFile(targetPath, data, 0600); writeErr != nil {
+			cleanupPendingKey(workDir, certName) // 确保清理
+			return writeErr
 		}
 		os.Remove(pendingPath)
 	}

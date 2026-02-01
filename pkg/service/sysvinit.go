@@ -49,8 +49,13 @@ read_pid() {
     local pid=""
     if [ -f "$PIDFILE" ]; then
         pid=$(cat "$PIDFILE" 2>/dev/null)
-        # 验证 PID 为纯数字
-        if [ -n "$pid" ] && [ "$pid" -eq "$pid" ] 2>/dev/null; then
+        # 验证 PID 为纯数字（使用 case 模式匹配，更安全）
+        if [ -n "$pid" ]; then
+            case "$pid" in
+                ''|*[!0-9]*) pid="" ;;
+            esac
+        fi
+        if [ -n "$pid" ]; then
             echo "$pid"
         fi
     fi
