@@ -320,7 +320,7 @@ func findConfigWithServerName(configPath, serverName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	configDir := filepath.Dir(configPath)
 	serverNameRe := regexp.MustCompile(`(?i)^\s*ServerName\s+(.+)$`)

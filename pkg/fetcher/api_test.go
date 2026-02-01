@@ -79,7 +79,7 @@ func TestInfo(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -108,7 +108,7 @@ func TestInfo_APIError(t *testing.T) {
 			Code:    0,
 			Message: "token invalid",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -154,7 +154,7 @@ func TestQuery(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -184,7 +184,7 @@ func TestQueryOrder(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -218,7 +218,7 @@ func TestStartOrUpdate(t *testing.T) {
 		// 验证请求体
 		body, _ := io.ReadAll(r.Body)
 		var req PostRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 
 		if req.CSR != "test-csr" {
 			t.Errorf("CSR = %s, want test-csr", req.CSR)
@@ -228,7 +228,7 @@ func TestStartOrUpdate(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -254,7 +254,7 @@ func TestUpdate(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		var req UpdateRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 
 		if req.OrderID != 12345 {
 			t.Errorf("OrderID = %d, want 12345", req.OrderID)
@@ -268,7 +268,7 @@ func TestUpdate(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -294,7 +294,7 @@ func TestCallback(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		var req CallbackRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 
 		if req.OrderID != 12345 {
 			t.Errorf("OrderID = %d, want 12345", req.OrderID)
@@ -308,7 +308,7 @@ func TestCallback(t *testing.T) {
 			Code:    1,
 			Message: "ok",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -335,7 +335,7 @@ func TestCallback_Error(t *testing.T) {
 			Code:    0,
 			Message: "callback failed",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -481,7 +481,7 @@ func TestRetry(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -539,7 +539,7 @@ func TestContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second) // 长时间等待
 		resp := mockResponse{Code: 1, Data: mockCertData()}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -591,7 +591,7 @@ func TestResponseSizeLimit(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -620,7 +620,7 @@ func TestQueryOrder_Retry(t *testing.T) {
 			Code: 1,
 			Data: mockCertData(),
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -697,7 +697,7 @@ func TestQueryOrder_RetryBoundary(t *testing.T) {
 					return
 				}
 				resp := mockResponse{Code: 1, Data: mockCertData()}
-				json.NewEncoder(w).Encode(resp)
+				_ = json.NewEncoder(w).Encode(resp)
 			}))
 			defer server.Close()
 
@@ -730,7 +730,7 @@ func TestFetcher_Timeout(t *testing.T) {
 		// 模拟慢响应
 		time.Sleep(500 * time.Millisecond)
 		resp := mockResponse{Code: 1, Data: mockCertData()}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -749,7 +749,7 @@ func TestFetcher_TimeoutWithContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		resp := mockResponse{Code: 1, Data: mockCertData()}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -781,7 +781,7 @@ func TestFetcher_LargeResponse(t *testing.T) {
 			Code: 1,
 			Data: largeCertData,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -808,7 +808,7 @@ func TestRetry_429TooManyRequests(t *testing.T) {
 			return
 		}
 		resp := mockResponse{Code: 1, Data: mockCertData()}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -903,7 +903,7 @@ func TestCertData_Fields(t *testing.T) {
 			"created_at":     "2024-06-01T00:00:00Z",
 		}
 		resp := mockResponse{Code: 1, Data: data}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -941,7 +941,7 @@ func TestCallbackNew(t *testing.T) {
 		}
 
 		resp := CallbackResponse{Code: 1, Message: "ok"}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -966,7 +966,7 @@ func TestUpdate_WithDomains(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req UpdateRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 
 		if req.Domains != "example.com,www.example.com" {
 			t.Errorf("Domains = %s, want example.com,www.example.com", req.Domains)
@@ -976,7 +976,7 @@ func TestUpdate_WithDomains(t *testing.T) {
 		}
 
 		resp := mockResponse{Code: 1, Data: mockCertData()}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

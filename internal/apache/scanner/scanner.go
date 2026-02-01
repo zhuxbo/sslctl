@@ -247,7 +247,7 @@ func (s *Scanner) findIncludes(configPath string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	configDir := filepath.Dir(configPath)
 	var includes []string
@@ -310,7 +310,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*SSLSite
 	var currentSite *SSLSite
@@ -540,7 +540,7 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*HTTPSite
 	var currentSite *HTTPSite
@@ -640,7 +640,7 @@ func (s *Scanner) HasSSLConfig(configPath string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	sslEngineRe := regexp.MustCompile(`(?i)^\s*SSLEngine\s+on`)
 	sslCertRe := regexp.MustCompile(`(?i)^\s*SSLCertificateFile\s+`)
@@ -977,7 +977,7 @@ func (s *Scanner) enrichSiteFromConfig(site *Site) {
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// 正则表达式
 	vhostStartRe := regexp.MustCompile(`(?i)^\s*<VirtualHost\s+([^>]+)>`)
@@ -1009,6 +1009,7 @@ func (s *Scanner) enrichSiteFromConfig(site *Site) {
 		if vhostStartRe.MatchString(line) {
 			inVirtualHost = true
 			inTargetVHost = false
+			_ = currentServerName // 重置但后续会重新赋值
 			currentServerName = ""
 			currentAliases = nil
 			currentCertPath = ""
@@ -1152,7 +1153,7 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*Site
 	var currentSite *Site

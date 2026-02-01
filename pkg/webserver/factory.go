@@ -16,7 +16,7 @@ func NewScanner(serverType ServerType) (Scanner, error) {
 		return &nginxScannerWrapper{scanner: nginxScanner.New()}, nil
 	case TypeApache, TypeDockerApache:
 		// TODO: 实现 Apache 扫描器
-		return nil, fmt.Errorf("Apache scanner not implemented yet")
+		return nil, fmt.Errorf("apache scanner not implemented yet")
 	default:
 		return nil, fmt.Errorf("unknown server type: %s", serverType)
 	}

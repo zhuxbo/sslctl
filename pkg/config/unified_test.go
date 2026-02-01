@@ -147,13 +147,13 @@ func TestConfigManager_Reload(t *testing.T) {
 	// 先加载默认配置
 	cfg1, _ := cm.Load()
 	cfg1.API.Token = "token1"
-	cm.Save(cfg1)
+	_ = cm.Save(cfg1)
 
 	// 外部修改配置文件
 	cm2, _ := NewConfigManagerWithDir(dir)
 	cfg2, _ := cm2.Load()
 	cfg2.API.Token = "token2"
-	cm2.Save(cfg2)
+	_ = cm2.Save(cfg2)
 
 	// 原 cm 重新加载
 	reloaded, err := cm.Reload()
@@ -244,11 +244,11 @@ func TestConfigManager_AddCertUpdate(t *testing.T) {
 	cm, _ := NewConfigManagerWithDir(dir)
 
 	cert1 := &CertConfig{CertName: "order-001", Enabled: true}
-	cm.AddCert(cert1)
+	_ = cm.AddCert(cert1)
 
 	// 再次添加同名证书应更新
 	cert2 := &CertConfig{CertName: "order-001", Enabled: false}
-	cm.AddCert(cert2)
+	_ = cm.AddCert(cert2)
 
 	got, _ := cm.GetCert("order-001")
 	if got.Enabled != false {
@@ -312,14 +312,14 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(filepath.Join(dir, "config.json"), data, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0600)
 
 	// 设置环境变量
-	os.Setenv(EnvAPIToken, "env-token")
-	os.Setenv(EnvAPIURL, "https://env-api.com")
+	_ = os.Setenv(EnvAPIToken, "env-token")
+	_ = os.Setenv(EnvAPIURL, "https://env-api.com")
 	defer func() {
-		os.Unsetenv(EnvAPIToken)
-		os.Unsetenv(EnvAPIURL)
+		_ = os.Unsetenv(EnvAPIToken)
+		_ = os.Unsetenv(EnvAPIURL)
 	}()
 
 	cm, _ := NewConfigManagerWithDir(dir)
@@ -398,7 +398,7 @@ func TestConfigManager_InvalidJSON(t *testing.T) {
 
 	// 写入无效 JSON
 	invalidJSON := []byte(`{"version": "2.0", invalid json}`)
-	os.WriteFile(filepath.Join(dir, "config.json"), invalidJSON, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), invalidJSON, 0600)
 
 	cm, _ := NewConfigManagerWithDir(dir)
 	_, err := cm.Load()
@@ -876,7 +876,7 @@ func TestConfigManager_MultipleCertOperations(t *testing.T) {
 	// 更新证书
 	cert, _ := cm.GetCert("cert-c")
 	cert.Enabled = true
-	cm.UpdateCert(cert)
+	_ = cm.UpdateCert(cert)
 
 	enabledCerts, _ = cm.ListEnabledCerts()
 	if len(enabledCerts) != 3 {
@@ -884,7 +884,7 @@ func TestConfigManager_MultipleCertOperations(t *testing.T) {
 	}
 
 	// 删除证书
-	cm.DeleteCert("cert-b")
+	_ = cm.DeleteCert("cert-b")
 	allCerts, _ = cm.ListCerts()
 	if len(allCerts) != 2 {
 		t.Errorf("删除后 ListCerts() = %d, 期望 2", len(allCerts))

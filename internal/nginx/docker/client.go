@@ -296,7 +296,7 @@ func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath strin
 	}
 	// 设置安全权限
 	if err := os.Chmod(tmpDir, 0700); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		return "", "", fmt.Errorf("set temp dir permission failed: %w", err)
 	}
 
@@ -304,12 +304,12 @@ func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath strin
 	tmpKeyPath = filepath.Join(tmpDir, "key.pem")
 
 	if err := c.CopyFromContainer(ctx, certPath, tmpCertPath); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		return "", "", fmt.Errorf("copy cert from container failed: %w", err)
 	}
 
 	if err := c.CopyFromContainer(ctx, keyPath, tmpKeyPath); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		return "", "", fmt.Errorf("copy key from container failed: %w", err)
 	}
 

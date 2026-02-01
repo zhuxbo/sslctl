@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -68,8 +67,8 @@ func main() {
 
 	// 设置 debug 模式
 	if debug {
-		os.Setenv("LOG_LEVEL", "debug")
-		os.Setenv("CERT_DEPLOY_DEBUG", "1")
+		_ = os.Setenv("LOG_LEVEL", "debug")
+		_ = os.Setenv("CERT_DEPLOY_DEBUG", "1")
 	}
 
 	cmd := args[0]
@@ -187,7 +186,7 @@ func runScan(args []string, debug bool) {
 		fmt.Fprintf(os.Stderr, "创建日志失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer log.Close()
+	defer func() { _ = log.Close() }()
 
 	if debug {
 		log.SetLevel(logger.LevelDebug)
@@ -307,7 +306,7 @@ func repairService() {
 	}
 
 	// 停止现有服务
-	svcMgr.Stop()
+	_ = svcMgr.Stop()
 
 	// 安装服务
 	if err := svcMgr.Install(); err != nil {
@@ -403,7 +402,7 @@ func runUpgrade(args []string) {
 		fmt.Fprintf(os.Stderr, "获取版本信息失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var info releaseInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
@@ -480,7 +479,7 @@ func runUpgrade(args []string) {
 		fmt.Fprintf(os.Stderr, "下载失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "下载失败: HTTP %d\n", resp.StatusCode)
@@ -516,7 +515,7 @@ func runUpgrade(args []string) {
 		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	// 写入临时文件
 	tmpFile, err := os.CreateTemp("", "cert-deploy-*")
@@ -527,16 +526,16 @@ func runUpgrade(args []string) {
 	tmpPath := tmpFile.Name()
 
 	if _, err := io.Copy(tmpFile, gzReader); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		fmt.Fprintf(os.Stderr, "写入文件失败: %v\n", err)
 		os.Exit(1)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// 设置执行权限
 	if err := os.Chmod(tmpPath, 0755); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		fmt.Fprintf(os.Stderr, "设置权限失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -556,7 +555,7 @@ func runUpgrade(args []string) {
 
 	// 确保目录存在
 	if err := os.MkdirAll(filepath.Dir(binPath), 0755); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		fmt.Fprintf(os.Stderr, "创建目录失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -565,23 +564,23 @@ func runUpgrade(args []string) {
 		// 跨文件系统移动，使用复制
 		src, err := os.Open(tmpPath)
 		if err != nil {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 			fmt.Fprintf(os.Stderr, "打开临时文件失败: %v\n", err)
 			os.Exit(1)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		dst, err := os.Create(binPath)
 		if err != nil {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 			fmt.Fprintf(os.Stderr, "安装失败: %v\n", err)
 			os.Exit(1)
 		}
-		defer dst.Close()
+		defer func() { _ = dst.Close() }()
 
 		if _, err := io.Copy(dst, src); err != nil {
-			os.Remove(tmpPath)
-			os.Remove(binPath)
+			_ = os.Remove(tmpPath)
+			_ = os.Remove(binPath)
 			fmt.Fprintf(os.Stderr, "复制失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -589,7 +588,7 @@ func runUpgrade(args []string) {
 		if err := os.Chmod(binPath, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "设置权限失败: %v\n", err)
 		}
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 	}
 
 	fmt.Println("安装完成")
@@ -645,7 +644,7 @@ func runUninstall(args []string) {
 	svcMgr, err := service.New(nil)
 	if err == nil {
 		fmt.Println("卸载服务...")
-		svcMgr.Uninstall()
+		_ = svcMgr.Uninstall()
 	}
 
 	// 2. 删除二进制文件
@@ -653,14 +652,14 @@ func runUninstall(args []string) {
 	binPath := cfg.ExecPath
 	if _, err := os.Stat(binPath); err == nil {
 		fmt.Printf("删除 %s...\n", binPath)
-		os.Remove(binPath)
+		_ = os.Remove(binPath)
 	}
 
 	// 3. 清理配置目录（仅在 --purge 时）
 	if *purge {
 		workDir := cfg.WorkDir
 		fmt.Printf("删除配置目录 %s...\n", workDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 	}
 
 	fmt.Println("卸载完成！")
@@ -687,26 +686,4 @@ func detectWebServer() string {
 	}
 
 	return ""
-}
-
-// promptSelectServer 提示用户选择服务器类型
-func promptSelectServer() string {
-	fmt.Println("未检测到运行中的 Web 服务器")
-	fmt.Println("请选择服务器类型:")
-	fmt.Println("  1. Nginx")
-	fmt.Println("  2. Apache")
-	fmt.Print("选择 [1/2]: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(choice)
-
-	switch choice {
-	case "1":
-		return "nginx"
-	case "2":
-		return "apache"
-	default:
-		return ""
-	}
 }

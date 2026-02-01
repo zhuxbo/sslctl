@@ -67,8 +67,8 @@ func (m *SystemdManager) Install() error {
 // Uninstall 卸载服务
 func (m *SystemdManager) Uninstall() error {
 	// 停止服务
-	m.Stop()
-	m.Disable()
+	_ = m.Stop()
+	_ = m.Disable()
 
 	// 删除服务文件
 	if err := os.Remove(m.servicePath()); err != nil && !os.IsNotExist(err) {
@@ -76,7 +76,7 @@ func (m *SystemdManager) Uninstall() error {
 	}
 
 	// 重新加载 systemd
-	exec.Command("systemctl", "daemon-reload").Run()
+	_ = exec.Command("systemctl", "daemon-reload").Run()
 
 	return nil
 }
@@ -92,7 +92,7 @@ func (m *SystemdManager) Start() error {
 
 // Stop 停止服务
 func (m *SystemdManager) Stop() error {
-	exec.Command("systemctl", "stop", m.cfg.Name).Run()
+	_ = exec.Command("systemctl", "stop", m.cfg.Name).Run()
 	return nil
 }
 
@@ -132,6 +132,6 @@ func (m *SystemdManager) Enable() error {
 
 // Disable 禁用开机自启
 func (m *SystemdManager) Disable() error {
-	exec.Command("systemctl", "disable", m.cfg.Name).Run()
+	_ = exec.Command("systemctl", "disable", m.cfg.Name).Run()
 	return nil
 }

@@ -140,8 +140,8 @@ func (m *SysVinitManager) Install() error {
 
 // Uninstall 卸载服务
 func (m *SysVinitManager) Uninstall() error {
-	m.Stop()
-	m.Disable()
+	_ = m.Stop()
+	_ = m.Disable()
 
 	if err := os.Remove(m.servicePath()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除服务脚本失败: %w", err)
@@ -161,7 +161,7 @@ func (m *SysVinitManager) Start() error {
 
 // Stop 停止服务
 func (m *SysVinitManager) Stop() error {
-	exec.Command(m.servicePath(), "stop").Run()
+	_ = exec.Command(m.servicePath(), "stop").Run()
 	return nil
 }
 
@@ -234,14 +234,14 @@ func (m *SysVinitManager) Enable() error {
 func (m *SysVinitManager) Disable() error {
 	// Debian/Ubuntu
 	if _, err := exec.LookPath("update-rc.d"); err == nil {
-		exec.Command("update-rc.d", "-f", m.cfg.Name, "remove").Run()
+		_ = exec.Command("update-rc.d", "-f", m.cfg.Name, "remove").Run()
 		return nil
 	}
 
 	// CentOS/RHEL
 	if _, err := exec.LookPath("chkconfig"); err == nil {
-		exec.Command("chkconfig", m.cfg.Name, "off").Run()
-		exec.Command("chkconfig", "--del", m.cfg.Name).Run()
+		_ = exec.Command("chkconfig", m.cfg.Name, "off").Run()
+		_ = exec.Command("chkconfig", "--del", m.cfg.Name).Run()
 		return nil
 	}
 

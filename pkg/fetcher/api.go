@@ -191,12 +191,12 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 			lastErr = err
 			// 当 err != nil 但 resp != nil 时，关闭响应体防止连接泄漏
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 		} else {
 			// 尝试读取错误详情
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if len(body) > 0 {
 				lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 			} else {
@@ -279,7 +279,7 @@ func (f *Fetcher) Info(ctx context.Context, apiURL, token string) (*CertData, er
 	if err != nil {
 		return nil, errors.NewNetworkError("failed to get certificate info", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}
@@ -330,7 +330,7 @@ func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, token, csrPEM, vali
 	if err != nil {
 		return nil, errors.NewNetworkError("failed to post CSR", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}
@@ -374,7 +374,7 @@ func (f *Fetcher) Callback(ctx context.Context, callbackURL, token string, callb
 	if err != nil {
 		return errors.NewNetworkError("failed to send callback", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return errors.NewNetworkError(fmt.Sprintf("callback returned unexpected status: %d", resp.StatusCode), nil)
 	}
@@ -440,7 +440,7 @@ func (f *Fetcher) Query(ctx context.Context, baseURL, token, domain string) (*Ce
 	if err != nil {
 		return nil, errors.NewNetworkError("failed to query certificate", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}
@@ -492,7 +492,7 @@ func (f *Fetcher) Update(ctx context.Context, baseURL, token string, orderID int
 	if err != nil {
 		return nil, errors.NewNetworkError("failed to update certificate", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}
@@ -549,7 +549,7 @@ func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID
 	if err != nil {
 		return nil, errors.NewNetworkError("failed to query order", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}

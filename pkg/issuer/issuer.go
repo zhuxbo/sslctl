@@ -158,7 +158,7 @@ func (i *Issuer) handleFileValidation(ctx context.Context, site *config.SiteConf
 
 	// 确保清理验证文件
 	defer func() {
-		os.Remove(validationPath)
+		_ = os.Remove(validationPath)
 		i.log("验证文件已清理: %s", validationPath)
 	}()
 
@@ -286,7 +286,7 @@ func (i *Issuer) handleActiveCert(ctx context.Context, site *config.SiteConfig, 
 	// 验证私钥与证书是否匹配
 	if !i.validateKeyPair(certData.Cert, privateKey) {
 		i.log("本地私钥与证书不匹配，删除旧私钥并重新提交 CSR")
-		os.Remove(keyPath)
+		_ = os.Remove(keyPath)
 		return i.submitNewCSR(ctx, site, keyPath, opts)
 	}
 

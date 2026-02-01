@@ -30,13 +30,13 @@ func TestManager_Backup(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	// 创建测试文件
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"), 0644)
-	os.WriteFile(keyPath, []byte("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"), 0600)
+	_ = os.WriteFile(certPath, []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"), 0644)
+	_ = os.WriteFile(keyPath, []byte("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"), 0600)
 
 	m := NewManager(backupDir, 3)
 
@@ -79,14 +79,14 @@ func TestManager_BackupWithChain(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
 	chainPath := filepath.Join(srcDir, "chain.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
-	os.WriteFile(chainPath, []byte("chain"), 0644)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(chainPath, []byte("chain"), 0644)
 
 	m := NewManager(backupDir, 3)
 
@@ -116,15 +116,15 @@ func TestManager_ListBackups(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	siteBackupDir := filepath.Join(backupDir, "example.com")
-	os.MkdirAll(siteBackupDir, 0755)
+	_ = os.MkdirAll(siteBackupDir, 0755)
 
 	// 手动创建不同时间戳的备份目录
 	timestamps := []string{"20240101-120000", "20240101-120001", "20240101-120002"}
 	for _, ts := range timestamps {
 		backupPath := filepath.Join(siteBackupDir, ts)
-		os.MkdirAll(backupPath, 0755)
-		os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte("cert"), 0644)
-		os.WriteFile(filepath.Join(backupPath, "key.pem"), []byte("key"), 0600)
+		_ = os.MkdirAll(backupPath, 0755)
+		_ = os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte("cert"), 0644)
+		_ = os.WriteFile(filepath.Join(backupPath, "key.pem"), []byte("key"), 0600)
 	}
 
 	m := NewManager(backupDir, 10)
@@ -167,15 +167,15 @@ func TestManager_GetLatestBackup(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	siteBackupDir := filepath.Join(backupDir, "example.com")
-	os.MkdirAll(siteBackupDir, 0755)
+	_ = os.MkdirAll(siteBackupDir, 0755)
 
 	// 手动创建不同时间戳的备份目录
 	oldBackup := filepath.Join(siteBackupDir, "20240101-120000")
 	newBackup := filepath.Join(siteBackupDir, "20240101-120001")
 	for _, path := range []string{oldBackup, newBackup} {
-		os.MkdirAll(path, 0755)
-		os.WriteFile(filepath.Join(path, "cert.pem"), []byte("cert"), 0644)
-		os.WriteFile(filepath.Join(path, "key.pem"), []byte("key"), 0600)
+		_ = os.MkdirAll(path, 0755)
+		_ = os.WriteFile(filepath.Join(path, "cert.pem"), []byte("cert"), 0644)
+		_ = os.WriteFile(filepath.Join(path, "key.pem"), []byte("key"), 0600)
 	}
 
 	m := NewManager(backupDir, 10)
@@ -245,12 +245,12 @@ func TestManager_LoadMetadata(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	m := NewManager(backupDir, 3)
 
@@ -306,21 +306,21 @@ func TestManager_Cleanup(t *testing.T) {
 	backupDir := filepath.Join(dir, "backup")
 	siteBackupDir := filepath.Join(backupDir, "example.com")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
-	os.MkdirAll(siteBackupDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(siteBackupDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	// 手动创建 4 个已有的备份目录
 	timestamps := []string{"20240101-120000", "20240101-120001", "20240101-120002", "20240101-120003"}
 	for _, ts := range timestamps {
 		backupPath := filepath.Join(siteBackupDir, ts)
-		os.MkdirAll(backupPath, 0755)
-		os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte("cert"), 0644)
-		os.WriteFile(filepath.Join(backupPath, "key.pem"), []byte("key"), 0600)
+		_ = os.MkdirAll(backupPath, 0755)
+		_ = os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte("cert"), 0644)
+		_ = os.WriteFile(filepath.Join(backupPath, "key.pem"), []byte("key"), 0600)
 	}
 
 	// 设置只保留 2 个版本
@@ -344,12 +344,12 @@ func TestManager_DeleteBackup(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	m := NewManager(backupDir, 10)
 
@@ -373,18 +373,18 @@ func TestManager_DeleteAllBackups(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	m := NewManager(backupDir, 10)
 
 	// 创建多个备份（只需创建一个即可验证删除功能）
 	for i := 0; i < 1; i++ {
-		m.Backup("example.com", certPath, keyPath, nil)
+		_, _ = m.Backup("example.com", certPath, keyPath, nil)
 	}
 
 	// 删除所有备份
@@ -405,12 +405,12 @@ func TestManager_BackupNilCertInfo(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	m := NewManager(backupDir, 3)
 
@@ -453,12 +453,12 @@ func TestManager_BackupChainNotExist(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
-	os.MkdirAll(srcDir, 0755)
+	_ = os.MkdirAll(srcDir, 0755)
 
 	certPath := filepath.Join(srcDir, "cert.pem")
 	keyPath := filepath.Join(srcDir, "key.pem")
-	os.WriteFile(certPath, []byte("cert"), 0644)
-	os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
 
 	m := NewManager(backupDir, 3)
 

@@ -58,8 +58,8 @@ func (m *OpenRCManager) Install() error {
 
 // Uninstall 卸载服务
 func (m *OpenRCManager) Uninstall() error {
-	m.Stop()
-	m.Disable()
+	_ = m.Stop()
+	_ = m.Disable()
 
 	if err := os.Remove(m.servicePath()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除服务脚本失败: %w", err)
@@ -79,7 +79,7 @@ func (m *OpenRCManager) Start() error {
 
 // Stop 停止服务
 func (m *OpenRCManager) Stop() error {
-	exec.Command("rc-service", m.cfg.Name, "stop").Run()
+	_ = exec.Command("rc-service", m.cfg.Name, "stop").Run()
 	return nil
 }
 
@@ -121,6 +121,6 @@ func (m *OpenRCManager) Enable() error {
 
 // Disable 禁用开机自启
 func (m *OpenRCManager) Disable() error {
-	exec.Command("rc-update", "del", m.cfg.Name, "default").Run()
+	_ = exec.Command("rc-update", "del", m.cfg.Name, "default").Run()
 	return nil
 }

@@ -61,12 +61,12 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -94,12 +94,12 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -132,12 +132,12 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -170,12 +170,12 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -211,12 +211,12 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -240,7 +240,7 @@ func TestFindIncludes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建 include 的配置文件
 	includedContent := `
@@ -347,9 +347,9 @@ server
 			if err != nil {
 				t.Fatalf("创建临时文件失败: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
-			tmpFile.WriteString(tt.content)
-			tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, _ = tmpFile.WriteString(tt.content)
+			_ = tmpFile.Close()
 
 			s := NewWithConfig(tmpFile.Name())
 			sites, err := s.ScanFile(tmpFile.Name())
@@ -385,9 +385,9 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -419,9 +419,9 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -443,7 +443,7 @@ func TestScanAll_MixedSSLAndHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 # SSL 站点
@@ -502,7 +502,7 @@ func TestScan_MaxDepthLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建深层嵌套的 include（超过限制）
 	for i := 0; i < 105; i++ {
@@ -524,7 +524,7 @@ server {
 			content = "include " + nextFile + ";"
 		}
 		levelFile := filepath.Join(tmpDir, "level_"+string(rune('0'+(i/100)))+string(rune('0'+(i/10)%10))+string(rune('0'+i%10))+".conf")
-		os.WriteFile(levelFile, []byte(content), 0644)
+		_ = os.WriteFile(levelFile, []byte(content), 0644)
 	}
 
 	mainFile := filepath.Join(tmpDir, "level_000.conf")
@@ -542,7 +542,7 @@ func TestScan_CircularInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建循环 include
 	file1 := filepath.Join(tmpDir, "a.conf")
@@ -566,8 +566,8 @@ server {
 }
 include ` + file1 + `;
 `
-	os.WriteFile(file1, []byte(content1), 0644)
-	os.WriteFile(file2, []byte(content2), 0644)
+	_ = os.WriteFile(file1, []byte(content1), 0644)
+	_ = os.WriteFile(file2, []byte(content2), 0644)
 
 	s := NewWithConfig(file1)
 	sites, err := s.Scan()
@@ -587,7 +587,7 @@ func TestFindByDomain_WildcardMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 server {
@@ -603,7 +603,7 @@ server {
     ssl_certificate_key /etc/ssl/specific.key;
 }`
 	mainFile := filepath.Join(tmpDir, "nginx.conf")
-	os.WriteFile(mainFile, []byte(content), 0644)
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
 
 	s := NewWithConfig(mainFile)
 
@@ -647,9 +647,9 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -712,9 +712,9 @@ server {
 			if err != nil {
 				t.Fatalf("创建临时文件失败: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
-			tmpFile.WriteString(tt.content)
-			tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, _ = tmpFile.WriteString(tt.content)
+			_ = tmpFile.Close()
 
 			s := NewWithConfig(tmpFile.Name())
 			sites, err := s.ScanFile(tmpFile.Name())
@@ -741,9 +741,9 @@ server {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -800,9 +800,9 @@ server {
 			if err != nil {
 				t.Fatalf("创建临时文件失败: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
-			tmpFile.WriteString(tt.content)
-			tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, _ = tmpFile.WriteString(tt.content)
+			_ = tmpFile.Close()
 
 			s := NewWithConfig(tmpFile.Name())
 			got := s.HasSSLConfig(tmpFile.Name())
@@ -819,7 +819,7 @@ func TestScanHTTPSites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 server {
@@ -839,7 +839,7 @@ server {
     root /var/www/http2;
 }`
 	mainFile := filepath.Join(tmpDir, "nginx.conf")
-	os.WriteFile(mainFile, []byte(content), 0644)
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
 
 	s := NewWithConfig(mainFile)
 	sites, err := s.ScanHTTPSites()
@@ -885,11 +885,11 @@ func TestFindIncludes_GlobPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建 conf.d 目录和多个配置文件
 	confDir := filepath.Join(tmpDir, "conf.d")
-	os.MkdirAll(confDir, 0755)
+	_ = os.MkdirAll(confDir, 0755)
 
 	site1 := `
 server {
@@ -905,13 +905,13 @@ server {
     ssl_certificate /etc/ssl/site2.crt;
     ssl_certificate_key /etc/ssl/site2.key;
 }`
-	os.WriteFile(filepath.Join(confDir, "site1.conf"), []byte(site1), 0644)
-	os.WriteFile(filepath.Join(confDir, "site2.conf"), []byte(site2), 0644)
+	_ = os.WriteFile(filepath.Join(confDir, "site1.conf"), []byte(site1), 0644)
+	_ = os.WriteFile(filepath.Join(confDir, "site2.conf"), []byte(site2), 0644)
 
 	// 主配置使用 glob 模式
 	mainContent := "include " + confDir + "/*.conf;"
 	mainFile := filepath.Join(tmpDir, "nginx.conf")
-	os.WriteFile(mainFile, []byte(mainContent), 0644)
+	_ = os.WriteFile(mainFile, []byte(mainContent), 0644)
 
 	s := NewWithConfig(mainFile)
 	sites, err := s.Scan()

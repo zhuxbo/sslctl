@@ -21,7 +21,7 @@ func AtomicWrite(path string, content []byte, perm os.FileMode) error {
 
 	// 原子替换(rename 是原子操作)
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
@@ -35,7 +35,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	// 获取源文件信息
 	srcInfo, err := srcFile.Stat()
@@ -48,7 +48,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	// 复制内容
 	if _, err := io.Copy(dstFile, srcFile); err != nil {

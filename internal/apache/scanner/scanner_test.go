@@ -66,12 +66,12 @@ func TestParseConfigFile_NoSSL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -97,12 +97,12 @@ func TestParseConfigFile_SSLEngineOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -131,12 +131,12 @@ func TestParseConfigFile_QuotedPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -174,12 +174,12 @@ func TestParseConfigFile_Comments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -210,12 +210,12 @@ func TestParseConfigFile_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -234,7 +234,7 @@ func TestFindIncludes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建 include 的配置文件
 	includedContent := `
@@ -282,7 +282,7 @@ func TestFindIncludes_IncludeOptional(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建主配置文件（引用不存在的文件）
 	mainContent := `
@@ -331,12 +331,12 @@ func TestListenPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("写入临时文件失败: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -368,9 +368,9 @@ func TestParseConfigFile_ServerAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -406,9 +406,9 @@ func TestParseConfigFile_SSLEngine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -427,7 +427,7 @@ func TestScanAll_MixedVHosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 # HTTP 站点
@@ -451,7 +451,7 @@ func TestScanAll_MixedVHosts(t *testing.T) {
 </VirtualHost>
 `
 	mainFile := filepath.Join(tmpDir, "httpd.conf")
-	os.WriteFile(mainFile, []byte(content), 0644)
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
 
 	s := NewWithConfig(mainFile)
 	sites, err := s.ScanAll()
@@ -482,7 +482,7 @@ func TestFindByDomain_WildcardMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 <VirtualHost *:443>
@@ -498,7 +498,7 @@ func TestFindByDomain_WildcardMatch(t *testing.T) {
 </VirtualHost>
 `
 	mainFile := filepath.Join(tmpDir, "httpd.conf")
-	os.WriteFile(mainFile, []byte(content), 0644)
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
 
 	s := NewWithConfig(mainFile)
 
@@ -544,9 +544,9 @@ func TestParseConfigFile_ChainFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -577,9 +577,9 @@ func TestParseConfigFile_DocumentRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -637,9 +637,9 @@ func TestHasSSLConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("创建临时文件失败: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
-			tmpFile.WriteString(tt.content)
-			tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, _ = tmpFile.WriteString(tt.content)
+			_ = tmpFile.Close()
 
 			s := NewWithConfig(tmpFile.Name())
 			got := s.HasSSLConfig(tmpFile.Name())
@@ -656,7 +656,7 @@ func TestScanHTTPSites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := `
 <VirtualHost *:80>
@@ -675,7 +675,7 @@ func TestScanHTTPSites(t *testing.T) {
 </VirtualHost>
 `
 	mainFile := filepath.Join(tmpDir, "httpd.conf")
-	os.WriteFile(mainFile, []byte(content), 0644)
+	_ = os.WriteFile(mainFile, []byte(content), 0644)
 
 	s := NewWithConfig(mainFile)
 	sites, err := s.ScanHTTPSites()
@@ -721,11 +721,11 @@ func TestFindIncludes_GlobPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建 sites-enabled 目录和多个配置文件
 	sitesDir := filepath.Join(tmpDir, "sites-enabled")
-	os.MkdirAll(sitesDir, 0755)
+	_ = os.MkdirAll(sitesDir, 0755)
 
 	site1 := `
 <VirtualHost *:443>
@@ -741,13 +741,13 @@ func TestFindIncludes_GlobPattern(t *testing.T) {
     SSLCertificateKeyFile /etc/ssl/site2.key
 </VirtualHost>
 `
-	os.WriteFile(filepath.Join(sitesDir, "site1.conf"), []byte(site1), 0644)
-	os.WriteFile(filepath.Join(sitesDir, "site2.conf"), []byte(site2), 0644)
+	_ = os.WriteFile(filepath.Join(sitesDir, "site1.conf"), []byte(site1), 0644)
+	_ = os.WriteFile(filepath.Join(sitesDir, "site2.conf"), []byte(site2), 0644)
 
 	// 主配置使用 glob 模式
 	mainContent := "Include " + sitesDir + "/*.conf"
 	mainFile := filepath.Join(tmpDir, "httpd.conf")
-	os.WriteFile(mainFile, []byte(mainContent), 0644)
+	_ = os.WriteFile(mainFile, []byte(mainContent), 0644)
 
 	s := NewWithConfig(mainFile)
 	sites, err := s.Scan()
@@ -766,7 +766,7 @@ func TestScan_CircularInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 创建循环 Include
 	file1 := filepath.Join(tmpDir, "a.conf")
@@ -788,8 +788,8 @@ Include ` + file2 + `
 </VirtualHost>
 Include ` + file1 + `
 `
-	os.WriteFile(file1, []byte(content1), 0644)
-	os.WriteFile(file2, []byte(content2), 0644)
+	_ = os.WriteFile(file1, []byte(content1), 0644)
+	_ = os.WriteFile(file2, []byte(content2), 0644)
 
 	s := NewWithConfig(file1)
 	sites, err := s.Scan()
@@ -827,9 +827,9 @@ func TestParseConfigFile_NestedDirectoryBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(content)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
 
 	s := NewWithConfig(tmpFile.Name())
 	sites, err := s.ScanFile(tmpFile.Name())
@@ -897,9 +897,9 @@ func TestParseConfigFile_MissingCertOrKey(t *testing.T) {
 			if err != nil {
 				t.Fatalf("创建临时文件失败: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
-			tmpFile.WriteString(tt.content)
-			tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, _ = tmpFile.WriteString(tt.content)
+			_ = tmpFile.Close()
 
 			s := NewWithConfig(tmpFile.Name())
 			sites, err := s.ScanFile(tmpFile.Name())

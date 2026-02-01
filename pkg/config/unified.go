@@ -154,12 +154,12 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to open lock file: %w", err)
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 
 	if err := lockFile(lf); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	defer unlockFile(lf)
+	defer func() { _ = unlockFile(lf) }()
 
 	// 原子写入
 	tmpPath := cm.configPath + ".tmp"
@@ -168,7 +168,7 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	}
 
 	if err := os.Rename(tmpPath, cm.configPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 

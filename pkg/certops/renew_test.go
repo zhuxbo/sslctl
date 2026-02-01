@@ -59,7 +59,7 @@ func TestReadPendingKey(t *testing.T) {
 	keyPEM := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
 
 	// 先保存
-	savePendingKey(workDir, certName, keyPEM)
+	_ = savePendingKey(workDir, certName, keyPEM)
 
 	// 读取
 	readKey, err := readPendingKey(workDir, certName)
@@ -90,7 +90,7 @@ func TestCommitPendingKey(t *testing.T) {
 	keyPEM := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
 
 	// 先保存待确认私钥
-	savePendingKey(workDir, certName, keyPEM)
+	_ = savePendingKey(workDir, certName, keyPEM)
 
 	// 目标路径
 	targetPath := filepath.Join(workDir, "certs", certName, "key.pem")
@@ -133,7 +133,7 @@ func TestCleanupPendingKey(t *testing.T) {
 	keyPEM := "test-key"
 
 	// 先保存
-	savePendingKey(workDir, certName, keyPEM)
+	_ = savePendingKey(workDir, certName, keyPEM)
 
 	// 验证文件存在
 	pendingPath := getPendingKeyPath(workDir, certName)

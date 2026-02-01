@@ -236,13 +236,13 @@ func TestNginxDeployer_Rollback(t *testing.T) {
 	// 创建备份文件
 	backupCertPath := filepath.Join(tmpDir, "backup", "cert.pem")
 	backupKeyPath := filepath.Join(tmpDir, "backup", "key.pem")
-	os.MkdirAll(filepath.Join(tmpDir, "backup"), 0755)
-	os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
-	os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "backup"), 0755)
+	_ = os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
+	_ = os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
 
 	// 创建当前文件
-	os.WriteFile(certPath, []byte("current-cert"), 0644)
-	os.WriteFile(keyPath, []byte("current-key"), 0600)
+	_ = os.WriteFile(certPath, []byte("current-cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
 
 	d := NewNginxDeployer(certPath, keyPath, "", "")
 

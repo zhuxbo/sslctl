@@ -343,7 +343,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*SSLSite
 	var currentSite *SSLSite
@@ -626,7 +626,7 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*HTTPSite
 	var currentSite *HTTPSite
@@ -801,7 +801,7 @@ func (s *Scanner) HasSSLConfig(configPath string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	sslCertRe := regexp.MustCompile(`^\s*ssl_certificate\s+`)
 	sslListenRe := regexp.MustCompile(`^\s*listen\s+.*ssl`)
@@ -1278,7 +1278,7 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sites []*Site
 	var currentSite *Site

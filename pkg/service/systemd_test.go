@@ -112,7 +112,7 @@ func TestSystemdManager_Status(t *testing.T) {
 	}
 
 	if status == nil {
-		t.Error("Status() 返回 nil")
+		t.Fatal("Status() 返回 nil")
 	}
 
 	// 状态值应该是布尔值（不需要验证具体值，因为取决于系统状态）

@@ -72,7 +72,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		fmt.Fprintf(os.Stderr, "创建日志失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer log.Close()
+	defer func() { _ = log.Close() }()
 
 	if debug {
 		log.SetLevel(logger.LevelDebug)
@@ -440,7 +440,7 @@ func installService() error {
 	}
 
 	// 停止现有服务
-	svcMgr.Stop()
+	_ = svcMgr.Stop()
 
 	// 安装服务
 	if err := svcMgr.Install(); err != nil {

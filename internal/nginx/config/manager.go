@@ -141,7 +141,7 @@ func (m *Manager) SaveSite(config *SiteConfig) error {
 	}
 
 	if err := os.Rename(tmpPath, configPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 	// 失效缓存

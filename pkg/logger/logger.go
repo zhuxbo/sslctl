@@ -249,6 +249,6 @@ func (l *Logger) cleanOldLogs() {
 
 	// 删除超出保留数量的旧文件
 	for i := MaxLogBackups; i < len(fileInfos); i++ {
-		os.Remove(fileInfos[i].path)
+		_ = os.Remove(fileInfos[i].path)
 	}
 }

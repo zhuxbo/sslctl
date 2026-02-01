@@ -104,7 +104,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 	// 更新检查时间
 	cfg.Metadata.LastCheckAt = time.Now()
-	s.cfgManager.Save(cfg)
+	_ = s.cfgManager.Save(cfg)
 
 	return results, nil
 }
@@ -187,7 +187,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 				s.log.Warn("证书 %s 状态异常: %s，将重新提交 CSR", cert.CertName, certData.Status)
 				cert.Metadata.IssueRetryCount++
 				// 立即持久化 IssueRetryCount
-				s.cfgManager.UpdateCert(cert)
+				_ = s.cfgManager.UpdateCert(cert)
 				cert.Metadata.LastIssueState = ""
 				cleanupPendingKey(workDir, cert.CertName)
 				return nil, "", nil
@@ -220,7 +220,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		cert.Metadata.IssueRetryCount++
 	}
 	// 立即持久化 IssueRetryCount
-	s.cfgManager.UpdateCert(cert)
+	_ = s.cfgManager.UpdateCert(cert)
 
 	commonName := ""
 	if len(cert.Domains) > 0 {
@@ -363,16 +363,16 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 			cleanupPendingKey(workDir, certName) // 确保清理
 			return writeErr
 		}
-		os.Remove(pendingPath)
+		_ = os.Remove(pendingPath)
 	}
 	// 清理待确认目录
-	os.Remove(filepath.Dir(pendingPath))
+	_ = os.Remove(filepath.Dir(pendingPath))
 	return nil
 }
 
 // cleanupPendingKey 清理待确认私钥
 func cleanupPendingKey(workDir, certName string) {
 	pendingPath := getPendingKeyPath(workDir, certName)
-	os.Remove(pendingPath)
-	os.Remove(filepath.Dir(pendingPath))
+	_ = os.Remove(pendingPath)
+	_ = os.Remove(filepath.Dir(pendingPath))
 }

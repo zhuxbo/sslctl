@@ -12,13 +12,6 @@ import (
 	"github.com/zhuxbo/cert-deploy/pkg/logger"
 )
 
-// mockService 模拟证书服务
-type mockService struct {
-	checkResults []certops.RenewResult
-	checkError   error
-	checkCalled  int
-}
-
 // TestCheckAndDeploy_Success 测试成功检查部署
 func TestCheckAndDeploy_Success(t *testing.T) {
 	// 这个测试验证 checkAndDeploy 函数的日志输出逻辑

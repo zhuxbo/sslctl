@@ -272,18 +272,18 @@ func TestApacheDeployer_Rollback(t *testing.T) {
 
 	// 创建备份文件
 	backupDir := filepath.Join(tmpDir, "backup")
-	os.MkdirAll(backupDir, 0755)
+	_ = os.MkdirAll(backupDir, 0755)
 	backupCertPath := filepath.Join(backupDir, "cert.pem")
 	backupKeyPath := filepath.Join(backupDir, "key.pem")
 	backupChainPath := filepath.Join(backupDir, "chain.pem")
-	os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
-	os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
-	os.WriteFile(backupChainPath, []byte("backup-chain"), 0644)
+	_ = os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
+	_ = os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
+	_ = os.WriteFile(backupChainPath, []byte("backup-chain"), 0644)
 
 	// 创建当前文件
-	os.WriteFile(certPath, []byte("current-cert"), 0644)
-	os.WriteFile(keyPath, []byte("current-key"), 0600)
-	os.WriteFile(chainPath, []byte("current-chain"), 0644)
+	_ = os.WriteFile(certPath, []byte("current-cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
+	_ = os.WriteFile(chainPath, []byte("current-chain"), 0644)
 
 	d := NewApacheDeployer(certPath, keyPath, chainPath, "", "")
 
@@ -317,15 +317,15 @@ func TestApacheDeployer_Rollback_NoChain(t *testing.T) {
 
 	// 创建备份文件
 	backupDir := filepath.Join(tmpDir, "backup")
-	os.MkdirAll(backupDir, 0755)
+	_ = os.MkdirAll(backupDir, 0755)
 	backupCertPath := filepath.Join(backupDir, "cert.pem")
 	backupKeyPath := filepath.Join(backupDir, "key.pem")
-	os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
-	os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
+	_ = os.WriteFile(backupCertPath, []byte("backup-cert"), 0644)
+	_ = os.WriteFile(backupKeyPath, []byte("backup-key"), 0600)
 
 	// 创建当前文件
-	os.WriteFile(certPath, []byte("current-cert"), 0644)
-	os.WriteFile(keyPath, []byte("current-key"), 0600)
+	_ = os.WriteFile(certPath, []byte("current-cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
 
 	// 不指定 chainPath
 	d := NewApacheDeployer(certPath, keyPath, "", "", "")

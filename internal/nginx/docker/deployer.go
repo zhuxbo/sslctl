@@ -189,7 +189,7 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	// 设置安全权限
 	if err := os.Chmod(tmpDir, 0700); err != nil {
 		return fmt.Errorf("set temp dir permission failed: %w", err)

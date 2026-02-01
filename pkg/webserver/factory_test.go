@@ -133,7 +133,7 @@ func TestNginxScannerWrapper_ScanDocker(t *testing.T) {
 	if err != nil {
 		t.Errorf("ScanDocker() error = %v", err)
 	}
-	if sites != nil && len(sites) > 0 {
+	if len(sites) > 0 {
 		t.Log("Docker 扫描已实现")
 	}
 }
