@@ -66,7 +66,7 @@ func SaveScanResult(result *ScanResult) error {
 		return err
 	}
 
-	return os.WriteFile(GetScanResultPath(), data, 0644)
+	return os.WriteFile(GetScanResultPath(), data, 0600)
 }
 
 // LoadScanResult 加载扫描结果

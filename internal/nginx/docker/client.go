@@ -294,6 +294,11 @@ func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath strin
 	if err != nil {
 		return "", "", fmt.Errorf("create temp dir failed: %w", err)
 	}
+	// 设置安全权限
+	if err := os.Chmod(tmpDir, 0700); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("set temp dir permission failed: %w", err)
+	}
 
 	tmpCertPath = filepath.Join(tmpDir, "cert.pem")
 	tmpKeyPath = filepath.Join(tmpDir, "key.pem")
@@ -309,4 +314,76 @@ func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath strin
 	}
 
 	return tmpCertPath, tmpKeyPath, nil
+}
+
+// isValidContainerPath 验证容器内路径是否安全
+// 拒绝包含命令注入字符的路径
+func isValidContainerPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	// 检查危险字符
+	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\"}
+	for _, char := range dangerousChars {
+		if strings.Contains(path, char) {
+			return false
+		}
+	}
+	// 路径必须是绝对路径
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	return true
+}
+
+// ExecAux 执行辅助命令（mkdir/chmod），使用严格验证
+// 不使用 sh -c，直接传递命令参数
+func (c *Client) ExecAux(ctx context.Context, cmd string, args ...string) (string, error) {
+	// 白名单命令
+	allowedAuxCommands := map[string]struct{}{
+		"mkdir": {},
+		"chmod": {},
+	}
+
+	if _, ok := allowedAuxCommands[cmd]; !ok {
+		return "", fmt.Errorf("command not allowed: %s", cmd)
+	}
+
+	// 验证所有参数
+	for _, arg := range args {
+		// 跳过 flag 参数（如 -p, 644）
+		if strings.HasPrefix(arg, "-") || (len(arg) <= 4 && isNumeric(arg)) {
+			continue
+		}
+		// 验证路径参数
+		if !isValidContainerPath(arg) {
+			return "", fmt.Errorf("invalid path argument: %s", arg)
+		}
+	}
+
+	var execCmd *exec.Cmd
+	cmdArgs := append([]string{cmd}, args...)
+
+	if c.useCompose && c.composeFile != "" {
+		fullArgs := append([]string{"-f", c.composeFile, "exec", "-T", c.serviceName}, cmdArgs...)
+		execCmd = exec.CommandContext(ctx, "docker-compose", fullArgs...)
+	} else if c.containerID != "" {
+		fullArgs := append([]string{"exec", c.containerID}, cmdArgs...)
+		execCmd = exec.CommandContext(ctx, "docker", fullArgs...)
+	} else {
+		return "", fmt.Errorf("no container specified")
+	}
+
+	output, err := execCmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+// isNumeric 检查字符串是否为纯数字
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
 }

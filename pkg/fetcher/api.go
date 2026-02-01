@@ -225,7 +225,7 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 }
 
 // mustValidURL 校验 URL 是否有效。
-// 生产环境应使用 HTTPS，HTTP 仅用于本地测试。
+// 仅 localhost/127.0.0.1 允许 HTTP，其他必须使用 HTTPS。
 func mustValidURL(apiURL string) error {
 	u, err := url.Parse(apiURL)
 	if err != nil {
@@ -236,6 +236,13 @@ func mustValidURL(apiURL string) error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("API URL must have a valid host")
+	}
+
+	// HTTP 仅允许 localhost
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if u.Scheme == "http" && !isLocal {
+		return fmt.Errorf("HTTP only allowed for localhost, use HTTPS for remote servers")
 	}
 	return nil
 }

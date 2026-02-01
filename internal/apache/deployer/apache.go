@@ -162,6 +162,22 @@ func (d *ApacheDeployer) runCommand(cmdStr string) error {
 	return nil
 }
 
+// Reload 重载 Apache 服务
+func (d *ApacheDeployer) Reload() error {
+	if d.reloadCommand == "" {
+		return nil
+	}
+	return d.runCommand(d.reloadCommand)
+}
+
+// Test 测试 Apache 配置
+func (d *ApacheDeployer) Test() error {
+	if d.testCommand == "" {
+		return nil
+	}
+	return d.runCommand(d.testCommand)
+}
+
 // Rollback 回滚到备份的证书
 func (d *ApacheDeployer) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error {
 	// 1. 复制备份文件

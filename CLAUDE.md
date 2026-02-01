@@ -10,9 +10,9 @@ cmd/           # CLI 入口
   setup/       # 一键部署命令
   daemon/      # 守护进程
   deploy/      # 证书部署
-  nginx/       # Nginx 命令（兼容）
-  apache/      # Apache 命令（兼容）
 pkg/           # 可复用包
+  certops/     # 证书操作服务层（扫描/部署/续签）
+  webserver/   # Web 服务器抽象层
   config/      # 配置管理（统一 config.json）
   matcher/     # 域名匹配
   fetcher/     # API 客户端
@@ -76,6 +76,15 @@ cert-deploy uninstall                  # 卸载
 ```
 
 证书存储目录：`/opt/cert-deploy/certs/{site_name}/`
+
+## 安全特性
+
+- **HTTPS 强制**：远程 API 必须使用 HTTPS（仅 localhost 允许 HTTP）
+- **命令白名单**：容器内只允许执行预定义的安全命令
+- **路径验证**：Docker 容器路径参数严格验证，防止命令注入
+- **临时目录安全**：临时目录权限设置为 0700
+- **配置文件锁**：并发写入保护
+- **部署回滚**：部署失败自动回滚到备份
 
 ## 测试
 

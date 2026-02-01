@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,14 +18,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/cmd/apache"
 	"github.com/zhuxbo/cert-deploy/cmd/daemon"
 	"github.com/zhuxbo/cert-deploy/cmd/deploy"
-	"github.com/zhuxbo/cert-deploy/cmd/nginx"
 	"github.com/zhuxbo/cert-deploy/cmd/setup"
-	apacheScanner "github.com/zhuxbo/cert-deploy/internal/apache/scanner"
 	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
+	"github.com/zhuxbo/cert-deploy/pkg/certops"
 	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/cert-deploy/pkg/logger"
 	"github.com/zhuxbo/cert-deploy/pkg/service"
 )
 
@@ -74,15 +74,9 @@ func main() {
 
 	switch cmd {
 	case "scan":
-		runAutoCommand("scan", subArgs, debug)
+		runScan(subArgs, debug)
 	case "deploy":
 		deploy.Run(subArgs, version, buildTime, debug)
-	case "issue":
-		runAutoCommand("issue", subArgs, debug)
-	case "install-https":
-		runAutoCommand("install-https", subArgs, debug)
-	case "init":
-		runAutoCommand("init", subArgs, debug)
 	case "daemon":
 		daemon.Run(subArgs, version, buildTime, debug)
 	case "status":
@@ -115,9 +109,6 @@ func printUsage() {
 命令:
   scan            扫描站点（自动检测 Web 服务器）
   deploy          部署证书
-  issue           签发证书
-  install-https   安装 HTTPS 配置
-  init            生成站点配置
   status          显示服务状态
   upgrade         升级工具
   service         管理系统服务
@@ -132,11 +123,8 @@ func printUsage() {
 常用命令:
   cert-deploy scan                          扫描所有站点
   cert-deploy scan --ssl-only               仅扫描 SSL 站点
-  cert-deploy deploy --site <name>          部署指定站点
-  cert-deploy issue --site <name>           签发证书
-  cert-deploy install-https                 安装 HTTPS 配置
-  cert-deploy init --url <url> --token <token>              生成站点配置
-  cert-deploy init --url <url> --token <token> --local-key  本地私钥模式
+  cert-deploy deploy --cert <name>          部署指定证书
+  cert-deploy deploy --all                  部署所有证书
   cert-deploy status                        查看服务状态
   cert-deploy upgrade                       升级到最新版本
   cert-deploy upgrade --check               检查更新
@@ -153,7 +141,7 @@ func printUsage() {
 
 示例:
   cert-deploy scan
-  cert-deploy --debug deploy --site example.com
+  cert-deploy --debug deploy --cert example.com
   cert-deploy setup --url https://api.example.com --token abc123 --order 12345
 
 更多信息请访问: https://github.com/zhuxbo/cert-deploy
@@ -171,46 +159,66 @@ func runWindowsService() {
 	}
 }
 
-// runAutoCommand 自动检测 Web 服务器并执行命令
-func runAutoCommand(cmd string, args []string, debug bool) {
-	serverType := detectWebServer()
-	if serverType == "" {
-		serverType = promptSelectServer()
-		if serverType == "" {
-			fmt.Fprintln(os.Stderr, "已取消")
-			os.Exit(1)
+// runScan 扫描站点
+func runScan(args []string, debug bool) {
+	fs := flag.NewFlagSet("scan", flag.ExitOnError)
+	sslOnly := fs.Bool("ssl-only", false, "仅扫描 SSL 站点")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "用法: cert-deploy scan [选项]\n\n选项:\n")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	cfgManager, err := config.NewConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	log, err := logger.New(cfgManager.GetLogsDir(), "scan")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "创建日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer log.Close()
+
+	if debug {
+		log.SetLevel(logger.LevelDebug)
+	}
+
+	svc := certops.NewService(cfgManager, log)
+
+	ctx := context.Background()
+	result, err := svc.Scan(ctx, certops.ScanOptions{
+		SSLOnly: *sslOnly,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "扫描失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 输出结果
+	fmt.Printf("扫描完成，发现 %d 个站点 (环境: %s)\n\n", len(result.Sites), result.Environment)
+
+	for i, site := range result.Sites {
+		fmt.Printf("[%d] %s\n", i+1, site.ServerName)
+		fmt.Printf("    来源: %s\n", site.Source)
+		if site.ContainerName != "" {
+			fmt.Printf("    容器: %s\n", site.ContainerName)
 		}
-	}
-
-	// 构造子命令参数
-	subArgs := append([]string{cmd}, args...)
-
-	if serverType == "nginx" {
-		nginx.Run(subArgs, version, buildTime, debug)
-	} else {
-		apache.Run(subArgs, version, buildTime, debug)
-	}
-}
-
-// promptSelectServer 提示用户选择服务器类型
-func promptSelectServer() string {
-	fmt.Println("未检测到运行中的 Web 服务器")
-	fmt.Println("请选择服务器类型:")
-	fmt.Println("  1. Nginx")
-	fmt.Println("  2. Apache")
-	fmt.Print("选择 [1/2]: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(choice)
-
-	switch choice {
-	case "1":
-		return "nginx"
-	case "2":
-		return "apache"
-	default:
-		return ""
+		fmt.Printf("    配置: %s\n", site.ConfigFile)
+		if len(site.ListenPorts) > 0 {
+			fmt.Printf("    端口: %s\n", strings.Join(site.ListenPorts, ", "))
+		}
+		if site.CertificatePath != "" {
+			fmt.Printf("    证书: %s\n", site.CertificatePath)
+			fmt.Printf("    私钥: %s\n", site.PrivateKeyPath)
+		}
+		fmt.Println()
 	}
 }
 
@@ -252,11 +260,17 @@ func runStatus() {
 		}
 	}
 
-	// 4. 站点统计
-	cfgManager, err := config.NewManager()
+	// 4. 证书统计
+	cfgManager, err := config.NewConfigManager()
 	if err == nil {
-		sites, _ := cfgManager.ListSites()
-		fmt.Printf("\n站点配置: %d 个\n", len(sites))
+		certs, _ := cfgManager.ListCerts()
+		enabledCount := 0
+		for _, cert := range certs {
+			if cert.Enabled {
+				enabledCount++
+			}
+		}
+		fmt.Printf("\n证书配置: %d 个 (%d 个已启用)\n", len(certs), enabledCount)
 	}
 }
 
@@ -607,18 +621,8 @@ func detectWebServer() string {
 	}
 
 	// 检测 apache
-	if _, err := exec.LookPath("apache2ctl"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
-			return "apache"
-		}
-	}
-	if _, err := exec.LookPath("apachectl"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
-			return "apache"
-		}
-	}
-	if _, err := exec.LookPath("httpd"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
+	for _, cmd := range []string{"apache2ctl", "apachectl", "httpd"} {
+		if _, err := exec.LookPath(cmd); err == nil {
 			return "apache"
 		}
 	}
@@ -626,3 +630,24 @@ func detectWebServer() string {
 	return ""
 }
 
+// promptSelectServer 提示用户选择服务器类型
+func promptSelectServer() string {
+	fmt.Println("未检测到运行中的 Web 服务器")
+	fmt.Println("请选择服务器类型:")
+	fmt.Println("  1. Nginx")
+	fmt.Println("  2. Apache")
+	fmt.Print("选择 [1/2]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	choice, _ := reader.ReadString('\n')
+	choice = strings.TrimSpace(choice)
+
+	switch choice {
+	case "1":
+		return "nginx"
+	case "2":
+		return "apache"
+	default:
+		return ""
+	}
+}

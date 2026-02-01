@@ -134,6 +134,22 @@ func (d *NginxDeployer) runCommand(cmdStr string) error {
 	return nil
 }
 
+// Reload 重载 Nginx 服务
+func (d *NginxDeployer) Reload() error {
+	if d.reloadCommand == "" {
+		return nil
+	}
+	return d.runCommand(d.reloadCommand)
+}
+
+// Test 测试 Nginx 配置
+func (d *NginxDeployer) Test() error {
+	if d.testCommand == "" {
+		return nil
+	}
+	return d.runCommand(d.testCommand)
+}
+
 // Rollback 回滚到备份的证书
 func (d *NginxDeployer) Rollback(backupCertPath, backupKeyPath string) error {
 	// 1. 复制备份文件

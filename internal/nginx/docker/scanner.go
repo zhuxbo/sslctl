@@ -384,12 +384,3 @@ func (s *Scanner) FindByDomain(ctx context.Context, domain string) (*SSLSite, er
 
 	return nil, nil
 }
-
-// getDir 获取路径的目录部分
-func getDir(path string) string {
-	idx := strings.LastIndex(path, "/")
-	if idx == -1 {
-		return "."
-	}
-	return path[:idx]
-}

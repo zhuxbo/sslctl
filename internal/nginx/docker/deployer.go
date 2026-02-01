@@ -190,6 +190,10 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("create temp dir failed: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
+	// 设置安全权限
+	if err := os.Chmod(tmpDir, 0700); err != nil {
+		return fmt.Errorf("set temp dir permission failed: %w", err)
+	}
 
 	certFile := filepath.Join(tmpDir, "fullchain.pem")
 	keyFile := filepath.Join(tmpDir, "privkey.pem")
@@ -202,15 +206,15 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("write temp key file failed: %w", err)
 	}
 
-	// 确保容器内目录存在
+	// 确保容器内目录存在（使用安全的 ExecAux 方法）
 	certDir := getDir(d.certPath)
 	keyDir := getDir(d.keyPath)
 
 	if certDir != "" {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", util.ShellQuote(certDir)))
+		_, _ = d.client.ExecAux(ctx, "mkdir", "-p", certDir)
 	}
 	if keyDir != "" && keyDir != certDir {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", util.ShellQuote(keyDir)))
+		_, _ = d.client.ExecAux(ctx, "mkdir", "-p", keyDir)
 	}
 
 	// 复制到容器
@@ -221,9 +225,9 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("copy private key to container failed: %w", err)
 	}
 
-	// 设置容器内文件权限
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", util.ShellQuote(d.certPath)))
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", util.ShellQuote(d.keyPath)))
+	// 设置容器内文件权限（使用安全的 ExecAux 方法）
+	_, _ = d.client.ExecAux(ctx, "chmod", "644", d.certPath)
+	_, _ = d.client.ExecAux(ctx, "chmod", "600", d.keyPath)
 
 	return nil
 }
@@ -337,8 +341,12 @@ func ValidateCommand(cmd string) bool {
 	return allowedContainerCommands[strings.TrimSpace(cmd)]
 }
 
-// AddAllowedCommand 添加允许的命令（用于扩展）
-func AddAllowedCommand(cmd string) {
-	allowedContainerCommands[cmd] = true
+// getDir 获取路径的目录部分
+func getDir(path string) string {
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
 }
 

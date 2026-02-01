@@ -58,8 +58,6 @@ cert-deploy deploy --site example.com
 ```bash
 cert-deploy deploy --cert order-12345         # 部署指定证书
 cert-deploy deploy --all                      # 部署所有证书
-cert-deploy issue --site example.com          # 发起签发
-cert-deploy install-https --site example.com  # 安装 HTTPS 配置
 cert-deploy status                            # 查看服务状态
 cert-deploy upgrade                           # 升级到最新版本
 cert-deploy upgrade --check                   # 检查更新
@@ -94,15 +92,26 @@ cert-deploy --debug deploy --site example.com
 
 ```
 /opt/cert-deploy/
-├── config.json   # 统一配置文件
-├── certs/        # 证书存储
+├── config.json     # 统一配置文件
+├── certs/          # 证书存储
 │   └── {site_name}/
 │       ├── cert.pem
 │       └── key.pem
-├── logs/         # 日志文件
-├── backup/       # 证书备份
-└── sites/        # 站点配置（兼容旧版）
+├── pending-keys/   # 待确认私钥（本地私钥模式）
+├── logs/           # 日志文件
+├── backup/         # 证书备份
+└── scan-result.json  # 扫描结果缓存
 ```
+
+## 安全特性
+
+- **HTTPS 强制**：远程 API 必须使用 HTTPS（仅 localhost 允许 HTTP）
+- **命令白名单**：容器内只允许执行预定义的安全命令
+- **路径验证**：Docker 容器路径参数严格验证，防止命令注入
+- **临时目录安全**：临时目录权限设置为 0700
+- **配置文件锁**：并发写入保护
+- **部署回滚**：部署失败自动回滚到备份
+- **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换
 
 ## 配置结构
 
