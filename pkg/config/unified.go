@@ -57,7 +57,7 @@ func (cm *ConfigManager) ensureDirs() error {
 		path string
 		perm os.FileMode
 	}{
-		{cm.workDir, 0755},
+		{cm.workDir, 0700},  // 工作目录收紧权限，仅 root 可访问
 		{cm.certsDir, 0700},
 		{cm.logsDir, 0700},
 		{cm.backupDir, 0700},

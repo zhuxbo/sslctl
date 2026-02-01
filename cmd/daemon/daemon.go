@@ -83,7 +83,11 @@ func Run(args []string, version, buildTime string, debug bool) {
 }
 
 // checkAndDeploy 检查并部署证书
-func checkAndDeploy(ctx context.Context, svc *certops.Service, log *logger.Logger) {
+func checkAndDeploy(parentCtx context.Context, svc *certops.Service, log *logger.Logger) {
+	// 为每次检查任务设置 30 分钟超时，防止 API 卡死阻塞整个守护进程
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
+	defer cancel()
+
 	log.Info("开始检查证书...")
 
 	results, err := svc.CheckAndRenewAll(ctx)

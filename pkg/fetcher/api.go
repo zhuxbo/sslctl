@@ -189,9 +189,19 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 		// 记录错误
 		if err != nil {
 			lastErr = err
+			// 当 err != nil 但 resp != nil 时，关闭响应体防止连接泄漏
+			if resp != nil {
+				resp.Body.Close()
+			}
 		} else {
-			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			// 尝试读取错误详情
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 			resp.Body.Close()
+			if len(body) > 0 {
+				lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+			} else {
+				lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			}
 		}
 
 		// 最后一次尝试不等待

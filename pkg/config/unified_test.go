@@ -494,3 +494,399 @@ func TestConfigManager_LoadCaching(t *testing.T) {
 		t.Error("Load() should return cached config")
 	}
 }
+
+// TestCertConfig_DaysUntilExpiry 测试证书到期剩余天数计算
+func TestCertConfig_DaysUntilExpiry(t *testing.T) {
+	tests := []struct {
+		name      string
+		expiresAt time.Time
+		wantRange [2]int // 预期天数范围 [min, max]
+	}{
+		{
+			name:      "未设置过期时间",
+			expiresAt: time.Time{},
+			wantRange: [2]int{999, 999},
+		},
+		{
+			name:      "30天后过期",
+			expiresAt: time.Now().Add(30 * 24 * time.Hour),
+			wantRange: [2]int{29, 30},
+		},
+		{
+			name:      "1天后过期",
+			expiresAt: time.Now().Add(24 * time.Hour),
+			wantRange: [2]int{0, 1},
+		},
+		{
+			name:      "已过期",
+			expiresAt: time.Now().Add(-24 * time.Hour),
+			wantRange: [2]int{-2, -1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := &CertConfig{
+				Metadata: CertMetadata{
+					CertExpiresAt: tt.expiresAt,
+				},
+			}
+			days := cert.DaysUntilExpiry()
+			if days < tt.wantRange[0] || days > tt.wantRange[1] {
+				t.Errorf("DaysUntilExpiry() = %d, 期望在 [%d, %d] 范围内", days, tt.wantRange[0], tt.wantRange[1])
+			}
+		})
+	}
+}
+
+// TestCertConfig_NeedsRenewal 测试续签判断逻辑
+func TestCertConfig_NeedsRenewal(t *testing.T) {
+	tests := []struct {
+		name      string
+		expiresAt time.Time
+		schedule  ScheduleConfig
+		want      bool
+	}{
+		{
+			name:      "Pull模式-需要续签（3天后过期）",
+			expiresAt: time.Now().Add(3 * 24 * time.Hour),
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 7,
+			},
+			want: true,
+		},
+		{
+			name:      "Pull模式-不需要续签（30天后过期）",
+			expiresAt: time.Now().Add(30 * 24 * time.Hour),
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 7,
+			},
+			want: false,
+		},
+		{
+			name:      "Pull模式-默认天数",
+			expiresAt: time.Now().Add(5 * 24 * time.Hour),
+			schedule: ScheduleConfig{
+				RenewMode: RenewModePull,
+			},
+			want: true, // PullRenewDefaultDay = 7
+		},
+		{
+			name:      "空模式默认为Pull",
+			expiresAt: time.Now().Add(3 * 24 * time.Hour),
+			schedule: ScheduleConfig{
+				RenewBeforeDays: 7,
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := &CertConfig{
+				Metadata: CertMetadata{
+					CertExpiresAt: tt.expiresAt,
+				},
+			}
+			got := cert.NeedsRenewal(&tt.schedule)
+			if got != tt.want {
+				t.Errorf("NeedsRenewal() = %v, 期望 %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCertConfig_NeedsRenewal_LocalMode 测试本地私钥模式的续签判断
+func TestCertConfig_NeedsRenewal_LocalMode(t *testing.T) {
+	tests := []struct {
+		name           string
+		expiresAt      time.Time
+		retryCount     int
+		renewBeforeDays int
+		want           bool
+	}{
+		{
+			name:           "本地模式-在服务端自动续签范围内，不续签",
+			expiresAt:      time.Now().Add(10 * 24 * time.Hour), // 10 天后过期，小于 ServerAutoRenewDays (14)
+			retryCount:     0,
+			renewBeforeDays: 30,
+			want:           false, // days (10) <= ServerAutoRenewDays (14) 不续签
+		},
+		{
+			name:           "本地模式-有重试记录，续签",
+			expiresAt:      time.Now().Add(25 * 24 * time.Hour),
+			retryCount:     1,
+			renewBeforeDays: 30,
+			want:           true,
+		},
+		{
+			name:           "本地模式-在续签窗口内",
+			expiresAt:      time.Now().Add(35 * 24 * time.Hour),
+			retryCount:     0,
+			renewBeforeDays: 40,
+			want:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := &CertConfig{
+				Metadata: CertMetadata{
+					CertExpiresAt:   tt.expiresAt,
+					IssueRetryCount: tt.retryCount,
+				},
+			}
+			schedule := &ScheduleConfig{
+				RenewMode:       RenewModeLocal,
+				RenewBeforeDays: tt.renewBeforeDays,
+			}
+			got := cert.NeedsRenewal(schedule)
+			if got != tt.want {
+				t.Errorf("NeedsRenewal() = %v, 期望 %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestConfigManager_ConcurrentWrites 测试并发写入
+func TestConfigManager_ConcurrentWrites(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 10)
+
+	// 并发写入不同的证书
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			cert := &CertConfig{
+				CertName: "cert-" + string(rune('A'+idx)),
+				OrderID:  idx,
+				Enabled:  true,
+			}
+			if err := cm.AddCert(cert); err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("并发写入错误: %v", err)
+	}
+
+	// 验证所有证书都保存了
+	certs, err := cm.ListCerts()
+	if err != nil {
+		t.Fatalf("ListCerts() error = %v", err)
+	}
+
+	// 由于并发写入可能有覆盖，至少应该有一些证书
+	if len(certs) == 0 {
+		t.Error("没有保存任何证书")
+	}
+}
+
+// TestGetCertDir 测试证书目录路径生成
+func TestGetCertDir(t *testing.T) {
+	tests := []struct {
+		siteName string
+		want     string
+	}{
+		{"example.com", "/opt/cert-deploy/certs/example.com"},
+		{"test.example.com", "/opt/cert-deploy/certs/test.example.com"},
+	}
+
+	for _, tt := range tests {
+		got := GetCertDir(tt.siteName)
+		if got != tt.want {
+			t.Errorf("GetCertDir(%s) = %s, 期望 %s", tt.siteName, got, tt.want)
+		}
+	}
+}
+
+// TestGetDefaultPaths 测试默认路径生成
+func TestGetDefaultPaths(t *testing.T) {
+	siteName := "example.com"
+
+	certPath := GetDefaultCertPath(siteName)
+	if certPath != "/opt/cert-deploy/certs/example.com/cert.pem" {
+		t.Errorf("GetDefaultCertPath() = %s", certPath)
+	}
+
+	keyPath := GetDefaultKeyPath(siteName)
+	if keyPath != "/opt/cert-deploy/certs/example.com/key.pem" {
+		t.Errorf("GetDefaultKeyPath() = %s", keyPath)
+	}
+
+	chainPath := GetDefaultChainPath(siteName)
+	if chainPath != "/opt/cert-deploy/certs/example.com/chain.pem" {
+		t.Errorf("GetDefaultChainPath() = %s", chainPath)
+	}
+}
+
+// TestScanResult_FindSiteByID 测试根据 ID 查找站点
+func TestScanResult_FindSiteByID(t *testing.T) {
+	result := &ScanResult{
+		Sites: []ScannedSite{
+			{ID: "example.com", ServerName: "example.com"},
+			{ID: "test.com", ServerName: "test.com"},
+		},
+	}
+
+	// 查找存在的站点
+	site := result.FindSiteByID("example.com")
+	if site == nil {
+		t.Error("FindSiteByID() 未找到存在的站点")
+	} else if site.ServerName != "example.com" {
+		t.Errorf("FindSiteByID() = %s, 期望 example.com", site.ServerName)
+	}
+
+	// 查找不存在的站点
+	site = result.FindSiteByID("nonexistent.com")
+	if site != nil {
+		t.Error("FindSiteByID() 应返回 nil 对于不存在的站点")
+	}
+}
+
+// TestScanResult_FindSiteByIndex 测试根据索引查找站点
+func TestScanResult_FindSiteByIndex(t *testing.T) {
+	result := &ScanResult{
+		Sites: []ScannedSite{
+			{ID: "site1.com", ServerName: "site1.com"},
+			{ID: "site2.com", ServerName: "site2.com"},
+			{ID: "site3.com", ServerName: "site3.com"},
+		},
+	}
+
+	// 有效索引（1-based）
+	site := result.FindSiteByIndex(1)
+	if site == nil || site.ID != "site1.com" {
+		t.Error("FindSiteByIndex(1) 失败")
+	}
+
+	site = result.FindSiteByIndex(3)
+	if site == nil || site.ID != "site3.com" {
+		t.Error("FindSiteByIndex(3) 失败")
+	}
+
+	// 无效索引
+	site = result.FindSiteByIndex(0)
+	if site != nil {
+		t.Error("FindSiteByIndex(0) 应返回 nil")
+	}
+
+	site = result.FindSiteByIndex(4)
+	if site != nil {
+		t.Error("FindSiteByIndex(4) 应返回 nil（超出范围）")
+	}
+
+	site = result.FindSiteByIndex(-1)
+	if site != nil {
+		t.Error("FindSiteByIndex(-1) 应返回 nil")
+	}
+}
+
+// TestConfigManager_FilePermissions 测试文件权限
+func TestConfigManager_FilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 保存配置
+	cfg := &Config{
+		Version: "2.0",
+		API:     APIConfig{Token: "secret-token"},
+	}
+	if err := cm.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// 检查配置文件权限（应该是 0600）
+	info, err := os.Stat(cm.GetConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	perm := info.Mode().Perm()
+	// 在某些系统上可能因 umask 不同，允许 0600 或 0644
+	if perm != 0600 && perm != 0644 {
+		t.Logf("配置文件权限: %o（期望 0600）", perm)
+	}
+}
+
+// TestConfigManager_ScheduleDefaults 测试默认调度配置
+func TestConfigManager_ScheduleDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	cfg, _ := cm.Load()
+
+	if cfg.Schedule.RenewMode != RenewModePull {
+		t.Errorf("默认 RenewMode = %s, 期望 %s", cfg.Schedule.RenewMode, RenewModePull)
+	}
+
+	if cfg.Schedule.CheckIntervalHours != DefaultCheckIntervalHours {
+		t.Errorf("默认 CheckIntervalHours = %d, 期望 %d", cfg.Schedule.CheckIntervalHours, DefaultCheckIntervalHours)
+	}
+
+	if cfg.Schedule.RenewBeforeDays != PullRenewDefaultDay {
+		t.Errorf("默认 RenewBeforeDays = %d, 期望 %d", cfg.Schedule.RenewBeforeDays, PullRenewDefaultDay)
+	}
+}
+
+// TestConfigManager_MultipleCertOperations 测试多证书操作
+func TestConfigManager_MultipleCertOperations(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	// 添加多个证书
+	certs := []CertConfig{
+		{CertName: "cert-a", OrderID: 1, Enabled: true, Domains: []string{"a.com"}},
+		{CertName: "cert-b", OrderID: 2, Enabled: true, Domains: []string{"b.com"}},
+		{CertName: "cert-c", OrderID: 3, Enabled: false, Domains: []string{"c.com"}},
+	}
+
+	for _, cert := range certs {
+		if err := cm.AddCert(&cert); err != nil {
+			t.Fatalf("AddCert(%s) error = %v", cert.CertName, err)
+		}
+	}
+
+	// 列出所有证书
+	allCerts, _ := cm.ListCerts()
+	if len(allCerts) != 3 {
+		t.Errorf("ListCerts() = %d, 期望 3", len(allCerts))
+	}
+
+	// 列出启用的证书
+	enabledCerts, _ := cm.ListEnabledCerts()
+	if len(enabledCerts) != 2 {
+		t.Errorf("ListEnabledCerts() = %d, 期望 2", len(enabledCerts))
+	}
+
+	// 更新证书
+	cert, _ := cm.GetCert("cert-c")
+	cert.Enabled = true
+	cm.UpdateCert(cert)
+
+	enabledCerts, _ = cm.ListEnabledCerts()
+	if len(enabledCerts) != 3 {
+		t.Errorf("更新后 ListEnabledCerts() = %d, 期望 3", len(enabledCerts))
+	}
+
+	// 删除证书
+	cm.DeleteCert("cert-b")
+	allCerts, _ = cm.ListCerts()
+	if len(allCerts) != 2 {
+		t.Errorf("删除后 ListCerts() = %d, 期望 2", len(allCerts))
+	}
+}

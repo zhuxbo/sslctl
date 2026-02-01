@@ -3,6 +3,7 @@ package scanner
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -280,11 +281,11 @@ func (s *Scanner) scanConfigFile(configPath string, depth int) ([]*SSLSite, erro
 
 // findIncludes 查找配置文件中的 include 指令
 func (s *Scanner) findIncludes(configPath string) ([]string, error) {
-	file, err := os.Open(configPath)
+	// 使用 ReadFile 一次性读取，避免递归扫描时文件句柄长时间占用
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	configDir := filepath.Dir(configPath)
 	var includes []string
@@ -292,7 +293,7 @@ func (s *Scanner) findIncludes(configPath string) ([]string, error) {
 	// 匹配 include 指令（支持行内注释之前的内容）
 	includeRe := regexp.MustCompile(`^\s*include\s+([^;#]+);`)
 
-	lineScanner := bufio.NewScanner(file)
+	lineScanner := bufio.NewScanner(bytes.NewReader(data))
 	for lineScanner.Scan() {
 		line := lineScanner.Text()
 

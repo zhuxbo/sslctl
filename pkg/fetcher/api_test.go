@@ -604,3 +604,387 @@ func TestResponseSizeLimit(t *testing.T) {
 		t.Fatalf("Info() should succeed for normal response, error = %v", err)
 	}
 }
+
+// TestQueryOrder_Retry 测试 QueryOrder 重试逻辑
+func TestQueryOrder_Retry(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		// 前两次返回 500 错误
+		if callCount < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// 第三次成功
+		resp := mockResponse{
+			Code: 1,
+			Data: mockCertData(),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// 快速重试配置
+	retryConfig := RetryConfig{
+		MaxRetries:  3,
+		InitialWait: 10 * time.Millisecond,
+		MaxWait:     50 * time.Millisecond,
+		Multiplier:  1.0,
+	}
+	f := NewWithRetry(30*time.Second, retryConfig)
+	ctx := context.Background()
+
+	data, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+	if err != nil {
+		t.Fatalf("QueryOrder() 应在重试后成功, error = %v", err)
+	}
+
+	if data.OrderID != 12345 {
+		t.Errorf("OrderID = %d, want 12345", data.OrderID)
+	}
+
+	if callCount != 3 {
+		t.Errorf("callCount = %d, want 3", callCount)
+	}
+}
+
+// TestQueryOrder_RetryBoundary 测试重试边界条件
+func TestQueryOrder_RetryBoundary(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxRetries    int
+		failCount     int
+		wantSuccess   bool
+		wantCallCount int
+	}{
+		{
+			name:          "刚好在最大重试次数内成功",
+			maxRetries:    3,
+			failCount:     3,
+			wantSuccess:   true,
+			wantCallCount: 4, // 初始请求 + 3 次重试
+		},
+		{
+			name:          "超过最大重试次数",
+			maxRetries:    2,
+			failCount:     10,
+			wantSuccess:   false,
+			wantCallCount: 3, // 初始请求 + 2 次重试
+		},
+		{
+			name:          "无需重试",
+			maxRetries:    3,
+			failCount:     0,
+			wantSuccess:   true,
+			wantCallCount: 1,
+		},
+		{
+			name:          "重试一次成功",
+			maxRetries:    3,
+			failCount:     1,
+			wantSuccess:   true,
+			wantCallCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callCount++
+				if callCount <= tt.failCount {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				resp := mockResponse{Code: 1, Data: mockCertData()}
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			retryConfig := RetryConfig{
+				MaxRetries:  tt.maxRetries,
+				InitialWait: 5 * time.Millisecond,
+				MaxWait:     20 * time.Millisecond,
+				Multiplier:  1.0,
+			}
+			f := NewWithRetry(30*time.Second, retryConfig)
+			ctx := context.Background()
+
+			_, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+			gotSuccess := err == nil
+
+			if gotSuccess != tt.wantSuccess {
+				t.Errorf("success = %v, want %v", gotSuccess, tt.wantSuccess)
+			}
+
+			if callCount != tt.wantCallCount {
+				t.Errorf("callCount = %d, want %d", callCount, tt.wantCallCount)
+			}
+		})
+	}
+}
+
+// TestFetcher_Timeout 测试请求超时
+func TestFetcher_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 模拟慢响应
+		time.Sleep(500 * time.Millisecond)
+		resp := mockResponse{Code: 1, Data: mockCertData()}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// 设置很短的超时
+	f := New(100 * time.Millisecond)
+	ctx := context.Background()
+
+	_, err := f.Info(ctx, server.URL, "token")
+	if err == nil {
+		t.Error("Info() 应因超时而失败")
+	}
+}
+
+// TestFetcher_TimeoutWithContext 测试上下文超时
+func TestFetcher_TimeoutWithContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		resp := mockResponse{Code: 1, Data: mockCertData()}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := f.Info(ctx, server.URL, "token")
+	if err == nil {
+		t.Error("Info() 应因上下文超时而失败")
+	}
+}
+
+// TestFetcher_LargeResponse 测试大响应体处理
+func TestFetcher_LargeResponse(t *testing.T) {
+	// 生成一个较大但有效的响应
+	largeCertData := mockCertData()
+	// 添加一个大的证书内容（模拟长证书链）
+	largeCert := "-----BEGIN CERTIFICATE-----\n"
+	for i := 0; i < 100; i++ {
+		largeCert += "MIIFazCCA1OgAwIBAgIUBjN9V2sI3dPh7aSjQy4rKj3EXAMPLE\n"
+	}
+	largeCert += "-----END CERTIFICATE-----"
+	largeCertData["certificate"] = largeCert
+	largeCertData["ca_certificate"] = largeCert + "\n" + largeCert + "\n" + largeCert
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{
+			Code: 1,
+			Data: largeCertData,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	data, err := f.Info(ctx, server.URL, "token")
+	if err != nil {
+		t.Fatalf("Info() 处理大响应失败: %v", err)
+	}
+
+	if data.OrderID != 12345 {
+		t.Errorf("OrderID = %d, want 12345", data.OrderID)
+	}
+}
+
+// TestRetry_429TooManyRequests 测试 429 限流重试
+func TestRetry_429TooManyRequests(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		resp := mockResponse{Code: 1, Data: mockCertData()}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	retryConfig := RetryConfig{
+		MaxRetries:  3,
+		InitialWait: 10 * time.Millisecond,
+		MaxWait:     50 * time.Millisecond,
+		Multiplier:  1.0,
+	}
+	f := NewWithRetry(30*time.Second, retryConfig)
+	ctx := context.Background()
+
+	_, err := f.Info(ctx, server.URL, "token")
+	if err != nil {
+		t.Fatalf("Info() 应在 429 后重试成功: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("callCount = %d, want 2", callCount)
+	}
+}
+
+// TestRetry_NonRetryableErrors 测试不可重试的错误
+func TestRetry_NonRetryableErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+	}{
+		{"400 Bad Request", http.StatusBadRequest},
+		{"401 Unauthorized", http.StatusUnauthorized},
+		{"403 Forbidden", http.StatusForbidden},
+		{"404 Not Found", http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callCount++
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			retryConfig := RetryConfig{
+				MaxRetries:  3,
+				InitialWait: 10 * time.Millisecond,
+				MaxWait:     50 * time.Millisecond,
+				Multiplier:  1.0,
+			}
+			f := NewWithRetry(30*time.Second, retryConfig)
+			ctx := context.Background()
+
+			_, err := f.Info(ctx, server.URL, "token")
+			if err == nil {
+				t.Error("Info() 应失败")
+			}
+
+			// 不可重试的错误应该只调用一次
+			if callCount != 1 {
+				t.Errorf("callCount = %d, want 1（不可重试错误不应重试）", callCount)
+			}
+		})
+	}
+}
+
+// TestDefaultRetryConfig 测试默认重试配置
+func TestDefaultRetryConfig(t *testing.T) {
+	if DefaultRetryConfig.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", DefaultRetryConfig.MaxRetries)
+	}
+	if DefaultRetryConfig.InitialWait != 1*time.Second {
+		t.Errorf("InitialWait = %v, want 1s", DefaultRetryConfig.InitialWait)
+	}
+	if DefaultRetryConfig.MaxWait != 3*time.Second {
+		t.Errorf("MaxWait = %v, want 3s", DefaultRetryConfig.MaxWait)
+	}
+}
+
+// TestCertData_Fields 测试 CertData 字段解析
+func TestCertData_Fields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := map[string]interface{}{
+			"order_id":       99999,
+			"status":         "issued",
+			"common_name":    "test.example.com",
+			"domain":         "test.example.com",
+			"domains":        "test.example.com,www.test.example.com",
+			"certificate":    "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
+			"ca_certificate": "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----",
+			"private_key":    "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----",
+			"expires_at":     "2025-06-30T23:59:59Z",
+			"created_at":     "2024-06-01T00:00:00Z",
+		}
+		resp := mockResponse{Code: 1, Data: data}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	data, err := f.Info(ctx, server.URL, "token")
+	if err != nil {
+		t.Fatalf("Info() error = %v", err)
+	}
+
+	if data.OrderID != 99999 {
+		t.Errorf("OrderID = %d, want 99999", data.OrderID)
+	}
+	if data.Status != "issued" {
+		t.Errorf("Status = %s, want issued", data.Status)
+	}
+	if data.CommonName != "test.example.com" {
+		t.Errorf("CommonName = %s, want test.example.com", data.CommonName)
+	}
+	if data.Domains != "test.example.com,www.test.example.com" {
+		t.Errorf("Domains = %s", data.Domains)
+	}
+	if data.ExpiresAt != "2025-06-30T23:59:59Z" {
+		t.Errorf("ExpiresAt = %s", data.ExpiresAt)
+	}
+}
+
+// TestCallbackNew 测试新回调接口
+func TestCallbackNew(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 验证 URL 路径包含 /callback
+		if !strings.HasSuffix(r.URL.Path, "/callback") {
+			t.Errorf("URL path = %s, want ends with /callback", r.URL.Path)
+		}
+
+		resp := CallbackResponse{Code: 1, Message: "ok"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	req := &CallbackRequest{
+		OrderID:    12345,
+		Domain:     "example.com",
+		Status:     "success",
+		DeployedAt: "2024-01-01T00:00:00Z",
+	}
+
+	err := f.CallbackNew(ctx, server.URL, "token", req)
+	if err != nil {
+		t.Fatalf("CallbackNew() error = %v", err)
+	}
+}
+
+// TestUpdate_WithDomains 测试带域名的更新
+func TestUpdate_WithDomains(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req UpdateRequest
+		json.Unmarshal(body, &req)
+
+		if req.Domains != "example.com,www.example.com" {
+			t.Errorf("Domains = %s, want example.com,www.example.com", req.Domains)
+		}
+		if req.ValidationMethod != "http" {
+			t.Errorf("ValidationMethod = %s, want http", req.ValidationMethod)
+		}
+
+		resp := mockResponse{Code: 1, Data: mockCertData()}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	_, err := f.Update(ctx, server.URL, "token", 12345, "csr", "example.com,www.example.com", "http")
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+}

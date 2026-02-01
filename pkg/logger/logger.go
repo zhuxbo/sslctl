@@ -214,6 +214,13 @@ func (l *Logger) LogScan(configPath string, sitesFound int) {
 	l.Info("配置扫描完成: path=%s, sites_found=%d", configPath, sitesFound)
 }
 
+// NewNopLogger 创建一个不输出任何内容的日志记录器（用于测试）
+func NewNopLogger() *Logger {
+	return &Logger{
+		minLevel: LevelError + 1, // 高于所有级别，不输出任何日志
+	}
+}
+
 // cleanOldLogs 清理旧日志文件
 func (l *Logger) cleanOldLogs() {
 	pattern := filepath.Join(l.logDir, l.siteName+"-*.log")
