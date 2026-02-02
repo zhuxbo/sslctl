@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,7 +207,7 @@ func TestDeployToBinding_UnsupportedServerType(t *testing.T) {
 	}
 
 	// 测试不支持的服务器类型
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err == nil {
 		t.Error("不支持的服务器类型应返回错误")
 	}
@@ -252,7 +253,7 @@ func TestDeployToBinding_InvalidCert(t *testing.T) {
 				Cert:             tt.cert,
 				IntermediateCert: "",
 			}
-			err := svc.deployToBinding(nil, binding, certData, "fake-key")
+			err := svc.deployToBinding(context.TODO(), binding, certData, "fake-key")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("deployToBinding() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -292,7 +293,7 @@ func TestDeployToBinding_MismatchedKeyPair(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, mismatchedPair.WrongKey)
+	err = svc.deployToBinding(context.TODO(), binding, certData, mismatchedPair.WrongKey)
 	if err == nil {
 		t.Error("不匹配的密钥对应返回错误")
 	}
@@ -525,7 +526,7 @@ func TestDeployToBinding_Nginx_Success(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err != nil {
 		t.Errorf("Nginx 部署失败: %v", err)
 	}
@@ -580,7 +581,7 @@ func TestDeployToBinding_Apache_Success(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err != nil {
 		t.Errorf("Apache 部署失败: %v", err)
 	}
@@ -643,7 +644,7 @@ func TestDeployToBinding_WithBackup(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err != nil {
 		t.Errorf("带备份的部署失败: %v", err)
 	}
@@ -699,7 +700,7 @@ func TestDeployToBinding_DockerNginx(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err != nil {
 		t.Errorf("Docker Nginx 部署失败: %v", err)
 	}
@@ -740,7 +741,7 @@ func TestDeployToBinding_DockerApache(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, testCert.KeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, testCert.KeyPEM)
 	if err != nil {
 		t.Errorf("Docker Apache 部署失败: %v", err)
 	}
@@ -781,7 +782,7 @@ func TestDeployToBinding_WithIntermediateCert(t *testing.T) {
 		IntermediateCert: chain.IntermediateCertPEM,
 	}
 
-	err = svc.deployToBinding(nil, binding, certData, chain.LeafKeyPEM)
+	err = svc.deployToBinding(context.TODO(), binding, certData, chain.LeafKeyPEM)
 	if err != nil {
 		t.Errorf("带中间证书的部署失败: %v", err)
 	}
