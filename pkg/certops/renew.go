@@ -51,7 +51,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 		s.log.Info("证书 %s 需要续期，开始处理...", cert.CertName)
 
-		mode := getRenewMode(&cfg.Schedule)
+		mode := cert.GetRenewMode(&cfg.Schedule)
 		result := &RenewResult{
 			CertName: cert.CertName,
 			Mode:     mode,

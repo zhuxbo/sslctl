@@ -269,8 +269,7 @@ cert-deploy                    Manager API                    CA
   },
   "schedule": {
     "check_interval_hours": 6,
-    "renew_before_days": 13,
-    "renew_mode": "pull"
+    "renew_before_days": 13
   },
   "certificates": [
     {
@@ -278,6 +277,7 @@ cert-deploy                    Manager API                    CA
       "order_id": 12345,
       "enabled": true,
       "domains": ["*.example.com", "example.com"],
+      "renew_mode": "pull",
       "bindings": [
         {
           "site_name": "www.example.com",
@@ -330,21 +330,29 @@ cert-deploy                    Manager API                    CA
 | `local` | 本地私钥模式，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
 | `pull` | 拉取模式，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
 
+### 配置级别
+
+`renew_mode` 为**订单级别**配置，在 `certificates[].renew_mode` 中设置。不同证书可使用不同模式。
+
+系统自动适配续签窗口：
+- local 模式：若全局 `renew_before_days <= 14`，自动使用 15 天
+- pull 模式：若全局 `renew_before_days >= 14`，自动使用 13 天
+
 ### 命令行启用
 
 ```bash
-# 初始化时启用本地私钥模式
-cert-deploy init --url <url> --token <token> --local-key
+# 一键部署时启用本地私钥模式
+cert-deploy setup --url <url> --token <token> --order <id> --local-key
 ```
 
 ### 配置文件
 
 ```json
 {
-  "schedule": {
-    "renew_mode": "local",
-    "renew_before_days": 15
-  }
+  "certificates": [{
+    "cert_name": "order-12345",
+    "renew_mode": "local"
+  }]
 }
 ```
 

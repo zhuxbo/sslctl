@@ -252,8 +252,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	if *localKey {
-		cfg.Schedule.RenewMode = config.RenewModeLocal
-		cfg.Schedule.RenewBeforeDays = config.LocalRenewDefaultDay
+		certConfig.RenewMode = config.RenewModeLocal
 	}
 
 	if err := cfgManager.AddCert(certConfig); err != nil {

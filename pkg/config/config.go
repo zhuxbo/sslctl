@@ -21,12 +21,13 @@ type ConfigMetadata struct {
 
 // CertConfig 证书配置
 type CertConfig struct {
-	CertName string        `json:"cert_name"` // 证书名称（如 order-12345）
-	OrderID  int           `json:"order_id"`  // 订单 ID
-	Enabled  bool          `json:"enabled"`   // 是否启用
-	Domains  []string      `json:"domains"`   // 证书域名列表
-	Bindings []SiteBinding `json:"bindings"`  // 站点绑定
-	Metadata CertMetadata  `json:"metadata,omitempty"`
+	CertName  string        `json:"cert_name"`            // 证书名称（如 order-12345）
+	OrderID   int           `json:"order_id"`             // 订单 ID
+	Enabled   bool          `json:"enabled"`              // 是否启用
+	Domains   []string      `json:"domains"`              // 证书域名列表
+	RenewMode string        `json:"renew_mode,omitempty"` // 续签模式: local | pull（优先于全局配置）
+	Bindings  []SiteBinding `json:"bindings"`             // 站点绑定
+	Metadata  CertMetadata  `json:"metadata,omitempty"`
 }
 
 // CertMetadata 证书元数据
@@ -98,17 +99,28 @@ func (c *CertConfig) DaysUntilExpiry() int {
 	return int(duration.Hours() / 24)
 }
 
+// GetRenewMode 获取续签模式（证书级别优先，否则使用全局配置）
+func (c *CertConfig) GetRenewMode(schedule *ScheduleConfig) string {
+	// 优先使用证书级别的配置
+	if c.RenewMode != "" {
+		return c.RenewMode
+	}
+	// 否则使用全局配置
+	if schedule != nil && schedule.RenewMode != "" {
+		return schedule.RenewMode
+	}
+	return RenewModePull
+}
+
 // NeedsRenewal 判断是否需要续期
 func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 	days := c.DaysUntilExpiry()
-	mode := schedule.RenewMode
-	if mode == "" {
-		mode = RenewModePull
-	}
+	mode := c.GetRenewMode(schedule)
 	// 本地私钥模式：避免与服务端自动续签冲突
 	if mode == RenewModeLocal {
 		localRenewDays := schedule.RenewBeforeDays
-		if localRenewDays == 0 {
+		// 本地模式必须 > 14，否则使用默认值 15
+		if localRenewDays <= ServerAutoRenewDays {
 			localRenewDays = LocalRenewDefaultDay
 		}
 		if c.Metadata.IssueRetryCount > 0 {
@@ -118,7 +130,8 @@ func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 	}
 
 	renewDays := schedule.RenewBeforeDays
-	if renewDays == 0 {
+	// pull 模式必须 < 14，否则使用默认值 13（等待服务端在 14 天前完成续签）
+	if renewDays == 0 || renewDays >= ServerAutoRenewDays {
 		renewDays = PullRenewDefaultDay
 	}
 	return days <= renewDays

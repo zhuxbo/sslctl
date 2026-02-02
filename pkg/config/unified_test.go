@@ -581,6 +581,15 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name:      "Pull模式-全局配置为local天数时应使用pull默认值",
+			expiresAt: time.Now().Add(20 * 24 * time.Hour), // 20 天后过期
+			schedule: ScheduleConfig{
+				RenewMode:       RenewModePull,
+				RenewBeforeDays: 30, // local 模式的典型值，对 pull 无效
+			},
+			want: false, // 应使用 PullRenewDefaultDay (13)，20 > 13 不续签
+		},
 	}
 
 	for _, tt := range tests {
@@ -627,6 +636,20 @@ func TestCertConfig_NeedsRenewal_LocalMode(t *testing.T) {
 			retryCount:     0,
 			renewBeforeDays: 40,
 			want:           true,
+		},
+		{
+			name:            "本地模式-renewBeforeDays为pull默认值13时应使用local默认值15",
+			expiresAt:       time.Now().Add((15*24 + 1) * time.Hour), // 略超过 15 天后过期
+			retryCount:      0,
+			renewBeforeDays: 13, // pull 模式默认值，对 local 模式无效
+			want:            true, // 应使用 LocalRenewDefaultDay (15)，15 > 14 && 15 <= 15
+		},
+		{
+			name:            "本地模式-renewBeforeDays为0时使用默认值15",
+			expiresAt:       time.Now().Add((15*24 + 1) * time.Hour), // 略超过 15 天后过期
+			retryCount:      0,
+			renewBeforeDays: 0,
+			want:            true, // 应使用 LocalRenewDefaultDay (15)
 		},
 	}
 
@@ -1266,5 +1289,67 @@ func TestEnvConstants(t *testing.T) {
 	}
 	if EnvAPIURL != "CERT_DEPLOY_API_URL" {
 		t.Errorf("EnvAPIURL = %s", EnvAPIURL)
+	}
+}
+
+// TestCertConfig_GetRenewMode 测试证书级别续签模式配置
+func TestCertConfig_GetRenewMode(t *testing.T) {
+	tests := []struct {
+		name           string
+		certRenewMode  string
+		schedRenewMode string
+		want           string
+	}{
+		{
+			name:           "证书级别优先",
+			certRenewMode:  RenewModeLocal,
+			schedRenewMode: RenewModePull,
+			want:           RenewModeLocal,
+		},
+		{
+			name:           "证书级别为空时使用全局配置",
+			certRenewMode:  "",
+			schedRenewMode: RenewModeLocal,
+			want:           RenewModeLocal,
+		},
+		{
+			name:           "两者都为空时默认为 pull",
+			certRenewMode:  "",
+			schedRenewMode: "",
+			want:           RenewModePull,
+		},
+		{
+			name:           "全局配置为空时使用证书级别",
+			certRenewMode:  RenewModeLocal,
+			schedRenewMode: "",
+			want:           RenewModeLocal,
+		},
+		{
+			name:           "schedule 为 nil 时使用证书级别",
+			certRenewMode:  RenewModeLocal,
+			schedRenewMode: "", // schedule 将为 nil
+			want:           RenewModeLocal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := &CertConfig{
+				CertName:  "test",
+				RenewMode: tt.certRenewMode,
+			}
+
+			var schedule *ScheduleConfig
+			if tt.name != "schedule 为 nil 时使用证书级别" {
+				schedule = &ScheduleConfig{
+					RenewMode: tt.schedRenewMode,
+				}
+			}
+
+			got := cert.GetRenewMode(schedule)
+			if got != tt.want {
+				t.Errorf("GetRenewMode() = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

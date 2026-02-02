@@ -39,18 +39,11 @@ cert-deploy setup --url https://api.example.com --token your-token --order 12345
 - `--yes`: 跳过确认提示
 - `--no-service`: 不安装守护服务
 
-### 手动流程
+### 扫描站点
 
 ```bash
-# 1. 扫描站点（自动检测 Web 服务器类型）
 cert-deploy scan              # 扫描所有站点
 cert-deploy scan --ssl-only   # 仅扫描 SSL 站点
-
-# 2. 生成配置
-cert-deploy init --url https://api.example.com --token your-token
-
-# 3. 部署证书
-cert-deploy deploy --site example.com
 ```
 
 **其他命令:**
@@ -74,7 +67,7 @@ cert-deploy uninstall --purge                 # 卸载并清理配置
 | Linux (systemd) | ✅ | ✅ | systemd |
 | Linux (OpenRC) | ✅ | ✅ | OpenRC |
 | Linux (SysVinit) | ✅ | ✅ | SysVinit |
-| Windows | ✅ | ❌ | Windows Service |
+| Windows | ✅ | ✅ | Windows Service |
 
 支持 Docker 容器 Nginx（挂载卷/docker cp 双模式），自动检测本地或容器环境。
 
@@ -134,15 +127,14 @@ cert-deploy status
 
 ```json
 {
-  "version": "2.0",
+  "version": "1.0",
   "api": {
     "url": "https://api.example.com",
     "token": "your-deploy-token"
   },
   "schedule": {
     "check_interval_hours": 6,
-    "renew_before_days": 13,
-    "renew_mode": "pull"
+    "renew_before_days": 13
   },
   "certificates": [
     {
@@ -150,6 +142,7 @@ cert-deploy status
       "order_id": 12345,
       "enabled": true,
       "domains": ["*.example.com", "example.com"],
+      "renew_mode": "pull",
       "bindings": [
         {
           "site_name": "www.example.com",
