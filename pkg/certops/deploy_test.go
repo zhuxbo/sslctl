@@ -918,7 +918,7 @@ func TestDeploy_Alias(t *testing.T) {
 	svc := NewService(cm, log)
 
 	// 测试不存在的证书
-	_, err = svc.Deploy(nil, "nonexistent-cert")
+	_, err = svc.Deploy(context.TODO(), "nonexistent-cert")
 	if err == nil {
 		t.Error("部署不存在的证书应返回错误")
 	}
@@ -937,7 +937,7 @@ func TestDeployAll_Alias(t *testing.T) {
 	svc := NewService(cm, log)
 
 	// 空配置应返回空结果
-	results, err := svc.DeployAll(nil)
+	results, err := svc.DeployAll(context.TODO())
 	if err != nil {
 		t.Errorf("空配置部署不应报错: %v", err)
 	}
@@ -958,7 +958,7 @@ func TestScan_Alias(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
-	result, err := svc.Scan(nil, ScanOptions{})
+	result, err := svc.Scan(context.TODO(), ScanOptions{})
 	if err != nil {
 		t.Errorf("扫描不应报错: %v", err)
 	}
