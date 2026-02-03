@@ -35,3 +35,6 @@ cert-deploy/
 # Test artifacts
 docker/test/*/cert-deploy-*
 docker/test/*/sites/
+
+# 版本文件（构建时生成）
+version.json

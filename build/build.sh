@@ -19,13 +19,25 @@ else
 fi
 
 # 读取版本号
+BUILD_TIME=$(date -u +%Y-%m-%d)
+
 if [ -n "$1" ]; then
     VERSION="$1"
-else
+elif [ -f "${PROJECT_DIR}/version.json" ]; then
     VERSION=$(cat "${PROJECT_DIR}/version.json" | grep '"version"' | sed 's/.*: "\(.*\)".*/\1/')
+else
+    # 从 git tag 获取最新版本，或使用默认值
+    VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0-dev")
+    echo "version.json 不存在，从 git tag 获取版本: ${VERSION}"
+    # 生成 version.json
+    cat > "${PROJECT_DIR}/version.json" << EOF
+{
+  "version": "${VERSION}",
+  "build_date": "${BUILD_TIME}"
+}
+EOF
+    echo "已生成 version.json"
 fi
-
-BUILD_TIME=$(date -u +%Y-%m-%d)
 LDFLAGS="-s -w -X 'main.version=${VERSION}' -X 'main.buildTime=${BUILD_TIME}'"
 
 echo "Building cert-deploy ${VERSION} (${BUILD_TIME})"
