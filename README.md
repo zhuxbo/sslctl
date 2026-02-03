@@ -46,6 +46,24 @@ cert-deploy scan              # 扫描所有站点
 cert-deploy scan --ssl-only   # 仅扫描 SSL 站点
 ```
 
+### 本地证书部署
+
+```bash
+# 部署本地证书文件到站点
+cert-deploy deploy local --cert cert.pem --key key.pem --site example.com
+
+# 带 CA 证书链部署（Apache 配置了 SSLCertificateChainFile 时需要）
+cert-deploy deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com
+```
+
+选项：
+- `--cert`: 证书文件路径（必需）
+- `--key`: 私钥文件路径（必需）
+- `--ca`: CA 证书链文件路径（Apache 配置了证书链路径时必需）
+- `--site`: 目标站点名称（必需，需先运行 `cert-deploy scan`）
+
+站点信息优先从 `config.json` 获取，回退到 `scan-result.json`。
+
 **其他命令:**
 
 ```bash

@@ -1410,3 +1410,159 @@ func TestCertConfig_GetRenewMode(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigManager_GetSiteBinding 测试根据站点名称获取绑定配置
+func TestConfigManager_GetSiteBinding(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	// 添加带多个绑定的证书配置
+	cert1 := &CertConfig{
+		CertName: "cert-1",
+		OrderID:  1,
+		Enabled:  true,
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "nginx-site.com",
+				ServerType: ServerTypeNginx,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/etc/ssl/nginx-site/cert.pem",
+					PrivateKey:  "/etc/ssl/nginx-site/key.pem",
+				},
+			},
+			{
+				SiteName:   "apache-site.com",
+				ServerType: ServerTypeApache,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/etc/ssl/apache-site/cert.pem",
+					PrivateKey:  "/etc/ssl/apache-site/key.pem",
+					ChainFile:   "/etc/ssl/apache-site/chain.pem",
+				},
+			},
+		},
+	}
+
+	cert2 := &CertConfig{
+		CertName: "cert-2",
+		OrderID:  2,
+		Enabled:  true,
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "docker-site.com",
+				ServerType: ServerTypeDockerNginx,
+				Enabled:    true,
+				Docker: &DockerInfo{
+					ContainerName: "nginx-container",
+					DeployMode:    "volume",
+				},
+			},
+		},
+	}
+
+	_ = cm.AddCert(cert1)
+	_ = cm.AddCert(cert2)
+
+	tests := []struct {
+		name       string
+		siteName   string
+		wantType   string
+		wantDocker bool
+		wantErr    bool
+	}{
+		{
+			name:     "找到 Nginx 站点",
+			siteName: "nginx-site.com",
+			wantType: ServerTypeNginx,
+			wantErr:  false,
+		},
+		{
+			name:     "找到 Apache 站点",
+			siteName: "apache-site.com",
+			wantType: ServerTypeApache,
+			wantErr:  false,
+		},
+		{
+			name:       "找到 Docker 站点",
+			siteName:   "docker-site.com",
+			wantType:   ServerTypeDockerNginx,
+			wantDocker: true,
+			wantErr:    false,
+		},
+		{
+			name:     "站点不存在",
+			siteName: "nonexistent.com",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binding, err := cm.GetSiteBinding(tt.siteName)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("GetSiteBinding() 期望返回错误")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetSiteBinding() error = %v", err)
+			}
+
+			if binding.SiteName != tt.siteName {
+				t.Errorf("SiteName = %s, 期望 %s", binding.SiteName, tt.siteName)
+			}
+
+			if binding.ServerType != tt.wantType {
+				t.Errorf("ServerType = %s, 期望 %s", binding.ServerType, tt.wantType)
+			}
+
+			if tt.wantDocker && binding.Docker == nil {
+				t.Error("期望有 Docker 配置")
+			}
+		})
+	}
+}
+
+// TestConfigManager_GetSiteBinding_DeepCopy 测试 GetSiteBinding 返回深拷贝
+func TestConfigManager_GetSiteBinding_DeepCopy(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	cert := &CertConfig{
+		CertName: "test-cert",
+		OrderID:  1,
+		Enabled:  true,
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "test-site.com",
+				ServerType: ServerTypeDockerNginx,
+				Enabled:    true,
+				Docker: &DockerInfo{
+					ContainerName: "original-container",
+					DeployMode:    "volume",
+				},
+			},
+		},
+	}
+	_ = cm.AddCert(cert)
+
+	// 获取绑定并修改
+	binding1, _ := cm.GetSiteBinding("test-site.com")
+	binding1.Docker.ContainerName = "modified-container"
+	binding1.SiteName = "modified-site.com"
+
+	// 再次获取，验证未被修改
+	binding2, _ := cm.GetSiteBinding("test-site.com")
+
+	if binding2.SiteName != "test-site.com" {
+		t.Error("GetSiteBinding 应返回深拷贝，修改不应影响内部缓存")
+	}
+
+	if binding2.Docker.ContainerName != "original-container" {
+		t.Error("Docker 配置应该是深拷贝")
+	}
+}

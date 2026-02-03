@@ -49,6 +49,10 @@ cert-deploy scan --ssl-only            # 仅扫描 SSL 站点
 cert-deploy deploy --cert <name>       # 部署指定证书
 cert-deploy deploy --all               # 部署所有证书
 
+# 本地证书部署（不依赖 API）
+cert-deploy deploy local --cert <file> --key <file> --site <name>
+cert-deploy deploy local --cert <file> --key <file> --ca <file> --site <name>  # Apache
+
 # 服务管理
 cert-deploy status                     # 查看服务状态
 cert-deploy service repair             # 修复服务

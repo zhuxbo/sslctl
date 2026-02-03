@@ -422,3 +422,28 @@ func (cm *ConfigManager) ConfigExists() bool {
 	_, err := os.Stat(cm.configPath)
 	return err == nil
 }
+
+// GetSiteBinding 根据站点名称获取绑定配置
+// 遍历所有证书配置的 Bindings，返回第一个匹配的站点绑定
+func (cm *ConfigManager) GetSiteBinding(siteName string) (*SiteBinding, error) {
+	cfg, err := cm.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range cfg.Certificates {
+		for j := range cfg.Certificates[i].Bindings {
+			if cfg.Certificates[i].Bindings[j].SiteName == siteName {
+				// 返回深拷贝
+				binding := cfg.Certificates[i].Bindings[j]
+				if binding.Docker != nil {
+					dockerCopy := *binding.Docker
+					binding.Docker = &dockerCopy
+				}
+				return &binding, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("site not found: %s", siteName)
+}

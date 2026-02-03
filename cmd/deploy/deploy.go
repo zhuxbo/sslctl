@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	apacheDeployer "github.com/zhuxbo/cert-deploy/internal/apache/deployer"
@@ -19,13 +20,20 @@ import (
 
 // Run 运行 deploy 命令
 func Run(args []string, version, buildTime string, debug bool) {
+	// 检查是否为 local 子命令
+	if len(args) > 0 && args[0] == "local" {
+		runLocal(args[1:], debug)
+		return
+	}
+
 	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
 	certName := fs.String("cert", "", "证书名称")
 	all := fs.Bool("all", false, "部署所有证书")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "用法: cert-deploy deploy --cert <name>\n")
-		fmt.Fprintf(os.Stderr, "      cert-deploy deploy --all\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "      cert-deploy deploy --all\n")
+		fmt.Fprintf(os.Stderr, "      cert-deploy deploy local --cert <file> --key <file> --site <name>\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -203,4 +211,252 @@ func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, pr
 	default:
 		return fmt.Errorf("不支持的服务器类型: %s", binding.ServerType)
 	}
+}
+
+// runLocal 运行本地证书部署子命令
+func runLocal(args []string, debug bool) {
+	fs := flag.NewFlagSet("deploy local", flag.ExitOnError)
+	certFile := fs.String("cert", "", "证书文件路径")
+	keyFile := fs.String("key", "", "私钥文件路径")
+	caFile := fs.String("ca", "", "CA 证书链文件路径（Apache 需要）")
+	siteName := fs.String("site", "", "目标站点名称")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "用法: cert-deploy deploy local --cert <file> --key <file> --site <name>\n")
+		fmt.Fprintf(os.Stderr, "      cert-deploy deploy local --cert <file> --key <file> --ca <file> --site <name>\n\n")
+		fmt.Fprintf(os.Stderr, "从本地文件部署证书到指定站点。\n\n")
+		fmt.Fprintf(os.Stderr, "选项:\n")
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n示例:\n")
+		fmt.Fprintf(os.Stderr, "  cert-deploy deploy local --cert cert.pem --key key.pem --site example.com\n")
+		fmt.Fprintf(os.Stderr, "  cert-deploy deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com\n")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// 验证必需参数
+	if *certFile == "" || *keyFile == "" || *siteName == "" {
+		fmt.Fprintln(os.Stderr, "错误: --cert, --key, --site 参数是必需的")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// 初始化配置管理器
+	cfgManager, err := config.NewConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 初始化日志
+	logDir := cfgManager.GetLogsDir()
+	if debug {
+		logDir = filepath.Join(logDir, "debug")
+	}
+
+	log, err := logger.New(logDir, "deploy-local")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "创建日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = log.Close() }()
+
+	if debug {
+		log.SetLevel(logger.LevelDebug)
+	}
+
+	// 读取证书文件
+	certData, err := os.ReadFile(*certFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取证书文件失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 读取私钥文件
+	keyData, err := os.ReadFile(*keyFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取私钥文件失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 读取 CA 证书文件（可选）
+	var caData string
+	if *caFile != "" {
+		ca, err := os.ReadFile(*caFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "读取 CA 证书文件失败: %v\n", err)
+			os.Exit(1)
+		}
+		caData = string(ca)
+	}
+
+	certPEM := string(certData)
+	keyPEM := string(keyData)
+
+	// 验证证书
+	v := validator.New("")
+	if _, err := v.ValidateCert(certPEM); err != nil {
+		fmt.Fprintf(os.Stderr, "证书验证失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 验证私钥
+	if err := v.ValidateKey(keyPEM); err != nil {
+		fmt.Fprintf(os.Stderr, "私钥验证失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 验证证书和私钥匹配
+	if err := v.ValidateCertKeyPair(certPEM, keyPEM); err != nil {
+		fmt.Fprintf(os.Stderr, "证书和私钥不匹配: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 验证 CA 证书（如果提供）
+	if caData != "" {
+		if err := v.ValidateCA(caData); err != nil {
+			fmt.Fprintf(os.Stderr, "CA 证书验证失败: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// 从配置获取站点绑定（优先从 config.json，回退到 scan-result.json）
+	binding, err := getSiteBindingForLocal(cfgManager, *siteName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "获取站点配置失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "提示: 请先运行 'cert-deploy scan' 扫描站点\n")
+		os.Exit(1)
+	}
+
+	// 检查站点是否启用
+	if !binding.Enabled {
+		fmt.Fprintf(os.Stderr, "错误: 站点 %s 已被禁用\n", binding.SiteName)
+		os.Exit(1)
+	}
+
+	// 检查 Apache 是否需要 CA 证书（仅当配置了 ChainFile 时才要求）
+	if isApacheType(binding.ServerType) && binding.Paths.ChainFile != "" && caData == "" {
+		fmt.Fprintf(os.Stderr, "错误: Apache 站点已配置证书链路径，需要提供 --ca 参数\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("部署本地证书到站点: %s (%s)\n", binding.SiteName, binding.ServerType)
+
+	// 构造 CertData 并部署
+	certDataStruct := &fetcher.CertData{
+		Cert:             certPEM,
+		IntermediateCert: caData,
+	}
+
+	if err := deployToBinding(binding, certDataStruct, keyPEM, log); err != nil {
+		fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("部署成功")
+}
+
+// isApacheType 判断是否为 Apache 类型服务器
+func isApacheType(serverType string) bool {
+	return strings.HasPrefix(serverType, "apache") || strings.HasSuffix(serverType, "-apache")
+}
+
+// getSiteBindingForLocal 获取站点绑定（用于 deploy local）
+// 优先从 config.json 的证书绑定中查找，回退到 scan-result.json
+func getSiteBindingForLocal(cfgManager *config.ConfigManager, siteName string) (*config.SiteBinding, error) {
+	// 1. 优先从 config.json 的证书绑定中查找
+	binding, err := cfgManager.GetSiteBinding(siteName)
+	if err == nil {
+		return binding, nil
+	}
+
+	// 2. 回退到 scan-result.json
+	scanResult, err := config.LoadScanResult()
+	if err != nil {
+		return nil, fmt.Errorf("站点未找到，且无法加载扫描结果: %w", err)
+	}
+
+	site := scanResult.FindSiteByID(siteName)
+	if site == nil {
+		return nil, fmt.Errorf("站点 %s 不存在于配置或扫描结果中", siteName)
+	}
+
+	// 3. 从扫描结果构造绑定
+	return buildBindingFromScanResult(site, cfgManager), nil
+}
+
+// buildBindingFromScanResult 从扫描结果构造站点绑定
+func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.ConfigManager) *config.SiteBinding {
+	// 确定服务器类型
+	serverType := config.ServerTypeNginx
+	// 根据配置文件路径判断是 Nginx 还是 Apache
+	if strings.Contains(site.ConfigFile, "apache") || strings.Contains(site.ConfigFile, "httpd") {
+		serverType = config.ServerTypeApache
+		if site.Source == "docker" {
+			serverType = config.ServerTypeDockerApache
+		}
+	} else if site.Source == "docker" {
+		serverType = config.ServerTypeDockerNginx
+	}
+
+	// 确定证书路径
+	certPath := site.CertificatePath
+	keyPath := site.PrivateKeyPath
+	if site.HostCertPath != "" {
+		certPath = site.HostCertPath
+	}
+	if site.HostKeyPath != "" {
+		keyPath = site.HostKeyPath
+	}
+
+	// 如果扫描结果没有证书路径，使用默认路径
+	if certPath == "" {
+		certPath = config.GetDefaultCertPath(site.ServerName)
+	}
+	if keyPath == "" {
+		keyPath = config.GetDefaultKeyPath(site.ServerName)
+	}
+
+	binding := &config.SiteBinding{
+		SiteName:   site.ServerName,
+		ServerType: serverType,
+		Enabled:    true,
+		Paths: config.BindingPaths{
+			Certificate: certPath,
+			PrivateKey:  keyPath,
+			ConfigFile:  site.ConfigFile,
+		},
+	}
+
+	// 注意：不自动填充 Apache ChainFile，允许 fullchain 单文件部署
+	// 用户如需分离 chain file，可通过 --ca 参数指定
+
+	// Docker 站点添加信息
+	if site.Source == "docker" {
+		binding.Docker = &config.DockerInfo{
+			ContainerName: site.ContainerName,
+		}
+		if site.VolumeMode {
+			binding.Docker.DeployMode = "volume"
+		} else {
+			binding.Docker.DeployMode = "copy"
+		}
+	}
+
+	// 添加默认重载命令
+	if serverType == config.ServerTypeNginx {
+		binding.Reload = config.ReloadConfig{
+			TestCommand:   "nginx -t",
+			ReloadCommand: "systemctl reload nginx",
+		}
+	} else if serverType == config.ServerTypeApache {
+		binding.Reload = config.ReloadConfig{
+			TestCommand:   "apachectl -t",
+			ReloadCommand: "systemctl reload apache2 || systemctl reload httpd",
+		}
+	}
+
+	return binding
 }
