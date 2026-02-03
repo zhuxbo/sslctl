@@ -53,6 +53,18 @@ func NewManager(backupDir string, keepVersions int) *Manager {
 // Backup 备份证书文件
 // chainPath 可选，用于 Apache 备份证书链文件
 func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo, chainPath ...string) (*BackupResult, error) {
+	// 0. 记录源文件的修改时间（用于检测并发修改）
+	certStat, err := os.Stat(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat certificate file: %w", err)
+	}
+	keyStat, err := os.Stat(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat private key file: %w", err)
+	}
+	certModTime := certStat.ModTime()
+	keyModTime := keyStat.ModTime()
+
 	// 1. 创建备份目录
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
@@ -72,6 +84,20 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 	backupKeyPath := filepath.Join(backupPath, "key.pem")
 	if err := util.CopyFile(keyPath, backupKeyPath); err != nil {
 		return nil, fmt.Errorf("failed to backup private key: %w", err)
+	}
+
+	// 3.1 验证源文件在备份期间未被修改
+	newCertStat, err := os.Stat(certPath)
+	if err == nil && newCertStat.ModTime() != certModTime {
+		// 源文件已被修改，删除备份并返回错误
+		_ = os.RemoveAll(backupPath)
+		return nil, fmt.Errorf("certificate file changed during backup")
+	}
+	newKeyStat, err := os.Stat(keyPath)
+	if err == nil && newKeyStat.ModTime() != keyModTime {
+		// 源文件已被修改，删除备份并返回错误
+		_ = os.RemoveAll(backupPath)
+		return nil, fmt.Errorf("private key file changed during backup")
 	}
 
 	// 4. 备份证书链文件（可选）

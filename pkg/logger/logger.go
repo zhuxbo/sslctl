@@ -5,10 +5,42 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 	"time"
 )
+
+// 敏感信息过滤正则表达式
+var (
+	// 匹配 PEM 格式的私钥
+	privateKeyRegex = regexp.MustCompile(`-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----`)
+	// 匹配 API Token（Bearer token 格式）
+	bearerTokenRegex = regexp.MustCompile(`Bearer\s+[A-Za-z0-9\-_\.]+`)
+	// 匹配常见的 token/secret 参数
+	tokenParamRegex = regexp.MustCompile(`(token|secret|password|api_key|apikey)=["']?[^"'\s&]+["']?`)
+)
+
+// sanitize 过滤敏感信息
+func sanitize(msg string) string {
+	// 过滤私钥
+	msg = privateKeyRegex.ReplaceAllString(msg, "***REDACTED PRIVATE KEY***")
+	// 过滤 Bearer token
+	msg = bearerTokenRegex.ReplaceAllString(msg, "Bearer ***REDACTED***")
+	// 过滤 token/secret 参数
+	msg = tokenParamRegex.ReplaceAllStringFunc(msg, func(match string) string {
+		// 保留参数名，只隐藏值
+		idx := 0
+		for i, c := range match {
+			if c == '=' {
+				idx = i
+				break
+			}
+		}
+		return match[:idx+1] + "***REDACTED***"
+	})
+	return msg
+}
 
 // Level 日志级别
 type Level int
@@ -140,6 +172,8 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	message := fmt.Sprintf(format, args...)
+	// 过滤敏感信息
+	message = sanitize(message)
 	logLine := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level.String(), message)
 
 	// 写入文件

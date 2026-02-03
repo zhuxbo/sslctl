@@ -213,12 +213,8 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	}
 
 	// 生成新的私钥与 CSR
-	// 标记进入续签重试状态，避免 14 天阈值后停止检查
-	if cert.Metadata.IssueRetryCount == 0 {
-		cert.Metadata.IssueRetryCount = 1
-	} else {
-		cert.Metadata.IssueRetryCount++
-	}
+	// 递增重试计数器（首次续签从 0 递增到 1）
+	cert.Metadata.IssueRetryCount++
 	// 立即持久化 IssueRetryCount
 	_ = s.cfgManager.UpdateCert(cert)
 
@@ -275,7 +271,7 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 	// 验证证书与私钥
 	v := validator.New("")
 	parsedCert, err := v.ValidateCert(certData.Cert)
-	if err != nil {
+	if err != nil || parsedCert == nil {
 		return 0, fmt.Errorf("证书验证失败: %w", err)
 	}
 	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {

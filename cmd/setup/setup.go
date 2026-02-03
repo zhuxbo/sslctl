@@ -240,15 +240,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 	certConfig.Metadata.LastDeployAt = time.Now()
 
 	// 初始化或更新配置
-	cfg, err := cfgManager.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	cfg.API = config.APIConfig{
+	// 先保存 API 配置（Load 返回副本，直接修改不会持久化）
+	if err := cfgManager.SetAPI(config.APIConfig{
 		URL:   *apiURL,
 		Token: *token,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "保存 API 配置失败: %v\n", err)
+		os.Exit(1)
 	}
 
 	if *localKey {

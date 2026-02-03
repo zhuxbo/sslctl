@@ -73,10 +73,12 @@ func (cm *ConfigManager) ensureDirs() error {
 }
 
 // Load 加载配置
+// 重要：返回配置的深拷贝副本，对返回值的修改不会影响内部缓存。
+// 如需持久化修改，必须显式调用 Save() 或使用 SetAPI()/UpdateCert() 等方法。
 func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.RLock()
 	if cm.config != nil {
-		cfg := cm.config
+		cfg := cm.copyConfig(cm.config)
 		cm.mu.RUnlock()
 		return cfg, nil
 	}
@@ -85,7 +87,44 @@ func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	return cm.loadLocked()
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	return cm.copyConfig(cfg), nil
+}
+
+// copyConfig 创建配置的深拷贝
+func (cm *ConfigManager) copyConfig(src *Config) *Config {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	// 深拷贝切片
+	if src.Certificates != nil {
+		dst.Certificates = make([]CertConfig, len(src.Certificates))
+		for i, cert := range src.Certificates {
+			dst.Certificates[i] = cert
+			// 深拷贝 Bindings 切片
+			if cert.Bindings != nil {
+				dst.Certificates[i].Bindings = make([]SiteBinding, len(cert.Bindings))
+				for j, binding := range cert.Bindings {
+					dst.Certificates[i].Bindings[j] = binding
+					// 深拷贝 Docker 指针
+					if binding.Docker != nil {
+						dockerCopy := *binding.Docker
+						dst.Certificates[i].Bindings[j].Docker = &dockerCopy
+					}
+				}
+			}
+			// 深拷贝 Domains 切片
+			if cert.Domains != nil {
+				dst.Certificates[i].Domains = make([]string, len(cert.Domains))
+				copy(dst.Certificates[i].Domains, cert.Domains)
+			}
+		}
+	}
+	return &dst
 }
 
 // loadLocked 加载配置（调用者需持有锁）
@@ -154,12 +193,15 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to open lock file: %w", err)
 	}
-	defer func() { _ = lf.Close() }()
 
 	if err := lockFile(lf); err != nil {
+		_ = lf.Close() // 锁定失败时立即释放文件句柄
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	defer func() { _ = unlockFile(lf) }()
+	defer func() {
+		_ = unlockFile(lf)
+		_ = lf.Close()
+	}()
 
 	// 原子写入
 	tmpPath := cm.configPath + ".tmp"

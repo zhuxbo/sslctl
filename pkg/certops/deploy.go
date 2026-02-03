@@ -57,11 +57,14 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		Success:  true,
 	}
 
+	enabledCount := 0
+	successCount := 0
 	for i := range cert.Bindings {
 		binding := &cert.Bindings[i]
 		if !binding.Enabled {
 			continue
 		}
+		enabledCount++
 
 		err := s.deployToBinding(ctx, binding, certData, privateKey)
 		if err != nil {
@@ -70,7 +73,13 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 			result.Error = err
 		} else {
 			s.log.Info("证书已部署到 %s", binding.SiteName)
+			successCount++
 		}
+	}
+
+	// 如果所有绑定都部署失败，返回错误
+	if enabledCount > 0 && successCount == 0 && result.Error != nil {
+		return result, result.Error
 	}
 
 	return result, nil

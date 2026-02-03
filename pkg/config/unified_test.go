@@ -484,14 +484,71 @@ func TestConfigManager_LoadCaching(t *testing.T) {
 
 	// 首次加载
 	cfg1, _ := cm.Load()
-	cfg1.API.Token = "cached"
+	cfg1.API.Token = "modified-locally"
 
-	// 第二次加载应返回相同对象（从缓存）
+	// 第二次加载返回副本，对 cfg1 的修改不应影响 cfg2
 	cfg2, _ := cm.Load()
 
-	// 由于返回的是缓存的同一对象，修改会反映
-	if cfg2.API.Token != "cached" {
-		t.Error("Load() should return cached config")
+	// 由于返回的是深拷贝副本，修改 cfg1 不应反映到 cfg2
+	if cfg2.API.Token == "modified-locally" {
+		t.Error("Load() should return independent copy, modifications to one should not affect another")
+	}
+
+	// 验证缓存内部数据未被外部修改影响
+	cfg3, _ := cm.Load()
+	if cfg3.API.Token == "modified-locally" {
+		t.Error("Internal cache should not be affected by external modifications")
+	}
+}
+
+// TestConfigManager_DeepCopyDocker 测试 Docker 指针深拷贝
+func TestConfigManager_DeepCopyDocker(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	// 创建带 Docker 配置的证书
+	cert := &CertConfig{
+		CertName: "docker-test",
+		OrderID:  100,
+		Enabled:  true,
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "docker-site",
+				ServerType: ServerTypeDockerNginx,
+				Enabled:    true,
+				Docker: &DockerInfo{
+					ContainerName: "original-container",
+					DeployMode:    "volume",
+				},
+			},
+		},
+	}
+
+	if err := cm.AddCert(cert); err != nil {
+		t.Fatalf("AddCert() error = %v", err)
+	}
+
+	// 加载配置并修改 Docker 字段
+	cfg1, _ := cm.Load()
+	if len(cfg1.Certificates) == 0 || len(cfg1.Certificates[0].Bindings) == 0 {
+		t.Fatal("证书或绑定为空")
+	}
+	if cfg1.Certificates[0].Bindings[0].Docker == nil {
+		t.Fatal("Docker 配置为空")
+	}
+
+	// 修改返回副本中的 Docker 配置
+	cfg1.Certificates[0].Bindings[0].Docker.ContainerName = "modified-container"
+
+	// 再次加载，验证内部缓存未被影响
+	cfg2, _ := cm.Load()
+	if cfg2.Certificates[0].Bindings[0].Docker.ContainerName == "modified-container" {
+		t.Error("Docker pointer should be deep copied, modifications should not affect internal cache")
+	}
+
+	if cfg2.Certificates[0].Bindings[0].Docker.ContainerName != "original-container" {
+		t.Errorf("Docker.ContainerName = %s, want original-container",
+			cfg2.Certificates[0].Bindings[0].Docker.ContainerName)
 	}
 }
 

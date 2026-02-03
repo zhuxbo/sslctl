@@ -4,10 +4,9 @@ package deployer
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 
+	"github.com/zhuxbo/cert-deploy/internal/executor"
 	"github.com/zhuxbo/cert-deploy/pkg/errors"
 	"github.com/zhuxbo/cert-deploy/pkg/util"
 )
@@ -85,53 +84,9 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 	return nil
 }
 
-// allowedCommands 允许的命令白名单（支持多发行版和 Windows）
-var allowedCommands = map[string]bool{
-	// Linux - 通用
-	"nginx -t":                true,
-	"nginx -s reload":         true,
-	// Linux - systemd (Ubuntu/Debian/CentOS 7+/RHEL 7+/Fedora)
-	"systemctl reload nginx":  true,
-	"systemctl restart nginx": true,
-	// Linux - SysVinit (CentOS 6/旧系统)
-	"service nginx reload":   true,
-	"service nginx restart":  true,
-	// Linux - OpenRC (Alpine/Gentoo)
-	"rc-service nginx reload":  true,
-	"rc-service nginx restart": true,
-	// Linux - 直接信号
-	"/usr/sbin/nginx -s reload": true,
-	// Windows
-	"net stop nginx":  true,
-	"net start nginx": true,
-	// Windows - 指定路径
-	"C:\\nginx\\nginx.exe -t":        true,
-	"C:\\nginx\\nginx.exe -s reload": true,
-}
-
-// parseCommand 解析命令字符串为可执行文件和参数
-func parseCommand(cmdStr string) (string, []string) {
-	parts := strings.Fields(cmdStr)
-	if len(parts) == 0 {
-		return "", nil
-	}
-	return parts[0], parts[1:]
-}
-
-// runCommand 执行命令（直接执行，不通过 shell）
+// runCommand 执行命令（使用统一的 executor 包）
 func (d *NginxDeployer) runCommand(cmdStr string) error {
-	if !allowedCommands[cmdStr] {
-		return fmt.Errorf("command not in whitelist: %s", cmdStr)
-	}
-
-	executable, args := parseCommand(cmdStr)
-	cmd := exec.Command(executable, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, string(output))
-	}
-
-	return nil
+	return executor.Run(cmdStr)
 }
 
 // Reload 重载 Nginx 服务

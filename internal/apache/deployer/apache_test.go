@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zhuxbo/cert-deploy/internal/executor"
 )
 
 // TestNewApacheDeployer 测试创建 Apache 部署器
@@ -233,12 +235,12 @@ func TestParseCommand(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		exec, args := parseCommand(tt.cmd)
+		exec, args := executor.ParseCommand(tt.cmd)
 		if exec != tt.wantExec {
-			t.Errorf("parseCommand(%s) exec = %s, 期望 %s", tt.cmd, exec, tt.wantExec)
+			t.Errorf("ParseCommand(%s) exec = %s, 期望 %s", tt.cmd, exec, tt.wantExec)
 		}
 		if len(args) != len(tt.wantArgs) {
-			t.Errorf("parseCommand(%s) args 长度 = %d, 期望 %d", tt.cmd, len(args), len(tt.wantArgs))
+			t.Errorf("ParseCommand(%s) args 长度 = %d, 期望 %d", tt.cmd, len(args), len(tt.wantArgs))
 		}
 	}
 }
@@ -352,7 +354,7 @@ func TestAllowedCommands(t *testing.T) {
 	}
 
 	for _, cmd := range expectedCommands {
-		if !allowedCommands[cmd] {
+		if !executor.AllowedCommands[cmd] {
 			t.Errorf("命令 %s 应在白名单中", cmd)
 		}
 	}
