@@ -20,13 +20,16 @@ cmd/           # CLI 入口
 pkg/           # 可复用包
   certops/     # 证书操作服务层（扫描/部署/续签）
   webserver/   # Web 服务器抽象层
-  config/      # 配置管理（统一 config.json）
+  config/      # 配置管理（统一 config.json，返回深拷贝确保并发安全）
   matcher/     # 域名匹配
-  fetcher/     # API 客户端
-  backup/      # 备份管理
+  fetcher/     # API 客户端（含 SSRF 防护）
+  backup/      # 备份管理（含原子性检查）
   service/     # 系统服务管理
-  logger/      # 日志
-internal/      # 内部实现（nginx/apache 扫描/部署）
+  logger/      # 日志（含敏感信息过滤）
+internal/      # 内部实现
+  nginx/       # Nginx 扫描/部署
+  apache/      # Apache 扫描/部署
+  executor/    # 统一命令执行器（白名单机制）
 build/         # 构建/发布脚本
 skills/        # 开发规范
 testdata/      # 测试数据和工具

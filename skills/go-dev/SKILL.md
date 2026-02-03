@@ -6,16 +6,22 @@
 cert-deploy/
 ├── cmd/
 │   ├── main.go           # 统一入口
-│   ├── nginx/nginx.go    # Nginx 子命令
-│   └── apache/apache.go  # Apache 子命令
+│   ├── setup/            # 一键部署命令
+│   ├── daemon/           # 守护进程
+│   └── deploy/           # 证书部署
 ├── internal/
-│   ├── nginx/            # Nginx 内部实现
-│   └── apache/           # Apache 内部实现
+│   ├── nginx/            # Nginx 扫描/部署
+│   ├── apache/           # Apache 扫描/部署
+│   └── executor/         # 统一命令执行器（白名单）
 ├── pkg/
-│   ├── api/              # API 客户端（可复用）
-│   ├── cert/             # 证书处理
-│   ├── config/           # 配置管理
-│   └── logger/           # 日志模块
+│   ├── certops/          # 证书操作服务层
+│   ├── config/           # 配置管理（深拷贝并发安全）
+│   ├── fetcher/          # API 客户端（含 SSRF 防护）
+│   ├── backup/           # 备份管理（原子性检查）
+│   ├── logger/           # 日志模块（敏感信息过滤）
+│   ├── matcher/          # 域名匹配
+│   ├── validator/        # 证书验证
+│   └── service/          # 系统服务管理
 └── go.mod
 ```
 
@@ -191,3 +197,56 @@ GOOS=windows GOARCH=amd64 go build -o cert-deploy.exe ./cmd
 ```bash
 CGO_ENABLED=0 go build -ldflags="-s -w" -o cert-deploy ./cmd
 ```
+
+---
+
+## 安全开发规范
+
+### 命令执行
+
+使用 `internal/executor` 包执行系统命令，不要直接使用 `exec.Command`：
+
+```go
+import "github.com/zhuxbo/cert-deploy/internal/executor"
+
+// 正确：使用统一的 executor
+if err := executor.Run("nginx -s reload"); err != nil {
+    return err
+}
+
+// 错误：直接执行命令（可能被注入）
+cmd := exec.Command("sh", "-c", userInput)
+```
+
+白名单命令定义在 `executor.AllowedCommands`，新增命令需要审核。
+
+### 配置并发安全
+
+`ConfigManager.Load()` 返回深拷贝，修改不影响内部缓存：
+
+```go
+cfg, _ := cm.Load()
+cfg.API.Token = "new-token"  // 仅修改副本
+
+// 需要显式保存
+cm.Save(cfg)
+// 或使用专用方法
+cm.SetAPI(config.APIConfig{...})
+```
+
+### 日志脱敏
+
+`pkg/logger` 自动过滤敏感信息：
+
+- PEM 私钥 → `***REDACTED PRIVATE KEY***`
+- Bearer Token → `Bearer ***REDACTED***`
+- password/secret/token 参数 → `param=***REDACTED***`
+
+### SSRF 防护
+
+`pkg/fetcher` 阻止访问：
+
+- 内网 IP（10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16）
+- 回环地址（127.0.0.0/8, ::1）
+- 链路本地地址（169.254.0.0/16）
+- 云元数据（169.254.169.254）

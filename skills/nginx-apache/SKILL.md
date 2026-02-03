@@ -38,15 +38,22 @@ server {
 
 ### 重载服务
 
-```bash
-# 测试配置
-nginx -t
+所有重载命令通过 `internal/executor` 包执行，使用白名单机制：
 
-# 重载（不中断连接）
-nginx -s reload
-# 或
-systemctl reload nginx
+```go
+import "github.com/zhuxbo/cert-deploy/internal/executor"
+
+// 白名单中的命令
+executor.Run("nginx -t")
+executor.Run("nginx -s reload")
+executor.Run("systemctl reload nginx")
 ```
+
+支持的 Nginx 命令：
+- `nginx -t`, `nginx -s reload`
+- `systemctl reload/restart nginx`
+- `service nginx reload/restart`
+- `rc-service nginx reload/restart`
 
 ---
 
@@ -78,16 +85,23 @@ systemctl reload nginx
 
 ### 重载服务
 
-```bash
-# 测试配置
-apachectl configtest
+所有重载命令通过 `internal/executor` 包执行，使用白名单机制：
 
-# 重载
-apachectl graceful
-# 或
-systemctl reload apache2  # Debian
-systemctl reload httpd    # CentOS
+```go
+import "github.com/zhuxbo/cert-deploy/internal/executor"
+
+executor.Run("apachectl -t")
+executor.Run("apachectl graceful")
+executor.Run("systemctl reload apache2")
 ```
+
+支持的 Apache 命令：
+- `apachectl -t/graceful/restart`
+- `apache2ctl -t/graceful/restart`
+- `httpd -t`
+- `systemctl reload/restart apache2/httpd`
+- `service apache2/httpd reload/restart`
+- `rc-service apache2/httpd reload/restart`
 
 ---
 
