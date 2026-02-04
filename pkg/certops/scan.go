@@ -9,25 +9,29 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
-// ScanSites 扫描站点
+// ScanSites 扫描站点（支持 Nginx 和 Apache）
 func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult, error) {
 	result := &ScanResult{
 		ScanTime: time.Now(),
 		Sites:    []ScannedSite{},
 	}
 
-	// 通过抽象层创建扫描器
-	scanner, err := webserver.NewScanner(webserver.TypeNginx)
-	if err != nil {
-		s.log.Warn("创建扫描器失败: %v", err)
-		return result, nil
-	}
+	// 扫描所有支持的服务器类型
+	serverTypes := []webserver.ServerType{webserver.TypeNginx, webserver.TypeApache}
 
-	// 使用统一的 Scan 方法扫描所有站点（本地 + Docker）
-	sites, err := scanner.Scan()
-	if err != nil {
-		s.log.Warn("扫描站点失败: %v", err)
-	} else {
+	for _, serverType := range serverTypes {
+		scanner, err := webserver.NewScanner(serverType)
+		if err != nil {
+			s.log.Debug("创建 %s 扫描器失败: %v", serverType, err)
+			continue
+		}
+
+		sites, err := scanner.Scan()
+		if err != nil {
+			s.log.Debug("扫描 %s 站点失败: %v", serverType, err)
+			continue
+		}
+
 		for _, site := range sites {
 			// 如果仅 SSL，过滤非 SSL 站点
 			if opts.SSLOnly && site.CertificatePath == "" {

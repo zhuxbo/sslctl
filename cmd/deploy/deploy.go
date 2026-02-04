@@ -183,14 +183,16 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 }
 
 // deployToBinding 部署到绑定
+// 错误处理设计说明：
+// - 目录创建和部署器创建使用 fmt.Errorf（环境/配置错误，非部署阶段）
+// - deployer.Deploy() 返回 StructuredDeployError（部署阶段错误），直接透传保留错误类型
+// - 这种分层设计使调用方可以区分错误来源和阶段
 func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, log *logger.Logger) error {
-	// 确保目录存在
 	certDir := filepath.Dir(binding.Paths.Certificate)
 	if err := util.EnsureDir(certDir, 0700); err != nil {
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 
-	// 使用 webserver 抽象层创建部署器
 	deployer, err := webserver.NewDeployer(
 		webserver.ServerType(binding.ServerType),
 		binding.Paths.Certificate,
@@ -203,6 +205,7 @@ func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, pr
 		return fmt.Errorf("创建部署器失败: %w", err)
 	}
 
+	// 直接返回 deployer.Deploy 的结果，保留 StructuredDeployError 类型
 	return deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
 }
 

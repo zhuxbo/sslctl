@@ -6,18 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
 	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // TestNewApacheDeployer 测试创建 Apache 部署器
 func TestNewApacheDeployer(t *testing.T) {
-	d := NewApacheDeployer(
-		"/etc/ssl/cert.pem",
-		"/etc/ssl/key.pem",
-		"/etc/ssl/chain.pem",
-		"apachectl -t",
-		"apachectl graceful",
-	)
+	d := NewApacheDeployer(baseDeployer.Config{
+		CertPath:      "/etc/ssl/cert.pem",
+		KeyPath:       "/etc/ssl/key.pem",
+		ChainPath:     "/etc/ssl/chain.pem",
+		TestCommand:   "apachectl -t",
+		ReloadCommand: "apachectl graceful",
+	})
 
 	if d == nil {
 		t.Fatal("NewApacheDeployer 返回 nil")
@@ -35,24 +36,21 @@ func TestNewApacheDeployer(t *testing.T) {
 		t.Errorf("chainPath = %s, 期望 /etc/ssl/chain.pem", d.chainPath)
 	}
 
-	if d.testCommand != "apachectl -t" {
-		t.Errorf("testCommand = %s, 期望 apachectl -t", d.testCommand)
+	if d.TestCommand != "apachectl -t" {
+		t.Errorf("testCommand = %s, 期望 apachectl -t", d.TestCommand)
 	}
 
-	if d.reloadCommand != "apachectl graceful" {
-		t.Errorf("reloadCommand = %s, 期望 apachectl graceful", d.reloadCommand)
+	if d.ReloadCommand != "apachectl graceful" {
+		t.Errorf("reloadCommand = %s, 期望 apachectl graceful", d.ReloadCommand)
 	}
 }
 
 // TestNewApacheDeployer_EmptyChainPath 测试空证书链路径
 func TestNewApacheDeployer_EmptyChainPath(t *testing.T) {
-	d := NewApacheDeployer(
-		"/etc/ssl/cert.pem",
-		"/etc/ssl/key.pem",
-		"",
-		"",
-		"",
-	)
+	d := NewApacheDeployer(baseDeployer.Config{
+		CertPath: "/etc/ssl/cert.pem",
+		KeyPath:  "/etc/ssl/key.pem",
+	})
 
 	if d.chainPath != "" {
 		t.Errorf("chainPath 应为空")
@@ -66,7 +64,7 @@ func TestApacheDeployer_Deploy_WriteCert(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "key.pem")
 	chainPath := filepath.Join(tmpDir, "chain.pem")
 
-	d := NewApacheDeployer(certPath, keyPath, chainPath, "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath, ChainPath: chainPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"
 	intermediate := "-----BEGIN CERTIFICATE-----\ntest-intermediate\n-----END CERTIFICATE-----"
@@ -112,7 +110,7 @@ func TestApacheDeployer_Deploy_NoChain(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
 	// 不指定 chainPath
-	d := NewApacheDeployer(certPath, keyPath, "", "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"
 	intermediate := "-----BEGIN CERTIFICATE-----\ntest-intermediate\n-----END CERTIFICATE-----"
@@ -136,7 +134,7 @@ func TestApacheDeployer_Deploy_KeyPermissions(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewApacheDeployer(certPath, keyPath, "", "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	key := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
@@ -165,7 +163,7 @@ func TestApacheDeployer_Deploy_CreateDirectory(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "subdir2", "key.pem")
 	chainPath := filepath.Join(tmpDir, "subdir3", "chain.pem")
 
-	d := NewApacheDeployer(certPath, keyPath, chainPath, "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath, ChainPath: chainPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	intermediate := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
@@ -190,8 +188,6 @@ func TestApacheDeployer_Deploy_CreateDirectory(t *testing.T) {
 
 // TestRunCommand_Whitelist 测试命令白名单验证
 func TestRunCommand_Whitelist(t *testing.T) {
-	d := NewApacheDeployer("", "", "", "", "")
-
 	tests := []struct {
 		cmd     string
 		allowed bool
@@ -208,7 +204,7 @@ func TestRunCommand_Whitelist(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := d.runCommand(tt.cmd)
+		err := executor.Run(tt.cmd)
 		if tt.allowed {
 			if err != nil && err.Error() == "command not in whitelist: "+tt.cmd {
 				t.Errorf("命令 %s 应在白名单中", tt.cmd)
@@ -247,7 +243,7 @@ func TestParseCommand(t *testing.T) {
 
 // TestApacheDeployer_Reload_EmptyCommand 测试空重载命令
 func TestApacheDeployer_Reload_EmptyCommand(t *testing.T) {
-	d := NewApacheDeployer("", "", "", "", "")
+	d := NewApacheDeployer(baseDeployer.Config{})
 
 	err := d.Reload()
 	if err != nil {
@@ -257,7 +253,7 @@ func TestApacheDeployer_Reload_EmptyCommand(t *testing.T) {
 
 // TestApacheDeployer_Test_EmptyCommand 测试空测试命令
 func TestApacheDeployer_Test_EmptyCommand(t *testing.T) {
-	d := NewApacheDeployer("", "", "", "", "")
+	d := NewApacheDeployer(baseDeployer.Config{})
 
 	err := d.Test()
 	if err != nil {
@@ -287,7 +283,7 @@ func TestApacheDeployer_Rollback(t *testing.T) {
 	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
 	_ = os.WriteFile(chainPath, []byte("current-chain"), 0644)
 
-	d := NewApacheDeployer(certPath, keyPath, chainPath, "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath, ChainPath: chainPath})
 
 	err := d.Rollback(backupCertPath, backupKeyPath, backupChainPath)
 	if err != nil {
@@ -330,7 +326,7 @@ func TestApacheDeployer_Rollback_NoChain(t *testing.T) {
 	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
 
 	// 不指定 chainPath
-	d := NewApacheDeployer(certPath, keyPath, "", "", "")
+	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	err := d.Rollback(backupCertPath, backupKeyPath, "")
 	if err != nil {

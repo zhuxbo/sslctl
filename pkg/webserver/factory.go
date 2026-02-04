@@ -49,11 +49,15 @@ func NewScanner(serverType ServerType) (Scanner, error) {
 }
 
 // NewDeployer 创建部署器
+// 注意：Docker 类型（docker-nginx, docker-apache）会回退到普通部署器。
+// Docker 专用部署器（internal/nginx/docker）需要容器上下文，
+// 应通过 docker.NewDeployer() 直接创建，不通过此工厂方法。
 func NewDeployer(serverType ServerType, certPath, keyPath, chainPath, testCmd, reloadCmd string) (Deployer, error) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
-	// 统一处理 Docker 变体
+	// Docker 类型回退到普通部署器
+	// Docker 专用部署器需要 Client 和 context，接口签名不同
 	baseType := serverType
 	switch serverType {
 	case TypeDockerNginx:

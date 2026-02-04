@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
-	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
@@ -286,50 +284,41 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 }
 
-// scanSites 扫描站点
+// scanSites 扫描站点（使用 webserver 抽象层）
 func scanSites(serverType string, log *logger.Logger) []*matcher.ScannedSiteInfo {
 	var sites []*matcher.ScannedSiteInfo
 
-	if serverType == "nginx" {
-		s := nginxScanner.New()
-		allSites, err := s.ScanAll()
-		if err != nil {
-			log.Error("扫描 Nginx 失败: %v", err)
-			return sites
-		}
+	// 确定服务器类型
+	wsType := webserver.TypeNginx
+	if serverType == "apache" {
+		wsType = webserver.TypeApache
+	}
 
-		for _, site := range allSites {
-			sites = append(sites, &matcher.ScannedSiteInfo{
-				ServerName:  site.ServerName,
-				ServerAlias: site.ServerAlias,
-				ConfigFile:  site.ConfigFile,
-				HasSSL:      site.HasSSL,
-				CertPath:    site.CertificatePath,
-				KeyPath:     site.PrivateKeyPath,
-				Webroot:     site.Webroot,
-				ServerType:  config.ServerTypeNginx,
-			})
-		}
-	} else {
-		s := apacheScanner.New()
-		allSites, err := s.ScanAll()
-		if err != nil {
-			log.Error("扫描 Apache 失败: %v", err)
-			return sites
-		}
+	// 使用抽象层创建扫描器
+	scanner, err := webserver.NewScanner(wsType)
+	if err != nil {
+		log.Error("创建扫描器失败: %v", err)
+		return sites
+	}
 
-		for _, site := range allSites {
-			sites = append(sites, &matcher.ScannedSiteInfo{
-				ServerName:  site.ServerName,
-				ServerAlias: site.ServerAlias,
-				ConfigFile:  site.ConfigFile,
-				HasSSL:      site.HasSSL,
-				CertPath:    site.CertificatePath,
-				KeyPath:     site.PrivateKeyPath,
-				Webroot:     site.Webroot,
-				ServerType:  config.ServerTypeApache,
-			})
-		}
+	// 扫描站点
+	allSites, err := scanner.Scan()
+	if err != nil {
+		log.Error("扫描 %s 失败: %v", serverType, err)
+		return sites
+	}
+
+	// 转换为 matcher.ScannedSiteInfo
+	for _, site := range allSites {
+		sites = append(sites, &matcher.ScannedSiteInfo{
+			ServerName:  site.ServerName,
+			ServerAlias: site.ServerAlias,
+			ConfigFile:  site.ConfigFile,
+			HasSSL:      site.CertificatePath != "",
+			CertPath:    site.CertificatePath,
+			KeyPath:     site.PrivateKeyPath,
+			ServerType:  string(site.ServerType),
+		})
 	}
 
 	return sites

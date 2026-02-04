@@ -6,17 +6,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
 	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // TestNewNginxDeployer 测试创建 Nginx 部署器
 func TestNewNginxDeployer(t *testing.T) {
-	d := NewNginxDeployer(
-		"/etc/ssl/cert.pem",
-		"/etc/ssl/key.pem",
-		"nginx -t",
-		"nginx -s reload",
-	)
+	d := NewNginxDeployer(baseDeployer.Config{
+		CertPath:      "/etc/ssl/cert.pem",
+		KeyPath:       "/etc/ssl/key.pem",
+		TestCommand:   "nginx -t",
+		ReloadCommand: "nginx -s reload",
+	})
 
 	if d == nil {
 		t.Fatal("NewNginxDeployer 返回 nil")
@@ -30,29 +31,27 @@ func TestNewNginxDeployer(t *testing.T) {
 		t.Errorf("keyPath = %s, 期望 /etc/ssl/key.pem", d.keyPath)
 	}
 
-	if d.testCommand != "nginx -t" {
-		t.Errorf("testCommand = %s, 期望 nginx -t", d.testCommand)
+	if d.TestCommand != "nginx -t" {
+		t.Errorf("testCommand = %s, 期望 nginx -t", d.TestCommand)
 	}
 
-	if d.reloadCommand != "nginx -s reload" {
-		t.Errorf("reloadCommand = %s, 期望 nginx -s reload", d.reloadCommand)
+	if d.ReloadCommand != "nginx -s reload" {
+		t.Errorf("reloadCommand = %s, 期望 nginx -s reload", d.ReloadCommand)
 	}
 }
 
 // TestNewNginxDeployer_EmptyCommands 测试空命令
 func TestNewNginxDeployer_EmptyCommands(t *testing.T) {
-	d := NewNginxDeployer(
-		"/etc/ssl/cert.pem",
-		"/etc/ssl/key.pem",
-		"",
-		"",
-	)
+	d := NewNginxDeployer(baseDeployer.Config{
+		CertPath: "/etc/ssl/cert.pem",
+		KeyPath:  "/etc/ssl/key.pem",
+	})
 
-	if d.testCommand != "" {
+	if d.TestCommand != "" {
 		t.Errorf("testCommand 应为空")
 	}
 
-	if d.reloadCommand != "" {
+	if d.ReloadCommand != "" {
 		t.Errorf("reloadCommand 应为空")
 	}
 }
@@ -63,7 +62,7 @@ func TestNginxDeployer_Deploy_WriteCert(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"
 	intermediate := "-----BEGIN CERTIFICATE-----\ntest-intermediate\n-----END CERTIFICATE-----"
@@ -102,7 +101,7 @@ func TestNginxDeployer_Deploy_KeyPermissions(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	intermediate := ""
@@ -131,7 +130,7 @@ func TestNginxDeployer_Deploy_CreateDirectory(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "subdir1", "subdir2", "cert.pem")
 	keyPath := filepath.Join(tmpDir, "subdir3", "subdir4", "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	intermediate := ""
@@ -153,8 +152,6 @@ func TestNginxDeployer_Deploy_CreateDirectory(t *testing.T) {
 
 // TestRunCommand_Whitelist 测试命令白名单验证
 func TestRunCommand_Whitelist(t *testing.T) {
-	d := NewNginxDeployer("", "", "", "")
-
 	tests := []struct {
 		cmd     string
 		allowed bool
@@ -170,7 +167,7 @@ func TestRunCommand_Whitelist(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := d.runCommand(tt.cmd)
+		err := executor.Run(tt.cmd)
 		if tt.allowed {
 			// 允许的命令可能因为 nginx 未安装而失败，但不应该因为白名单而失败
 			if err != nil && err.Error() == "command not in whitelist: "+tt.cmd {
@@ -211,7 +208,7 @@ func TestParseCommand(t *testing.T) {
 
 // TestNginxDeployer_Reload_EmptyCommand 测试空重载命令
 func TestNginxDeployer_Reload_EmptyCommand(t *testing.T) {
-	d := NewNginxDeployer("", "", "", "")
+	d := NewNginxDeployer(baseDeployer.Config{})
 
 	err := d.Reload()
 	if err != nil {
@@ -221,7 +218,7 @@ func TestNginxDeployer_Reload_EmptyCommand(t *testing.T) {
 
 // TestNginxDeployer_Test_EmptyCommand 测试空测试命令
 func TestNginxDeployer_Test_EmptyCommand(t *testing.T) {
-	d := NewNginxDeployer("", "", "", "")
+	d := NewNginxDeployer(baseDeployer.Config{})
 
 	err := d.Test()
 	if err != nil {
@@ -246,7 +243,7 @@ func TestNginxDeployer_Rollback(t *testing.T) {
 	_ = os.WriteFile(certPath, []byte("current-cert"), 0644)
 	_ = os.WriteFile(keyPath, []byte("current-key"), 0600)
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	err := d.Rollback(backupCertPath, backupKeyPath)
 	if err != nil {
@@ -292,7 +289,7 @@ func TestNginxDeployer_Deploy_WithChain(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\nleaf-cert\n-----END CERTIFICATE-----"
 	intermediate := "-----BEGIN CERTIFICATE-----\nintermediate-cert\n-----END CERTIFICATE-----"
@@ -321,7 +318,7 @@ func TestNginxDeployer_Deploy_NoIntermediate(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\nonly-cert\n-----END CERTIFICATE-----"
 	key := "-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"
@@ -350,7 +347,7 @@ func TestNginxDeployer_Rollback_BackupNotExist(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	// 尝试从不存在的备份回滚
 	err := d.Rollback("/nonexistent/backup/cert.pem", "/nonexistent/backup/key.pem")
@@ -365,7 +362,7 @@ func TestNginxDeployer_Deploy_NestedDirectory(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "a", "b", "c", "cert.pem")
 	keyPath := filepath.Join(tmpDir, "x", "y", "z", "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	key := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
@@ -390,7 +387,7 @@ func TestNginxDeployer_CertPermissions(t *testing.T) {
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	d := NewNginxDeployer(certPath, keyPath, "", "")
+	d := NewNginxDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
 	key := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"

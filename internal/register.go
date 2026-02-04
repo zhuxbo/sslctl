@@ -5,6 +5,7 @@ package internal
 import (
 	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
 	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
+	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
 	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
 	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
@@ -24,14 +25,25 @@ func init() {
 	// 注册 Nginx 部署器
 	webserver.RegisterDeployer(webserver.TypeNginx, func(certPath, keyPath, _, testCmd, reloadCmd string) webserver.Deployer {
 		return &nginxDeployerAdapter{
-			deployer: nginxDeployer.NewNginxDeployer(certPath, keyPath, testCmd, reloadCmd),
+			deployer: nginxDeployer.NewNginxDeployer(baseDeployer.Config{
+				CertPath:      certPath,
+				KeyPath:       keyPath,
+				TestCommand:   testCmd,
+				ReloadCommand: reloadCmd,
+			}),
 		}
 	})
 
 	// 注册 Apache 部署器
 	webserver.RegisterDeployer(webserver.TypeApache, func(certPath, keyPath, chainPath, testCmd, reloadCmd string) webserver.Deployer {
 		return &apacheDeployerAdapter{
-			deployer: apacheDeployer.NewApacheDeployer(certPath, keyPath, chainPath, testCmd, reloadCmd),
+			deployer: apacheDeployer.NewApacheDeployer(baseDeployer.Config{
+				CertPath:      certPath,
+				KeyPath:       keyPath,
+				ChainPath:     chainPath,
+				TestCommand:   testCmd,
+				ReloadCommand: reloadCmd,
+			}),
 		}
 	})
 }
@@ -132,17 +144,20 @@ func (a *apacheDeployerAdapter) Rollback(backupCertPath, backupKeyPath, backupCh
 }
 
 // apacheScannerAdapter Apache 扫描器适配器
+// 命名映射说明：
+// - internal 包使用 ScanAll()，webserver 接口使用 Scan() - 适配器统一为 Scan
+// - internal 包使用 ChainPath，webserver 使用 ChainFile - 适配器映射字段名
+// 这种设计允许 internal 包保持自己的命名约定，同时对外提供统一的接口
 type apacheScannerAdapter struct {
 	scanner *apacheScanner.Scanner
 }
 
 func (a *apacheScannerAdapter) Scan() ([]webserver.Site, error) {
-	// 统一扫描入口
 	return a.ScanLocal()
 }
 
 func (a *apacheScannerAdapter) ScanLocal() ([]webserver.Site, error) {
-	sites, err := a.scanner.ScanAll()
+	sites, err := a.scanner.ScanAll() // ScanAll -> Scan 方法名映射
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +172,7 @@ func (a *apacheScannerAdapter) ScanLocal() ([]webserver.Site, error) {
 			ListenPorts:     s.ListenPorts,
 			CertificatePath: s.CertificatePath,
 			PrivateKeyPath:  s.PrivateKeyPath,
-			ChainFile:       s.ChainPath,
+			ChainFile:       s.ChainPath, // ChainPath -> ChainFile 字段名映射
 			ServerType:      webserver.TypeApache,
 		})
 	}

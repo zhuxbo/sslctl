@@ -146,6 +146,8 @@ func (m *Manager) LoadSite(siteName string) (*SiteConfig, error) {
 }
 
 // copySiteConfig 创建站点配置的深拷贝
+// 设计说明：此函数处理 SiteConfig 类型，与 unified.go 的 copyConfig 处理 Config 类型不同。
+// 两者不是重复代码，而是针对不同数据结构的独立实现。
 func (m *Manager) copySiteConfig(src *SiteConfig) *SiteConfig {
 	if src == nil {
 		return nil

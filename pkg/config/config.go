@@ -1,7 +1,11 @@
 // Package config 提供统一配置管理
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/zhuxbo/sslctl/pkg/webserver"
+)
 
 // Config 统一配置结构（config.json）
 type Config struct {
@@ -67,11 +71,12 @@ type DockerInfo struct {
 }
 
 // ServerType 常量
+// 注意：这些值必须与 pkg/webserver/types.go 中的定义保持一致
 const (
-	ServerTypeNginx        = "nginx"
-	ServerTypeApache       = "apache"
-	ServerTypeDockerNginx  = "docker-nginx"
-	ServerTypeDockerApache = "docker-apache"
+	ServerTypeNginx        = string(webserver.TypeNginx)
+	ServerTypeApache       = string(webserver.TypeApache)
+	ServerTypeDockerNginx  = string(webserver.TypeDockerNginx)
+	ServerTypeDockerApache = string(webserver.TypeDockerApache)
 )
 
 // MatchType 匹配类型
