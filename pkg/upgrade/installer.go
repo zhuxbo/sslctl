@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -12,12 +13,45 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 )
+
+// 下载配置常量
+const (
+	downloadTimeout     = 5 * time.Minute // 下载超时时间
+	maxDownloadSize     = 100 * 1024 * 1024 // 最大下载大小 100MB
+)
+
+// secureHTTPClient 创建安全的 HTTP 客户端
+// - 强制 TLS 1.2+
+// - 设置下载超时
+func secureHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: downloadTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+		},
+	}
+}
 
 // DownloadBinary 下载二进制文件
 // 返回 gzip 压缩后的原始数据（用于校验和验证）
+// 安全措施：
+// - 强制 HTTPS（防止中间人攻击）
+// - TLS 1.2+ （防止降级攻击）
+// - 下载超时（防止资源耗尽）
+// - 大小限制（防止内存耗尽）
 func DownloadBinary(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	// 安全校验：强制 HTTPS
+	if !strings.HasPrefix(url, "https://") {
+		return nil, fmt.Errorf("下载失败: 仅允许 HTTPS 协议")
+	}
+
+	client := secureHTTPClient()
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("下载失败: %w", err)
 	}
@@ -27,9 +61,16 @@ func DownloadBinary(url string) ([]byte, error) {
 		return nil, fmt.Errorf("下载失败: HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	// 限制读取大小，防止内存耗尽
+	limitReader := io.LimitReader(resp.Body, maxDownloadSize)
+	data, err := io.ReadAll(limitReader)
 	if err != nil {
 		return nil, fmt.Errorf("读取下载数据失败: %w", err)
+	}
+
+	// 检查是否达到大小限制
+	if int64(len(data)) >= maxDownloadSize {
+		return nil, fmt.Errorf("下载失败: 文件大小超过限制 (%d bytes)", maxDownloadSize)
 	}
 
 	return data, nil

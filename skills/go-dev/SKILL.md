@@ -252,3 +252,55 @@ cm.SetAPI(config.APIConfig{...})
 - 回环地址（127.0.0.0/8, ::1）
 - 链路本地地址（169.254.0.0/16）
 - 云元数据（169.254.169.254）
+
+### 文件操作安全
+
+使用 `pkg/util` 的安全文件操作函数：
+
+```go
+// 安全读取文件（符号链接防护 + TOCTOU 保护 + 大小限制）
+data, err := util.SafeReadFile(path, maxSize)
+
+// 安全复制文件
+err := util.CopyFile(src, dst)
+
+// 安全路径拼接（防止路径穿越）
+safePath, err := util.JoinUnderDir(baseDir, userInput)
+```
+
+### 配置文件保存
+
+配置保存使用 `O_EXCL` + `Lstat` 二次校验防止符号链接攻击：
+
+```go
+// pkg/config/unified.go saveLocked() 实现
+// 1. O_CREATE|O_WRONLY|O_EXCL 创建临时文件（文件存在则失败）
+// 2. Lstat 二次校验非符号链接
+// 3. Rename 原子替换
+```
+
+### Docker 容器命令
+
+容器内命令通过 `internal/nginx/docker/client.go` 执行：
+
+- 命令白名单：nginx/apachectl/cat/test/ls
+- 危险模式检测：`;` `|` `||` `$()` `${}` `` ` `` `\n` `\r`
+- 允许 `&&`（用于 `test -f && echo ok`）和单引号（用于 `ShellQuote` 路径包裹）
+- 路径校验：绝对路径 + 无 `..` + 无特殊字符
+
+### 升级模块安全
+
+`pkg/upgrade/installer.go` 下载二进制时：
+
+- 强制 HTTPS 协议
+- TLS 1.2+ 最低版本
+- 5 分钟超时 + 100MB 大小限制
+- SHA256 校验和验证
+
+### Token 安全
+
+环境变量 Token 校验（`pkg/config/unified.go`）：
+
+- 最小长度 32 字符（128 bit 安全性）
+- 最大长度 512 字符
+- 仅允许 `A-Za-z0-9-_.` 字符

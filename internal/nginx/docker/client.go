@@ -113,12 +113,19 @@ func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
 
 // validateExecCommand 验证命令是否安全
 // 检查命令的可执行文件是否在白名单中，并验证参数不包含危险字符
+// 允许的 shell 特性：重定向（2>&1）、条件执行（&&）用于测试命令
 func validateExecCommand(cmd string) error {
 	if cmd == "" {
 		return fmt.Errorf("empty command not allowed")
 	}
 
+	// 长度限制：防止缓冲区溢出
+	if len(cmd) > 4096 {
+		return fmt.Errorf("command too long (max 4096 characters)")
+	}
+
 	// 解析命令，获取可执行文件名
+	// 注意：对于 "test -f file && echo ok" 这种形式，取第一个命令
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		return fmt.Errorf("invalid command format")
@@ -132,11 +139,44 @@ func validateExecCommand(cmd string) error {
 		return fmt.Errorf("command not allowed: %s (allowed: nginx, apachectl, apache2, httpd, cat, test, ls)", executable)
 	}
 
-	// 检查整个命令是否包含危险字符（防止命令链接）
-	dangerousPatterns := []string{";", "&&", "||", "|", "`", "$(", "${", "\n", "\r"}
+	// 检查危险的命令注入模式
+	// 注意：允许 "&&" 用于 "test -f file && echo ok" 这种安全模式
+	//       允许 "2>&1" 用于重定向 stderr
+	//       允许单引号用于 ShellQuote 包裹的安全参数（如 cat '/path/to/file'）
+	//       但禁止命令替换和命令链接等危险模式
+	dangerousPatterns := []string{
+		";",  // 命令分隔符
+		"||", // 或运算符
+		"|",  // 管道
+		"`",  // 反引号命令替换
+		"$(", // 命令替换
+		"${", // 变量替换
+		"\n", // 换行符
+		"\r", // 回车符
+	}
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(cmd, pattern) {
 			return fmt.Errorf("dangerous pattern in command: %s", pattern)
+		}
+	}
+
+	// 对于包含 && 的命令，验证后续命令也在白名单中
+	if strings.Contains(cmd, "&&") {
+		cmdParts := strings.Split(cmd, "&&")
+		for _, part := range cmdParts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			subParts := strings.Fields(part)
+			if len(subParts) == 0 {
+				continue
+			}
+			subExec := filepath.Base(subParts[0])
+			// 允许 echo 用于 "test -f file && echo ok" 模式
+			if _, ok := allowedExecCommands[subExec]; !ok && subExec != "echo" {
+				return fmt.Errorf("command in chain not allowed: %s", subExec)
+			}
 		}
 	}
 

@@ -333,9 +333,10 @@ func savePendingKey(workDir, certName, keyPEM string) error {
 }
 
 // readPendingKey 读取待确认私钥
+// 使用 SafeReadFile 进行安全读取：大小限制 + 符号链接防护 + TOCTOU 保护
 func readPendingKey(workDir, certName string) (string, error) {
 	pendingPath := getPendingKeyPath(workDir, certName)
-	data, err := os.ReadFile(pendingPath)
+	data, err := util.SafeReadFile(pendingPath, config.MaxPrivateKeySize)
 	if err != nil {
 		return "", err
 	}

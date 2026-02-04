@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // SSLSite 扫描到的 SSL 站点信息
@@ -935,75 +936,15 @@ func findNginxFromProcessLinux() string {
 }
 
 // findBinaryFromPort 通过端口查找进程的可执行文件路径
+// 使用公共函数 util.FindBinaryFromPort
 func findBinaryFromPort(processName string) string {
-	// 尝试 ss 命令: ss -tlnp | grep :80
-	output, err := executor.RunOutput("ss -tlnp")
-	if err != nil {
-		// 尝试 netstat
-		output, err = executor.RunOutput("netstat -tlnp")
-		if err != nil {
-			return ""
-		}
-	}
-
-	// 查找包含 :80 或 :443 且包含进程名的行
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if !strings.Contains(line, processName) {
-			continue
-		}
-		if !strings.Contains(line, ":80") && !strings.Contains(line, ":443") {
-			continue
-		}
-
-		// 提取 PID，格式如: users:(("nginx",pid=1234,fd=6))
-		// 或 netstat 格式: 1234/nginx
-		pidRe := regexp.MustCompile(`pid=(\d+)|(\d+)/` + processName)
-		matches := pidRe.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			pid := matches[1]
-			if pid == "" {
-				pid = matches[2]
-			}
-			if pid != "" {
-				// 检查是否是容器进程
-				if isContainerProcess(pid) {
-					continue
-				}
-
-				exePath := fmt.Sprintf("/proc/%s/exe", pid)
-				if realPath, err := os.Readlink(exePath); err == nil {
-					// 验证路径存在
-					if _, statErr := os.Stat(realPath); statErr == nil {
-						return realPath
-					}
-				}
-			}
-		}
-	}
-
-	return ""
+	return util.FindBinaryFromPort(processName)
 }
 
 // isContainerProcess 检查进程是否运行在容器内
+// 使用公共函数 util.IsContainerProcess
 func isContainerProcess(pid string) bool {
-	// 检查 /proc/<pid>/cgroup，容器进程会包含 docker 或 containerd 等关键字
-	cgroupPath := fmt.Sprintf("/proc/%s/cgroup", pid)
-	data, err := os.ReadFile(cgroupPath)
-	if err != nil {
-		return false
-	}
-
-	content := string(data)
-	// Docker 容器的 cgroup 路径包含 docker 或 containerd
-	if strings.Contains(content, "/docker/") ||
-		strings.Contains(content, "/containerd/") ||
-		strings.Contains(content, "/lxc/") ||
-		strings.Contains(content, "/kubepods/") {
-		return true
-	}
-
-	return false
+	return util.IsContainerProcess(pid)
 }
 
 // findNginxFromProcessWindows 从 Windows 进程查找 nginx 路径

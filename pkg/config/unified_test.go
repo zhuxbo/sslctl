@@ -308,14 +308,15 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 		Version: "2.0",
 		API: APIConfig{
 			URL:   "https://file-api.com",
-			Token: "file-token",
+			Token: "file-token-that-is-long-enough-for-validation",
 		},
 	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0600)
 
-	// 设置环境变量
-	_ = os.Setenv(EnvAPIToken, "env-token")
+	// 设置环境变量（Token 至少 32 字符）
+	envToken := "env-token-that-is-long-enough-for-validation"
+	_ = os.Setenv(EnvAPIToken, envToken)
 	_ = os.Setenv(EnvAPIURL, "https://env-api.com")
 	defer func() {
 		_ = os.Unsetenv(EnvAPIToken)
@@ -326,8 +327,8 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 	loaded, _ := cm.Load()
 
 	// 环境变量应该覆盖文件配置
-	if loaded.API.Token != "env-token" {
-		t.Errorf("API.Token = %s, want env-token (from env)", loaded.API.Token)
+	if loaded.API.Token != envToken {
+		t.Errorf("API.Token = %s, want %s (from env)", loaded.API.Token, envToken)
 	}
 	if loaded.API.URL != "https://env-api.com" {
 		t.Errorf("API.URL = %s, want https://env-api.com (from env)", loaded.API.URL)

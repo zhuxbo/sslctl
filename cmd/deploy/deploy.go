@@ -371,38 +371,6 @@ func getSiteBindingForLocal(cfgManager *config.ConfigManager, siteName string) (
 	return buildBindingFromScanResult(site, cfgManager), nil
 }
 
-// validateFilePath 验证文件路径安全性（已废弃，使用 util.SafeReadFile 代替）
-// 保留此函数用于兼容，但建议直接使用 SafeReadFile 进行原子性的验证和读取
-func validateFilePath(path string) error {
-	// 检查路径遍历
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return fmt.Errorf("path contains traversal sequence")
-	}
-
-	// 获取文件信息（不跟随符号链接）
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("cannot stat file: %w", err)
-	}
-
-	// 必须是常规文件
-	if !info.Mode().IsRegular() {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symbolic links not allowed for security")
-		}
-		return fmt.Errorf("not a regular file")
-	}
-
-	// 检查文件大小（防止读取超大文件导致内存耗尽）
-	const maxFileSize = 1 << 20 // 1MB，足够容纳证书和私钥
-	if info.Size() > maxFileSize {
-		return fmt.Errorf("file too large (max %d bytes)", maxFileSize)
-	}
-
-	return nil
-}
-
 // buildBindingFromScanResult 从扫描结果构造站点绑定
 func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.ConfigManager) *config.SiteBinding {
 	// 确定服务器类型（多重判断提高准确性）

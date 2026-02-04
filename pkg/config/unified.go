@@ -242,9 +242,32 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	}()
 
 	// 4. 原子写入（在文件锁保护下）
+	// 使用 O_EXCL 防止符号链接攻击：如果文件已存在则失败
 	tmpPath := cm.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
+	// 先删除可能存在的临时文件（可能是上次失败遗留的）
+	_ = os.Remove(tmpPath)
+
+	// O_CREATE|O_WRONLY|O_EXCL: 创建新文件，如果已存在则失败（防止符号链接攻击）
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	_, writeErr := tmpFile.Write(data)
+	closeErr := tmpFile.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to write temp file: %w", writeErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+
+	// 验证临时文件不是符号链接（防止 TOCTOU）
+	if info, err := os.Lstat(tmpPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("TOCTOU attack detected: temp file is a symlink")
 	}
 
 	if err := os.Rename(tmpPath, cm.configPath); err != nil {
@@ -455,11 +478,21 @@ func validateAPIURL(apiURL string) error {
 	return validator.ValidateAPIURL(apiURL)
 }
 
+// Token 长度限制常量
+const (
+	minTokenLength = 32  // 最小 32 字符（128 bit 安全性）
+	maxTokenLength = 512 // 最大 512 字符
+)
+
 // validateToken 校验 Token 格式
+// 安全要求：最小 32 字符确保足够的熵（防止暴力破解）
 func validateToken(token string) error {
-	// 长度校验：8-512 字符
-	if len(token) < 8 || len(token) > 512 {
-		return fmt.Errorf("token length must be 8-512 characters, got %d", len(token))
+	// 长度校验：32-512 字符
+	if len(token) < minTokenLength {
+		return fmt.Errorf("token too short (min %d characters, got %d)", minTokenLength, len(token))
+	}
+	if len(token) > maxTokenLength {
+		return fmt.Errorf("token too long (max %d characters, got %d)", maxTokenLength, len(token))
 	}
 	// 格式校验：只允许安全字符（防止注入）
 	if !tokenFormatRegex.MatchString(token) {

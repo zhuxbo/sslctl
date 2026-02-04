@@ -119,27 +119,16 @@ docker/test/
 
 详见 `skills/deploy-ops/SKILL.md`
 
-## 知识管理
+## 安全机制
 
-开发中发现重要信息时，更新 `skills/` 目录：
+详见 `skills/go-dev/SKILL.md` 安全开发规范章节：
 
-## 安全增强（2026-02 审核修复）
-
-- **Docker 命令白名单** - `internal/nginx/docker/client.go` Exec 方法添加命令白名单验证
-- **符号链接防护** - `pkg/util/file.go` CopyFile/SafeReadFile 添加 TOCTOU 保护
-- **守护进程优雅退出** - `cmd/daemon/daemon.go` 正确传播 context 取消，等待任务完成
-- **私钥目录权限统一** - 所有敏感目录统一使用 0700 权限
-- **Token 格式验证** - 环境变量 Token 添加正则格式校验
-- **SSRF 校验统一** - 提取到 `pkg/validator/ssrf.go`，消除重复代码
-- **日志切换容错** - 切换失败时保留旧文件继续写入
-- **回滚错误返回** - 部署失败且回滚失败时返回复合错误
-
-## 代码质量优化（2026-02）
-
-- **私钥读取统一** - `pkg/certops/private_key.go` 提取 GetPrivateKey/GetPrivateKeyFromBindings，消除 5 处重复代码
-- **升级模块独立** - `pkg/upgrade/` 将升级逻辑从 cmd/main.go 提取为可复用模块（release.go/installer.go/upgrade.go）
-- **权限检查统一** - `pkg/util/privilege.go` 提取 CheckRootPrivilege，消除 4 处重复代码
-- **遗留代码清理** - 删除 `internal/nginx/config/`（重复配置结构）和 `pkg/config/manager.go`（未使用的 Manager 类型）
+- 命令执行白名单（`internal/executor`）
+- SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
+- 文件操作安全（符号链接防护、TOCTOU 保护）
+- 配置并发安全（深拷贝 + 双重锁）
+- 日志敏感信息过滤
+- 升级模块 TLS 安全（HTTPS + TLS 1.2+）
 
 ## 开发规范
 
