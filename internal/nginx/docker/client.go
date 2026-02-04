@@ -94,7 +94,13 @@ func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
 }
 
 // CopyToContainer 复制文件到容器
+// 对目标路径进行安全校验，防止命令注入
 func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) error {
+	// 安全校验：验证容器内目标路径
+	if !isValidContainerPath(dstPath) {
+		return fmt.Errorf("invalid container path: contains dangerous characters")
+	}
+
 	var cpCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {
@@ -120,7 +126,13 @@ func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) e
 }
 
 // CopyFromContainer 从容器复制文件
+// 对源路径进行安全校验，防止命令注入
 func (c *Client) CopyFromContainer(ctx context.Context, srcPath, dstPath string) error {
+	// 安全校验：验证容器内源路径
+	if !isValidContainerPath(srcPath) {
+		return fmt.Errorf("invalid container path: contains dangerous characters")
+	}
+
 	var cpCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {

@@ -43,6 +43,22 @@ type nginxScannerWrapper struct {
 	scanner *nginxScanner.Scanner
 }
 
+func (w *nginxScannerWrapper) Scan() ([]Site, error) {
+	// 统一扫描入口：先扫描本地，再扫描 Docker
+	localSites, err := w.ScanLocal()
+	if err != nil {
+		return nil, err
+	}
+
+	dockerSites, err := w.ScanDocker()
+	if err != nil {
+		// Docker 扫描失败不影响本地结果
+		return localSites, nil
+	}
+
+	return append(localSites, dockerSites...), nil
+}
+
 func (w *nginxScannerWrapper) ScanLocal() ([]Site, error) {
 	// 使用 ScanAll 获取所有站点
 	sites, err := w.scanner.ScanAll()
@@ -92,6 +108,11 @@ func (w *nginxDeployerWrapper) Test() error {
 	return w.deployer.Test()
 }
 
+func (w *nginxDeployerWrapper) Rollback(backupCertPath, backupKeyPath, _ string) error {
+	// Nginx 不需要 chainPath，忽略第三个参数
+	return w.deployer.Rollback(backupCertPath, backupKeyPath)
+}
+
 // apacheDeployerWrapper Apache 部署器包装器
 type apacheDeployerWrapper struct {
 	deployer *apacheDeployer.ApacheDeployer
@@ -107,4 +128,8 @@ func (w *apacheDeployerWrapper) Reload() error {
 
 func (w *apacheDeployerWrapper) Test() error {
 	return w.deployer.Test()
+}
+
+func (w *apacheDeployerWrapper) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error {
+	return w.deployer.Rollback(backupCertPath, backupKeyPath, backupChainPath)
 }

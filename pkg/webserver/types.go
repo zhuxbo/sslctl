@@ -32,6 +32,8 @@ type Site struct {
 
 // Scanner 扫描器接口
 type Scanner interface {
+	// Scan 统一扫描入口，自动扫描本地和 Docker 站点
+	Scan() ([]Site, error)
 	// ScanLocal 扫描本地站点
 	ScanLocal() ([]Site, error)
 	// ScanDocker 扫描 Docker 站点
@@ -48,4 +50,7 @@ type Deployer interface {
 	Reload() error
 	// Test 测试配置
 	Test() error
+	// Rollback 回滚到备份的证书
+	// chainPath 可选，用于 Apache；Nginx 可忽略该参数
+	Rollback(backupCertPath, backupKeyPath, backupChainPath string) error
 }

@@ -2,8 +2,11 @@
 package backup
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +14,21 @@ import (
 
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
+
+// computeFileHash 计算文件 SHA256 哈希（用于 TOCTOU 保护）
+func computeFileHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 // Metadata 备份元数据
 type Metadata struct {
@@ -52,18 +70,17 @@ func NewManager(backupDir string, keepVersions int) *Manager {
 
 // Backup 备份证书文件
 // chainPath 可选，用于 Apache 备份证书链文件
+// 使用文件内容哈希进行 TOCTOU 保护，比时间戳更可靠
 func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo, chainPath ...string) (*BackupResult, error) {
-	// 0. 记录源文件的修改时间（用于检测并发修改）
-	certStat, err := os.Stat(certPath)
+	// 0. 计算源文件哈希（用于检测并发修改，比时间戳更可靠）
+	certHash, err := computeFileHash(certPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat certificate file: %w", err)
+		return nil, fmt.Errorf("failed to hash certificate file: %w", err)
 	}
-	keyStat, err := os.Stat(keyPath)
+	keyHash, err := computeFileHash(keyPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat private key file: %w", err)
+		return nil, fmt.Errorf("failed to hash private key file: %w", err)
 	}
-	certModTime := certStat.ModTime()
-	keyModTime := keyStat.ModTime()
 
 	// 1. 创建备份目录
 	timestamp := time.Now().Format("20060102-150405")
@@ -87,45 +104,42 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 	}
 
 	// 3.1 验证源文件在备份期间未被修改（TOCTOU 保护）
-	// 如果 os.Stat 失败（文件被删除等），也视为文件已被修改
-	newCertStat, err := os.Stat(certPath)
-	if err != nil || newCertStat.ModTime() != certModTime {
-		// 源文件已被修改或删除，删除备份并返回错误
+	// 使用哈希校验比时间戳更可靠（不受文件系统精度影响，无法被 touch 欺骗）
+	newCertHash, err := computeFileHash(certPath)
+	if err != nil || newCertHash != certHash {
 		_ = os.RemoveAll(backupPath)
 		if err != nil {
 			return nil, fmt.Errorf("certificate file changed during backup: %w", err)
 		}
-		return nil, fmt.Errorf("certificate file changed during backup")
+		return nil, fmt.Errorf("certificate file changed during backup (hash mismatch)")
 	}
-	newKeyStat, err := os.Stat(keyPath)
-	if err != nil || newKeyStat.ModTime() != keyModTime {
-		// 源文件已被修改或删除，删除备份并返回错误
+	newKeyHash, err := computeFileHash(keyPath)
+	if err != nil || newKeyHash != keyHash {
 		_ = os.RemoveAll(backupPath)
 		if err != nil {
 			return nil, fmt.Errorf("private key file changed during backup: %w", err)
 		}
-		return nil, fmt.Errorf("private key file changed during backup")
+		return nil, fmt.Errorf("private key file changed during backup (hash mismatch)")
 	}
 
 	// 4. 备份证书链文件（可选，带 TOCTOU 保护）
 	var actualChainPath string
 	if len(chainPath) > 0 && chainPath[0] != "" {
 		actualChainPath = chainPath[0]
-		// 记录 chain 文件的修改时间
-		chainStat, err := os.Stat(actualChainPath)
+		// 计算 chain 文件哈希
+		chainHash, err := computeFileHash(actualChainPath)
 		if err != nil {
-			// chain 文件不存在，跳过备份
+			// chain 文件不存在或无法读取，跳过备份
 			actualChainPath = ""
 		} else {
-			chainModTime := chainStat.ModTime()
 			backupChainPath := filepath.Join(backupPath, "chain.pem")
 			if err := util.CopyFile(actualChainPath, backupChainPath); err != nil {
 				// chain 文件备份失败不影响整体备份
 				actualChainPath = ""
 			} else {
 				// 验证 chain 文件在备份期间未被修改
-				newChainStat, err := os.Stat(actualChainPath)
-				if err != nil || newChainStat.ModTime() != chainModTime {
+				newChainHash, err := computeFileHash(actualChainPath)
+				if err != nil || newChainHash != chainHash {
 					// chain 文件已被修改，删除备份的 chain 文件
 					_ = os.Remove(backupChainPath)
 					actualChainPath = ""

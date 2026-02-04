@@ -195,18 +195,9 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 }
 
 // saveLocked 保存配置（调用者需持有锁）
+// 注意：文件锁在所有操作之前获取，确保原子性和一致性
 func (cm *ConfigManager) saveLocked(cfg *Config) error {
-	cfg.Metadata.UpdatedAt = time.Now()
-	if cfg.Metadata.CreatedAt.IsZero() {
-		cfg.Metadata.CreatedAt = time.Now()
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// 获取文件锁，防止并发写入
+	// 1. 先获取文件锁，防止并发写入和 TOCTOU 攻击
 	lockPath := cm.configPath + ".lock"
 	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
@@ -214,7 +205,7 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	}
 
 	if err := lockFile(lf); err != nil {
-		_ = lf.Close() // 锁定失败时立即释放文件句柄
+		_ = lf.Close()
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	defer func() {
@@ -222,7 +213,20 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 		_ = lf.Close()
 	}()
 
-	// 原子写入
+	// 2. 创建配置副本进行修改，避免修改原始对象
+	cfgCopy := cm.copyConfig(cfg)
+	cfgCopy.Metadata.UpdatedAt = time.Now()
+	if cfgCopy.Metadata.CreatedAt.IsZero() {
+		cfgCopy.Metadata.CreatedAt = time.Now()
+	}
+
+	// 3. 序列化配置
+	data, err := json.MarshalIndent(cfgCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// 4. 原子写入
 	tmpPath := cm.configPath + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
@@ -233,7 +237,8 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
-	cm.config = cfg
+	// 5. 只有在所有操作成功后才更新内存缓存
+	cm.config = cfgCopy
 	return nil
 }
 

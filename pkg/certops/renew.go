@@ -253,6 +253,10 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	cert.Metadata.LastIssueState = certData.Status
 
 	if certData.Status != "active" || certData.Cert == "" {
+		// 保存元数据变更（包括 IssueRetryCount），确保重试计数持久化
+		if err := s.cfgManager.UpdateCert(cert); err != nil {
+			s.log.Warn("保存证书元数据失败: %v", err)
+		}
 		s.log.Info("证书 %s CSR 已提交，等待签发 (status=%s)", cert.CertName, certData.Status)
 		return nil, "", nil
 	}
@@ -337,16 +341,19 @@ func readPendingKey(workDir, certName string) (string, error) {
 }
 
 // commitPendingKey 签发成功后将待确认私钥移动到正式位置
-// 失败时错误信息包含 pending 私钥位置，便于手动恢复
+// 失败时错误信息包含相对路径（脱敏），便于手动恢复
 func commitPendingKey(workDir, certName, targetPath string) error {
 	pendingPath := getPendingKeyPath(workDir, certName)
 	if _, err := os.Stat(pendingPath); os.IsNotExist(err) {
 		return nil // 不存在则跳过
 	}
+	// 相对路径用于错误消息（脱敏）
+	pendingRelPath := filepath.Join(pendingKeyDir, certName, "pending-key.pem")
+
 	// 确保目标目录存在
 	targetDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(targetDir, 0700); err != nil {
-		return fmt.Errorf("创建目标目录失败: %w (pending 私钥保留在: %s，请手动恢复)", err, pendingPath)
+		return fmt.Errorf("创建目标目录失败: %w (pending 私钥保留在: %s，请手动恢复)", err, pendingRelPath)
 	}
 	// 移动文件
 	if err := os.Rename(pendingPath, targetPath); err != nil {
@@ -354,19 +361,19 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 		data, readErr := os.ReadFile(pendingPath)
 		if readErr != nil {
 			// 读取失败，保留 pending 私钥以便手动恢复
-			return fmt.Errorf("读取待确认私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", readErr, pendingPath)
+			return fmt.Errorf("读取待确认私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", readErr, pendingRelPath)
 		}
 		// 原子写入：先写到目标目录的临时文件，再重命名
 		tmpPath := targetPath + ".tmp"
 		if writeErr := os.WriteFile(tmpPath, data, 0600); writeErr != nil {
 			// 写入失败，保留 pending 私钥以便手动恢复
 			_ = os.Remove(tmpPath) // 清理可能的部分写入
-			return fmt.Errorf("写入目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", writeErr, pendingPath)
+			return fmt.Errorf("写入目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", writeErr, pendingRelPath)
 		}
 		if renameErr := os.Rename(tmpPath, targetPath); renameErr != nil {
 			// 重命名失败，保留 pending 私钥以便手动恢复
 			_ = os.Remove(tmpPath) // 清理临时文件
-			return fmt.Errorf("重命名目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", renameErr, pendingPath)
+			return fmt.Errorf("重命名目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", renameErr, pendingRelPath)
 		}
 		// 成功后才清理 pending 私钥
 		_ = os.Remove(pendingPath)

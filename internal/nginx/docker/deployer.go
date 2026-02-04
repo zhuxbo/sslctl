@@ -184,7 +184,15 @@ func (d *Deployer) deployToHost(fullchain, key string) error {
 
 // deployToContainer 复制到容器（docker cp 模式）
 func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string) error {
-	// 创建临时目录
+	// 0. 安全校验：提前验证容器内路径，防止命令注入
+	if err := validateContainerPath(d.certPath); err != nil {
+		return fmt.Errorf("invalid certificate path: %w", err)
+	}
+	if err := validateContainerPath(d.keyPath); err != nil {
+		return fmt.Errorf("invalid private key path: %w", err)
+	}
+
+	// 1. 创建临时目录
 	tmpDir, err := os.MkdirTemp("", "sslctl-")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
@@ -206,18 +214,22 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("write temp key file failed: %w", err)
 	}
 
-	// 确保容器内目录存在（使用安全的 ExecAux 方法）
+	// 2. 确保容器内目录存在（使用安全的 ExecAux 方法）
 	certDir := getDir(d.certPath)
 	keyDir := getDir(d.keyPath)
 
 	if certDir != "" {
-		_, _ = d.client.ExecAux(ctx, "mkdir", "-p", certDir)
+		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", certDir); err != nil {
+			return fmt.Errorf("create cert directory in container failed: %w", err)
+		}
 	}
 	if keyDir != "" && keyDir != certDir {
-		_, _ = d.client.ExecAux(ctx, "mkdir", "-p", keyDir)
+		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", keyDir); err != nil {
+			return fmt.Errorf("create key directory in container failed: %w", err)
+		}
 	}
 
-	// 复制到容器
+	// 3. 复制到容器
 	if err := d.client.CopyToContainer(ctx, certFile, d.certPath); err != nil {
 		return fmt.Errorf("copy certificate to container failed: %w", err)
 	}
@@ -225,9 +237,13 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("copy private key to container failed: %w", err)
 	}
 
-	// 设置容器内文件权限（使用安全的 ExecAux 方法）
-	_, _ = d.client.ExecAux(ctx, "chmod", "644", d.certPath)
-	_, _ = d.client.ExecAux(ctx, "chmod", "600", d.keyPath)
+	// 4. 设置容器内文件权限（使用安全的 ExecAux 方法）
+	if _, err := d.client.ExecAux(ctx, "chmod", "644", d.certPath); err != nil {
+		return fmt.Errorf("set certificate permission failed: %w", err)
+	}
+	if _, err := d.client.ExecAux(ctx, "chmod", "600", d.keyPath); err != nil {
+		return fmt.Errorf("set private key permission failed: %w", err)
+	}
 
 	return nil
 }
@@ -348,5 +364,25 @@ func getDir(path string) string {
 		return ""
 	}
 	return dir
+}
+
+// validateContainerPath 验证容器内路径是否安全
+// 拒绝包含命令注入字符的路径
+func validateContainerPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	// 检查危险字符
+	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
+	for _, char := range dangerousChars {
+		if strings.Contains(path, char) {
+			return fmt.Errorf("path contains dangerous character: %s", char)
+		}
+	}
+	// 路径必须是绝对路径
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("path must be absolute")
+	}
+	return nil
 }
 

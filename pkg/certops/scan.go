@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
 // ScanSites 扫描站点
@@ -16,13 +16,17 @@ func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult,
 		Sites:    []ScannedSite{},
 	}
 
-	// 目前主要支持 Nginx
-	scanner := nginxScanner.New()
-
-	// 使用 ScanAll 扫描所有站点
-	sites, err := scanner.ScanAll()
+	// 通过抽象层创建扫描器
+	scanner, err := webserver.NewScanner(webserver.TypeNginx)
 	if err != nil {
-		s.log.Warn("扫描 Nginx 失败: %v", err)
+		s.log.Warn("创建扫描器失败: %v", err)
+		return result, nil
+	}
+
+	// 使用统一的 Scan 方法扫描所有站点（本地 + Docker）
+	sites, err := scanner.Scan()
+	if err != nil {
+		s.log.Warn("扫描站点失败: %v", err)
 	} else {
 		for _, site := range sites {
 			// 如果仅 SSL，过滤非 SSL 站点

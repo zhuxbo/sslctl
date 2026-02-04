@@ -1007,7 +1007,37 @@ func isContainerProcess(pid string) bool {
 }
 
 // findNginxFromProcessWindows 从 Windows 进程查找 nginx 路径
+// 优先使用 PowerShell (Windows 11+ wmic 已弃用)，回退到 wmic
 func findNginxFromProcessWindows() string {
+	// 优先尝试 PowerShell (Get-Process)
+	if path := findNginxFromProcessPowerShell(); path != "" {
+		return path
+	}
+
+	// 回退到 wmic (兼容旧版 Windows)
+	return findNginxFromProcessWMIC()
+}
+
+// findNginxFromProcessPowerShell 使用 PowerShell 查找 nginx 进程
+func findNginxFromProcessPowerShell() string {
+	// PowerShell: Get-Process nginx -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		"Get-Process -Name nginx -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	path := strings.TrimSpace(string(output))
+	if path != "" && strings.HasSuffix(strings.ToLower(path), "nginx.exe") {
+		return path
+	}
+
+	return ""
+}
+
+// findNginxFromProcessWMIC 使用 wmic 查找 nginx 进程（兼容旧版 Windows）
+func findNginxFromProcessWMIC() string {
 	// wmic process where "name='nginx.exe'" get ExecutablePath
 	cmd := exec.Command("wmic", "process", "where", "name='nginx.exe'", "get", "ExecutablePath")
 	output, err := cmd.Output()

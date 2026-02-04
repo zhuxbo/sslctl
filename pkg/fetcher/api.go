@@ -127,7 +127,13 @@ type Fetcher struct {
 // - 强制 TLS >= 1.2
 // - 连接池复用与 HTTP/2
 // - 合理的连接/空闲超时
+// - DNS Rebinding 防护：在 TCP 连接时二次校验目标 IP
 func New(timeout time.Duration) *Fetcher {
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -135,16 +141,76 @@ func New(timeout time.Duration) *Fetcher {
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2: true,
+		DialContext:         makeSSRFSafeDialContext(dialer),
+		ForceAttemptHTTP2:   true,
 	}
 	return &Fetcher{
 		client:      &http.Client{Timeout: timeout, Transport: transport},
 		retryConfig: DefaultRetryConfig,
 	}
+}
+
+// makeSSRFSafeDialContext 创建带 SSRF 防护的 DialContext
+// 在 TCP 连接时二次校验目标 IP，防止 DNS Rebinding 攻击
+func makeSSRFSafeDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+		}
+
+		// 检查是否为本地地址（允许 HTTP）
+		isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1"
+		if isLocal {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		// 手动解析 DNS 并校验每个 IP
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("DNS lookup failed for %s: %w", host, err)
+		}
+
+		// 筛选安全的 IP 并尝试连接
+		var lastErr error
+		for _, ip := range ips {
+			if err := validateIPForSSRF(ip); err != nil {
+				lastErr = err
+				continue
+			}
+
+			// 使用已验证的 IP 直接连接，绕过 DNS 重新解析
+			targetAddr := net.JoinHostPort(ip.String(), port)
+			conn, err := dialer.DialContext(ctx, network, targetAddr)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			return conn, nil
+		}
+
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("no valid IP address found for %s", host)
+	}
+}
+
+// validateIPForSSRF 校验 IP 是否安全（非内网、非回环、非云元数据）
+func validateIPForSSRF(ip net.IP) error {
+	if ip.IsLoopback() {
+		return fmt.Errorf("loopback address not allowed: %s", ip)
+	}
+	if ip.IsPrivate() {
+		return fmt.Errorf("private IP not allowed: %s", ip)
+	}
+	if ip.IsLinkLocalUnicast() {
+		return fmt.Errorf("link-local address not allowed: %s", ip)
+	}
+	if ip.String() == "169.254.169.254" {
+		return fmt.Errorf("cloud metadata endpoint not allowed")
+	}
+	return nil
 }
 
 // NewWithRetry 创建带自定义重试配置的 Fetcher
