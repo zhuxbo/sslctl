@@ -4,6 +4,7 @@ package internal
 
 import (
 	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
 	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
 	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
@@ -13,6 +14,11 @@ func init() {
 	// 注册 Nginx 扫描器
 	webserver.RegisterScanner(webserver.TypeNginx, func() webserver.Scanner {
 		return &nginxScannerAdapter{scanner: nginxScanner.New()}
+	})
+
+	// 注册 Apache 扫描器
+	webserver.RegisterScanner(webserver.TypeApache, func() webserver.Scanner {
+		return &apacheScannerAdapter{scanner: apacheScanner.New()}
 	})
 
 	// 注册 Nginx 部署器
@@ -123,4 +129,46 @@ func (a *apacheDeployerAdapter) Test() error {
 
 func (a *apacheDeployerAdapter) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error {
 	return a.deployer.Rollback(backupCertPath, backupKeyPath, backupChainPath)
+}
+
+// apacheScannerAdapter Apache 扫描器适配器
+type apacheScannerAdapter struct {
+	scanner *apacheScanner.Scanner
+}
+
+func (a *apacheScannerAdapter) Scan() ([]webserver.Site, error) {
+	// 统一扫描入口
+	return a.ScanLocal()
+}
+
+func (a *apacheScannerAdapter) ScanLocal() ([]webserver.Site, error) {
+	sites, err := a.scanner.ScanAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []webserver.Site
+	for _, s := range sites {
+		result = append(result, webserver.Site{
+			Name:            s.ServerName,
+			ServerName:      s.ServerName,
+			ServerAlias:     s.ServerAlias,
+			ConfigFile:      s.ConfigFile,
+			ListenPorts:     s.ListenPorts,
+			CertificatePath: s.CertificatePath,
+			PrivateKeyPath:  s.PrivateKeyPath,
+			ChainFile:       s.ChainPath,
+			ServerType:      webserver.TypeApache,
+		})
+	}
+	return result, nil
+}
+
+func (a *apacheScannerAdapter) ScanDocker() ([]webserver.Site, error) {
+	// Docker 扫描暂不支持
+	return nil, nil
+}
+
+func (a *apacheScannerAdapter) ServerType() webserver.ServerType {
+	return webserver.TypeApache
 }

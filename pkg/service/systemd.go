@@ -5,7 +5,8 @@ package service
 import (
 	"fmt"
 	"os"
-	"os/exec"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // SystemdManager systemd 服务管理器
@@ -56,8 +57,8 @@ func (m *SystemdManager) Install() error {
 		return fmt.Errorf("写入服务文件失败: %w", err)
 	}
 
-	// 重新加载 systemd
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+	// 重新加载 systemd（使用 executor 白名单）
+	if err := executor.Run("systemctl daemon-reload"); err != nil {
 		return fmt.Errorf("daemon-reload 失败: %w", err)
 	}
 
@@ -75,32 +76,30 @@ func (m *SystemdManager) Uninstall() error {
 		return fmt.Errorf("删除服务文件失败: %w", err)
 	}
 
-	// 重新加载 systemd
-	_ = exec.Command("systemctl", "daemon-reload").Run()
+	// 重新加载 systemd（使用 executor 白名单）
+	_ = executor.Run("systemctl daemon-reload")
 
 	return nil
 }
 
 // Start 启动服务
 func (m *SystemdManager) Start() error {
-	cmd := exec.Command("systemctl", "start", m.cfg.Name)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("启动服务失败: %w\n%s", err, output)
+	if err := executor.Run("systemctl start " + m.cfg.Name); err != nil {
+		return fmt.Errorf("启动服务失败: %w", err)
 	}
 	return nil
 }
 
 // Stop 停止服务
 func (m *SystemdManager) Stop() error {
-	_ = exec.Command("systemctl", "stop", m.cfg.Name).Run()
+	_ = executor.Run("systemctl stop " + m.cfg.Name)
 	return nil
 }
 
 // Restart 重启服务
 func (m *SystemdManager) Restart() error {
-	cmd := exec.Command("systemctl", "restart", m.cfg.Name)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("重启服务失败: %w\n%s", err, output)
+	if err := executor.Run("systemctl restart " + m.cfg.Name); err != nil {
+		return fmt.Errorf("重启服务失败: %w", err)
 	}
 	return nil
 }
@@ -109,13 +108,13 @@ func (m *SystemdManager) Restart() error {
 func (m *SystemdManager) Status() (*Status, error) {
 	status := &Status{}
 
-	// 检查是否运行中
-	if exec.Command("systemctl", "is-active", "--quiet", m.cfg.Name).Run() == nil {
+	// 检查是否运行中（使用白名单命令）
+	if executor.Run("systemctl is-active "+m.cfg.Name) == nil {
 		status.Running = true
 	}
 
-	// 检查是否启用
-	if exec.Command("systemctl", "is-enabled", "--quiet", m.cfg.Name).Run() == nil {
+	// 检查是否启用（使用白名单命令）
+	if executor.Run("systemctl is-enabled "+m.cfg.Name) == nil {
 		status.Enabled = true
 	}
 
@@ -124,7 +123,7 @@ func (m *SystemdManager) Status() (*Status, error) {
 
 // Enable 启用开机自启
 func (m *SystemdManager) Enable() error {
-	if err := exec.Command("systemctl", "enable", m.cfg.Name).Run(); err != nil {
+	if err := executor.Run("systemctl enable " + m.cfg.Name); err != nil {
 		return fmt.Errorf("启用服务失败: %w", err)
 	}
 	return nil
@@ -132,6 +131,6 @@ func (m *SystemdManager) Enable() error {
 
 // Disable 禁用开机自启
 func (m *SystemdManager) Disable() error {
-	_ = exec.Command("systemctl", "disable", m.cfg.Name).Run()
+	_ = executor.Run("systemctl disable " + m.cfg.Name)
 	return nil
 }

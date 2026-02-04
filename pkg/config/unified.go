@@ -207,10 +207,23 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 }
 
 // saveLocked 保存配置（调用者需持有锁）
-// 注意：文件锁在所有操作之前获取，确保原子性和一致性
+// 注意：序列化在文件锁之前完成，减少文件锁持有时间
 // 使用 flock 机制，多个进程可以同时打开锁文件，但只有一个能获得排他锁
 func (cm *ConfigManager) saveLocked(cfg *Config) error {
-	// 1. 先获取文件锁，防止并发写入和 TOCTOU 攻击
+	// 1. 创建配置副本进行修改，避免修改原始对象
+	cfgCopy := cm.copyConfig(cfg)
+	cfgCopy.Metadata.UpdatedAt = time.Now()
+	if cfgCopy.Metadata.CreatedAt.IsZero() {
+		cfgCopy.Metadata.CreatedAt = time.Now()
+	}
+
+	// 2. 序列化配置（在文件锁之前完成，减少锁持有时间）
+	data, err := json.MarshalIndent(cfgCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// 3. 获取文件锁，防止并发写入和 TOCTOU 攻击
 	// 注意：这里使用 flock 而非 O_EXCL，因为 flock 是基于文件描述符的锁
 	// 多个进程可以同时打开同一个锁文件，但只有一个能成功获得 flock
 	lockPath := cm.configPath + ".lock"
@@ -228,20 +241,7 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 		_ = lf.Close()
 	}()
 
-	// 2. 创建配置副本进行修改，避免修改原始对象
-	cfgCopy := cm.copyConfig(cfg)
-	cfgCopy.Metadata.UpdatedAt = time.Now()
-	if cfgCopy.Metadata.CreatedAt.IsZero() {
-		cfgCopy.Metadata.CreatedAt = time.Now()
-	}
-
-	// 3. 序列化配置
-	data, err := json.MarshalIndent(cfgCopy, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// 4. 原子写入
+	// 4. 原子写入（在文件锁保护下）
 	tmpPath := cm.configPath + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)

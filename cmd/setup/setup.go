@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -82,7 +81,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	// 1. 检测 Web 服务器
 	fmt.Println("步骤 1/6: 检测 Web 服务器...")
-	serverType := detectWebServer()
+	serverType := webserver.DetectWebServerType()
 	if serverType == "" {
 		fmt.Fprintln(os.Stderr, "未检测到 Nginx 或 Apache 服务")
 		os.Exit(1)
@@ -223,7 +222,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		binding := &bindings[i]
 		fmt.Printf("  部署到: %s\n", binding.SiteName)
 
-		if err := deployCert(ctx, binding, certData, privateKey, log); err != nil {
+		if err := deployToSiteBinding(ctx, binding, certData, privateKey, log); err != nil {
 			fmt.Fprintf(os.Stderr, "    部署失败: %v\n", err)
 			continue
 		}
@@ -285,33 +284,6 @@ func Run(args []string, version, buildTime string, debug bool) {
 		fmt.Println("  systemctl status sslctl    # 查看状态")
 		fmt.Println("  journalctl -u sslctl -f    # 查看日志")
 	}
-}
-
-// detectWebServer 检测 Web 服务器类型
-func detectWebServer() string {
-	if _, err := exec.LookPath("nginx"); err == nil {
-		if _, err := nginxScanner.DetectNginx(); err == nil {
-			return "nginx"
-		}
-	}
-
-	if _, err := exec.LookPath("apache2ctl"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
-			return "apache"
-		}
-	}
-	if _, err := exec.LookPath("apachectl"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
-			return "apache"
-		}
-	}
-	if _, err := exec.LookPath("httpd"); err == nil {
-		if _, _, err := apacheScanner.DetectApache(); err == nil {
-			return "apache"
-		}
-	}
-
-	return ""
 }
 
 // scanSites 扫描站点
@@ -403,11 +375,11 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 	return binding
 }
 
-// deployCert 部署证书
-func deployCert(ctx context.Context, binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, log *logger.Logger) error {
+// deployToSiteBinding 部署证书到单个站点绑定
+func deployToSiteBinding(ctx context.Context, binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, log *logger.Logger) error {
 	// 确保目录存在
 	certDir := filepath.Dir(binding.Paths.Certificate)
-	if err := os.MkdirAll(certDir, 0700); err != nil {
+	if err := util.EnsureDir(certDir, 0700); err != nil {
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 

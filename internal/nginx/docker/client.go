@@ -380,6 +380,7 @@ func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath strin
 
 // isValidContainerPath 验证容器内路径是否安全
 // 拒绝包含命令注入字符的路径
+// 注意：允许空格，因为使用 exec.Command 直接执行（非 shell），空格不会导致命令注入
 func isValidContainerPath(path string) bool {
 	if path == "" {
 		return false
@@ -396,8 +397,9 @@ func isValidContainerPath(path string) bool {
 	if strings.Contains(path, "..") {
 		return false
 	}
-	// 检查危险字符（包括空格，可能导致命令解析问题）
-	dangerousChars := []string{" ", ";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "\t", "'", "\"", "\\", "*", "?", "[", "]"}
+	// 检查危险字符（不包括空格，因为使用 exec.Command 而非 shell）
+	// 这些字符在 shell 中有特殊含义，可能导致命令注入
+	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
 	for _, char := range dangerousChars {
 		if strings.Contains(path, char) {
 			return false

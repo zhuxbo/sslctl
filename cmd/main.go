@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,11 +24,11 @@ import (
 	"github.com/zhuxbo/sslctl/cmd/setup"
 	// 空白导入以触发 webserver 工厂注册
 	_ "github.com/zhuxbo/sslctl/internal"
-	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/logger"
 	"github.com/zhuxbo/sslctl/pkg/service"
+	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
 var (
@@ -233,7 +232,7 @@ func runStatus() {
 	fmt.Printf("系统: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
 	// 2. Web 服务器检测
-	serverType := detectWebServer()
+	serverType := webserver.DetectWebServerType()
 	if serverType != "" {
 		fmt.Printf("Web 服务器: %s\n", serverType)
 	} else {
@@ -669,23 +668,4 @@ func runUninstall(args []string) {
 		cfg := service.DefaultConfig()
 		fmt.Printf("配置文件保留在 %s，使用 --purge 可删除\n", cfg.WorkDir)
 	}
-}
-
-// detectWebServer 检测 Web 服务类型
-func detectWebServer() string {
-	// 优先检测 nginx
-	if _, err := exec.LookPath("nginx"); err == nil {
-		if _, err := nginxScanner.DetectNginx(); err == nil {
-			return "nginx"
-		}
-	}
-
-	// 检测 apache
-	for _, cmd := range []string{"apache2ctl", "apachectl", "httpd"} {
-		if _, err := exec.LookPath(cmd); err == nil {
-			return "apache"
-		}
-	}
-
-	return ""
 }

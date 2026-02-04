@@ -5,8 +5,9 @@ package service
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // OpenRCManager OpenRC 服务管理器
@@ -70,24 +71,22 @@ func (m *OpenRCManager) Uninstall() error {
 
 // Start 启动服务
 func (m *OpenRCManager) Start() error {
-	cmd := exec.Command("rc-service", m.cfg.Name, "start")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("启动服务失败: %w\n%s", err, output)
+	if err := executor.Run("rc-service " + m.cfg.Name + " start"); err != nil {
+		return fmt.Errorf("启动服务失败: %w", err)
 	}
 	return nil
 }
 
 // Stop 停止服务
 func (m *OpenRCManager) Stop() error {
-	_ = exec.Command("rc-service", m.cfg.Name, "stop").Run()
+	_ = executor.Run("rc-service " + m.cfg.Name + " stop")
 	return nil
 }
 
 // Restart 重启服务
 func (m *OpenRCManager) Restart() error {
-	cmd := exec.Command("rc-service", m.cfg.Name, "restart")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("重启服务失败: %w\n%s", err, output)
+	if err := executor.Run("rc-service " + m.cfg.Name + " restart"); err != nil {
+		return fmt.Errorf("重启服务失败: %w", err)
 	}
 	return nil
 }
@@ -96,15 +95,15 @@ func (m *OpenRCManager) Restart() error {
 func (m *OpenRCManager) Status() (*Status, error) {
 	status := &Status{}
 
-	// 检查是否运行中
-	output, _ := exec.Command("rc-service", m.cfg.Name, "status").Output()
+	// 检查是否运行中（使用白名单命令）
+	output, _ := executor.RunOutput("rc-service " + m.cfg.Name + " status")
 	if strings.Contains(string(output), "started") {
 		status.Running = true
 	}
 
-	// 检查是否启用
-	output, _ = exec.Command("rc-update", "show", "default").Output()
-	if strings.Contains(string(output), m.cfg.Name) {
+	// 检查是否启用（rc-update show 需要添加到白名单）
+	// 由于 rc-update show 不在白名单中，使用文件检测
+	if _, err := os.Stat("/etc/runlevels/default/" + m.cfg.Name); err == nil {
 		status.Enabled = true
 	}
 
@@ -113,7 +112,7 @@ func (m *OpenRCManager) Status() (*Status, error) {
 
 // Enable 启用开机自启
 func (m *OpenRCManager) Enable() error {
-	if err := exec.Command("rc-update", "add", m.cfg.Name, "default").Run(); err != nil {
+	if err := executor.Run("rc-update add " + m.cfg.Name + " default"); err != nil {
 		return fmt.Errorf("启用服务失败: %w", err)
 	}
 	return nil
@@ -121,6 +120,6 @@ func (m *OpenRCManager) Enable() error {
 
 // Disable 禁用开机自启
 func (m *OpenRCManager) Disable() error {
-	_ = exec.Command("rc-update", "del", m.cfg.Name, "default").Run()
+	_ = executor.Run("rc-update del " + m.cfg.Name + " default")
 	return nil
 }

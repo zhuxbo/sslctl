@@ -1566,3 +1566,95 @@ func TestConfigManager_GetSiteBinding_DeepCopy(t *testing.T) {
 		t.Error("Docker 配置应该是深拷贝")
 	}
 }
+
+// TestDeepCopyCompleteness 测试深拷贝完整性
+// 此测试验证 copyConfig 函数正确处理了所有引用类型字段
+// 如果添加了新的引用类型字段但未更新 copyConfig，此测试将失败
+func TestDeepCopyCompleteness(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	// 创建包含所有引用类型字段的完整配置
+	originalCert := &CertConfig{
+		CertName:  "deep-copy-test",
+		OrderID:   999,
+		Enabled:   true,
+		RenewMode: RenewModeLocal,
+		Domains:   []string{"domain1.com", "domain2.com", "domain3.com"},
+		Bindings: []SiteBinding{
+			{
+				SiteName:   "binding1.com",
+				ServerType: ServerTypeNginx,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/path/to/cert1.pem",
+					PrivateKey:  "/path/to/key1.pem",
+				},
+			},
+			{
+				SiteName:   "binding2.com",
+				ServerType: ServerTypeDockerNginx,
+				Enabled:    true,
+				Paths: BindingPaths{
+					Certificate: "/path/to/cert2.pem",
+					PrivateKey:  "/path/to/key2.pem",
+				},
+				Docker: &DockerInfo{
+					ContainerName: "original-container",
+					DeployMode:    "volume",
+				},
+			},
+		},
+	}
+
+	if err := cm.AddCert(originalCert); err != nil {
+		t.Fatalf("AddCert() error = %v", err)
+	}
+
+	// 加载配置并进行修改
+	cfg1, _ := cm.Load()
+	if len(cfg1.Certificates) == 0 {
+		t.Fatal("配置为空")
+	}
+
+	// 修改所有引用类型字段
+	cfg1.Certificates[0].Domains[0] = "modified-domain.com"
+	cfg1.Certificates[0].Domains = append(cfg1.Certificates[0].Domains, "new-domain.com")
+	cfg1.Certificates[0].Bindings[0].SiteName = "modified-binding.com"
+	cfg1.Certificates[0].Bindings = append(cfg1.Certificates[0].Bindings, SiteBinding{SiteName: "new-binding.com"})
+	cfg1.Certificates[0].Bindings[1].Docker.ContainerName = "modified-container"
+	cfg1.Certificates = append(cfg1.Certificates, CertConfig{CertName: "new-cert"})
+
+	// 再次加载配置，验证所有原始值未被影响
+	cfg2, _ := cm.Load()
+
+	// 验证 Certificates slice 独立
+	if len(cfg2.Certificates) != 1 {
+		t.Errorf("Certificates 长度 = %d, 期望 1（原始值）", len(cfg2.Certificates))
+	}
+
+	// 验证 Domains slice 独立
+	if cfg2.Certificates[0].Domains[0] != "domain1.com" {
+		t.Errorf("Domains[0] = %s, 期望 domain1.com", cfg2.Certificates[0].Domains[0])
+	}
+	if len(cfg2.Certificates[0].Domains) != 3 {
+		t.Errorf("Domains 长度 = %d, 期望 3", len(cfg2.Certificates[0].Domains))
+	}
+
+	// 验证 Bindings slice 独立
+	if len(cfg2.Certificates[0].Bindings) != 2 {
+		t.Errorf("Bindings 长度 = %d, 期望 2", len(cfg2.Certificates[0].Bindings))
+	}
+	if cfg2.Certificates[0].Bindings[0].SiteName != "binding1.com" {
+		t.Errorf("Bindings[0].SiteName = %s, 期望 binding1.com", cfg2.Certificates[0].Bindings[0].SiteName)
+	}
+
+	// 验证 Docker 指针独立
+	if cfg2.Certificates[0].Bindings[1].Docker == nil {
+		t.Fatal("Docker 配置不应为 nil")
+	}
+	if cfg2.Certificates[0].Bindings[1].Docker.ContainerName != "original-container" {
+		t.Errorf("Docker.ContainerName = %s, 期望 original-container",
+			cfg2.Certificates[0].Bindings[1].Docker.ContainerName)
+	}
+}

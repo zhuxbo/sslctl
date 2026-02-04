@@ -4,10 +4,10 @@ package certops
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/errors"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
@@ -116,16 +116,16 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 	// 验证证书与私钥
 	v := validator.New("")
 	if _, err := v.ValidateCert(certData.Cert); err != nil {
-		return fmt.Errorf("证书验证失败: %w", err)
+		return errors.NewStructuredDeployError(errors.DeployErrorValidation, errors.PhaseValidate, "证书验证失败", err)
 	}
 	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
-		return fmt.Errorf("私钥不匹配: %w", err)
+		return errors.NewStructuredDeployError(errors.DeployErrorValidation, errors.PhaseValidate, "私钥不匹配", err)
 	}
 
 	// 确保目录存在
 	certDir := filepath.Dir(binding.Paths.Certificate)
-	if err := os.MkdirAll(certDir, 0700); err != nil {
-		return fmt.Errorf("创建证书目录失败: %w", err)
+	if err := util.EnsureDir(certDir, 0700); err != nil {
+		return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseWriteCert, "创建证书目录失败", err)
 	}
 
 	// 1. 备份现有证书（如果存在）
@@ -150,7 +150,7 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		binding.Reload.ReloadCommand,
 	)
 	if err != nil {
-		return fmt.Errorf("创建部署器失败: %w", err)
+		return errors.NewStructuredDeployError(errors.DeployErrorConfig, errors.PhaseWriteCert, "创建部署器失败", err)
 	}
 	deployErr := deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
 
@@ -160,37 +160,22 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		if rollbackErr := s.rollbackFromBackup(binding, backupPath); rollbackErr != nil {
 			s.log.Error("回滚失败: %v", rollbackErr)
 			// 返回复合错误，让调用方知道回滚也失败了（这是更严重的情况）
-			return fmt.Errorf("部署失败且回滚失败（服务可能不可用）: deploy=%w, rollback=%v", deployErr, rollbackErr)
+			return errors.NewStructuredDeployError(errors.DeployErrorUnknown, errors.PhaseRollback,
+				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v", deployErr, rollbackErr), nil)
 		}
 		s.log.Info("已回滚到备份: %s", backupPath)
-		return fmt.Errorf("部署失败（已回滚）: %w", deployErr)
+		return errors.NewStructuredDeployError(errors.DeployErrorReload, errors.PhaseReload, "部署失败（已回滚）", deployErr)
 	}
 
 	return deployErr
 }
 
 // rollbackFromBackup 从备份回滚证书
+// 直接调用 Deployer.Rollback()，包含完整回滚逻辑（文件恢复 + 测试 + 重载）
 func (s *Service) rollbackFromBackup(binding *config.SiteBinding, backupPath string) error {
 	certPath, keyPath, chainPath := s.backupMgr.GetBackupPathsWithChain(backupPath)
 
-	// 恢复证书文件
-	if err := util.CopyFile(certPath, binding.Paths.Certificate); err != nil {
-		return fmt.Errorf("恢复证书失败: %w", err)
-	}
-
-	// 恢复私钥文件
-	if err := util.CopyFile(keyPath, binding.Paths.PrivateKey); err != nil {
-		return fmt.Errorf("恢复私钥失败: %w", err)
-	}
-
-	// 恢复证书链文件（如果有）
-	if binding.Paths.ChainFile != "" && util.FileExists(chainPath) {
-		if err := util.CopyFile(chainPath, binding.Paths.ChainFile); err != nil {
-			s.log.Warn("恢复证书链失败: %v", err)
-		}
-	}
-
-	// 重载服务（使用 webserver 抽象层）
+	// 使用 webserver 抽象层创建部署器
 	deployer, err := webserver.NewDeployer(
 		webserver.ServerType(binding.ServerType),
 		binding.Paths.Certificate,
@@ -200,9 +185,14 @@ func (s *Service) rollbackFromBackup(binding *config.SiteBinding, backupPath str
 		binding.Reload.ReloadCommand,
 	)
 	if err != nil {
-		return fmt.Errorf("创建部署器失败: %w", err)
+		return errors.NewStructuredDeployError(errors.DeployErrorConfig, errors.PhaseRollback, "创建部署器失败", err)
 	}
-	return deployer.Reload()
+
+	// 直接调用 Deployer.Rollback，包含完整回滚逻辑
+	if err := deployer.Rollback(certPath, keyPath, chainPath); err != nil {
+		return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseRollback, "回滚失败", err)
+	}
+	return nil
 }
 
 // pickKeyPath 选择一个可用的私钥路径（优先启用的绑定）

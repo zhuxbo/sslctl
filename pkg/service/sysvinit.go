@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // SysVinitManager SysVinit 服务管理器
@@ -152,6 +154,11 @@ func (m *SysVinitManager) Uninstall() error {
 
 // Start 启动服务
 func (m *SysVinitManager) Start() error {
+	// 优先使用 service 命令（通过 executor 白名单）
+	if err := executor.Run("service " + m.cfg.Name + " start"); err == nil {
+		return nil
+	}
+	// 回退到直接调用脚本（脚本是自己创建的，相对安全）
 	cmd := exec.Command(m.servicePath(), "start")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("启动服务失败: %w\n%s", err, output)
@@ -161,12 +168,20 @@ func (m *SysVinitManager) Start() error {
 
 // Stop 停止服务
 func (m *SysVinitManager) Stop() error {
+	// 优先使用 service 命令
+	if executor.Run("service "+m.cfg.Name+" stop") == nil {
+		return nil
+	}
 	_ = exec.Command(m.servicePath(), "stop").Run()
 	return nil
 }
 
 // Restart 重启服务
 func (m *SysVinitManager) Restart() error {
+	// 优先使用 service 命令
+	if err := executor.Run("service " + m.cfg.Name + " restart"); err == nil {
+		return nil
+	}
 	cmd := exec.Command(m.servicePath(), "restart")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("重启服务失败: %w\n%s", err, output)
@@ -178,14 +193,15 @@ func (m *SysVinitManager) Restart() error {
 func (m *SysVinitManager) Status() (*Status, error) {
 	status := &Status{}
 
-	// 检查是否运行中
-	if exec.Command(m.servicePath(), "status").Run() == nil {
+	// 检查是否运行中（优先使用 service 命令）
+	if executor.Run("service "+m.cfg.Name+" status") == nil {
+		status.Running = true
+	} else if exec.Command(m.servicePath(), "status").Run() == nil {
 		status.Running = true
 	}
 
-	// 检查是否启用 (Debian/Ubuntu)
+	// 检查是否启用 (Debian/Ubuntu) - 通过文件检测
 	if _, err := exec.LookPath("update-rc.d"); err == nil {
-		// 检查 /etc/rc2.d 中是否有启动链接
 		links, _ := os.ReadDir("/etc/rc2.d")
 		for _, link := range links {
 			if strings.HasPrefix(link.Name(), "S") && strings.Contains(link.Name(), m.cfg.Name) {
@@ -208,20 +224,18 @@ func (m *SysVinitManager) Status() (*Status, error) {
 
 // Enable 启用开机自启
 func (m *SysVinitManager) Enable() error {
-	// Debian/Ubuntu
+	// Debian/Ubuntu - 使用 executor 白名单
 	if _, err := exec.LookPath("update-rc.d"); err == nil {
-		if err := exec.Command("update-rc.d", m.cfg.Name, "defaults").Run(); err != nil {
+		if err := executor.Run("update-rc.d " + m.cfg.Name + " defaults"); err != nil {
 			return fmt.Errorf("启用服务失败: %w", err)
 		}
 		return nil
 	}
 
-	// CentOS/RHEL
+	// CentOS/RHEL - 使用 executor 白名单
 	if _, err := exec.LookPath("chkconfig"); err == nil {
-		if err := exec.Command("chkconfig", "--add", m.cfg.Name).Run(); err != nil {
-			return fmt.Errorf("启用服务失败: %w", err)
-		}
-		if err := exec.Command("chkconfig", m.cfg.Name, "on").Run(); err != nil {
+		// chkconfig --add 不在白名单，使用 chkconfig on
+		if err := executor.Run("chkconfig " + m.cfg.Name + " on"); err != nil {
 			return fmt.Errorf("启用服务失败: %w", err)
 		}
 		return nil
@@ -232,16 +246,15 @@ func (m *SysVinitManager) Enable() error {
 
 // Disable 禁用开机自启
 func (m *SysVinitManager) Disable() error {
-	// Debian/Ubuntu
+	// Debian/Ubuntu - 使用 executor 白名单
 	if _, err := exec.LookPath("update-rc.d"); err == nil {
-		_ = exec.Command("update-rc.d", "-f", m.cfg.Name, "remove").Run()
+		_ = executor.Run("update-rc.d -f " + m.cfg.Name + " remove")
 		return nil
 	}
 
-	// CentOS/RHEL
+	// CentOS/RHEL - 使用 executor 白名单
 	if _, err := exec.LookPath("chkconfig"); err == nil {
-		_ = exec.Command("chkconfig", m.cfg.Name, "off").Run()
-		_ = exec.Command("chkconfig", "--del", m.cfg.Name).Run()
+		_ = executor.Run("chkconfig " + m.cfg.Name + " off")
 		return nil
 	}
 

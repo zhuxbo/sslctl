@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // DetectLocalServer 检测本地 Web 服务器类型
@@ -23,8 +25,31 @@ func DetectLocalServer() ServerType {
 	return TypeUnknown
 }
 
+// DetectWebServerType 检测 Web 服务器类型并返回字符串（"nginx"、"apache" 或 ""）
+// 优先检测 Nginx，因为它更常用
+func DetectWebServerType() string {
+	serverType := DetectLocalServer()
+	switch serverType {
+	case TypeNginx:
+		return "nginx"
+	case TypeApache:
+		return "apache"
+	default:
+		return ""
+	}
+}
+
 // DetectDockerServer 检测 Docker 中的 Web 服务器类型
+// 注意：此函数使用 exec.Command 而非 executor，因为 docker exec 命令需要动态容器 ID，
+// 无法放入静态白名单。安全性由 exec.Command 直接执行（非 shell）保证，避免命令注入。
 func DetectDockerServer(containerID string) ServerType {
+	// 验证容器 ID 格式（仅允许字母数字和部分特殊字符）
+	for _, c := range containerID {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+			return TypeUnknown
+		}
+	}
+
 	// 尝试检测 Nginx
 	cmd := exec.Command("docker", "exec", containerID, "nginx", "-v")
 	if cmd.Run() == nil {
@@ -93,16 +118,17 @@ func isApacheInstalled() bool {
 
 // GetNginxConfigPath 获取 Nginx 配置文件路径
 func GetNginxConfigPath() string {
-	// 尝试从 nginx -t 输出获取
-	cmd := exec.Command("nginx", "-t")
-	output, _ := cmd.CombinedOutput()
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "configuration file") {
-			parts := strings.Split(line, " ")
-			for _, part := range parts {
-				if strings.HasSuffix(part, ".conf") {
-					return strings.TrimSpace(part)
+	// 尝试从 nginx -t 输出获取（使用 executor 白名单）
+	output, err := executor.RunOutput("nginx -t")
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "configuration file") {
+				parts := strings.Split(line, " ")
+				for _, part := range parts {
+					if strings.HasSuffix(part, ".conf") {
+						return strings.TrimSpace(part)
+					}
 				}
 			}
 		}

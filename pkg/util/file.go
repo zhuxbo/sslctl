@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // AtomicWrite 原子写入文件
@@ -104,7 +105,7 @@ func SafeReadFile(path string, maxSize int64) ([]byte, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	// 通过文件描述符再次验证（防止 TOCTOU）
+	// 通过文件描述符再次验证（防止 TOCTOU）- 使用 inode 比较
 	fdInfo, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file descriptor: %w", err)
@@ -113,8 +114,25 @@ func SafeReadFile(path string, maxSize int64) ([]byte, error) {
 		return nil, fmt.Errorf("file changed to non-regular (TOCTOU detected)")
 	}
 
+	// 使用 inode 比较（比 Size/ModTime 更可靠）
+	if !sameInode(info, fdInfo) {
+		return nil, fmt.Errorf("file changed between check and open (TOCTOU detected)")
+	}
+
 	// 读取文件内容
 	return io.ReadAll(file)
+}
+
+// sameInode 比较两个 FileInfo 是否指向同一个 inode
+// 在 Unix 系统上使用 Dev 和 Ino 比较，比 Size/ModTime 更可靠
+func sameInode(info1, info2 os.FileInfo) bool {
+	stat1, ok1 := info1.Sys().(*syscall.Stat_t)
+	stat2, ok2 := info2.Sys().(*syscall.Stat_t)
+	if !ok1 || !ok2 {
+		// 非 Unix 系统回退到 Size/ModTime 比较
+		return info1.Size() == info2.Size() && info1.ModTime() == info2.ModTime()
+	}
+	return stat1.Dev == stat2.Dev && stat1.Ino == stat2.Ino
 }
 
 // EnsureDir 确保目录存在

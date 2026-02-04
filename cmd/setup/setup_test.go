@@ -10,6 +10,7 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/matcher"
+	"github.com/zhuxbo/sslctl/pkg/webserver"
 	"github.com/zhuxbo/sslctl/testdata/certs"
 )
 
@@ -196,7 +197,7 @@ func TestDeployCert_Nginx(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = deployCert(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err = deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}
@@ -238,7 +239,7 @@ func TestDeployCert_Apache(t *testing.T) {
 		IntermediateCert: intermediateCert.CertPEM,
 	}
 
-	err := deployCert(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err := deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}
@@ -274,7 +275,7 @@ func TestDeployCert_CreateDirectory(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployCert(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err := deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}
@@ -288,7 +289,7 @@ func TestDeployCert_CreateDirectory(t *testing.T) {
 // TestDetectWebServer 测试 Web 服务器检测
 func TestDetectWebServer(t *testing.T) {
 	// 这个测试依赖系统环境，只验证函数不会 panic
-	serverType := detectWebServer()
+	serverType := webserver.DetectWebServerType()
 	t.Logf("检测到的 Web 服务器: %s", serverType)
 
 	// 验证返回值是有效的类型
@@ -302,7 +303,7 @@ func TestDetectWebServer(t *testing.T) {
 	}
 
 	if !found {
-		t.Errorf("detectWebServer() = %s, 不是有效类型", serverType)
+		t.Errorf("DetectWebServerType() = %s, 不是有效类型", serverType)
 	}
 }
 

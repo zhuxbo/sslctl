@@ -3,7 +3,6 @@ package deployer
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
@@ -38,13 +37,13 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 	fullchain := cert + "\n" + intermediate
 
 	// 2. 确保证书与私钥目录存在（统一使用 0700 权限保护敏感文件）
-	if err := os.MkdirAll(filepath.Dir(d.certPath), 0700); err != nil {
+	if err := util.EnsureDir(filepath.Dir(d.certPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
 		)
 	}
-	if err := os.MkdirAll(filepath.Dir(d.keyPath), 0700); err != nil {
+	if err := util.EnsureDir(filepath.Dir(d.keyPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteKey,
 			fmt.Sprintf("failed to create key directory: %s", filepath.Dir(d.keyPath)), err,

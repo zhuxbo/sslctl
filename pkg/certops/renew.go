@@ -12,6 +12,7 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/csr"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
@@ -139,7 +140,7 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 		}
 		// 使用安全读取函数，防止符号链接攻击和 TOCTOU
 		const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-		keyData, err := safeReadKeyFile(keyPath, maxKeySize)
+		keyData, err := util.SafeReadFile(keyPath, maxKeySize)
 		if err != nil {
 			return nil, "", fmt.Errorf("读取本地私钥失败: %w", err)
 		}
@@ -205,7 +206,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			if err != nil {
 				// 回退到正式私钥，使用安全读取函数
 				const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-				keyData, readErr := safeReadKeyFile(keyPath, maxKeySize)
+				keyData, readErr := util.SafeReadFile(keyPath, maxKeySize)
 				if readErr != nil {
 					return nil, "", fmt.Errorf("读取私钥失败: %w", readErr)
 				}
@@ -341,7 +342,7 @@ func getPendingKeyPath(workDir, certName string) string {
 func savePendingKey(workDir, certName, keyPEM string) error {
 	pendingPath := getPendingKeyPath(workDir, certName)
 	pendingDir := filepath.Dir(pendingPath)
-	if err := os.MkdirAll(pendingDir, 0700); err != nil {
+	if err := util.EnsureDir(pendingDir, 0700); err != nil {
 		return err
 	}
 	return os.WriteFile(pendingPath, []byte(keyPEM), 0600)
@@ -369,7 +370,7 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 
 	// 确保目标目录存在
 	targetDir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(targetDir, 0700); err != nil {
+	if err := util.EnsureDir(targetDir, 0700); err != nil {
 		return fmt.Errorf("创建目标目录失败: %w (pending 私钥保留在: %s，请手动恢复)", err, pendingRelPath)
 	}
 	// 移动文件
@@ -413,44 +414,3 @@ func cleanupPendingKey(workDir, certName string) error {
 	return firstErr
 }
 
-// safeReadKeyFile 安全读取私钥文件
-// 防止符号链接攻击和 TOCTOU，用于读取敏感的私钥文件
-func safeReadKeyFile(path string, maxSize int64) ([]byte, error) {
-	// 先检查是否为符号链接（Lstat 不跟随符号链接）
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to lstat file: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("symbolic links not allowed for private key")
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("not a regular file")
-	}
-	if info.Size() > maxSize {
-		return nil, fmt.Errorf("file too large: %d > %d", info.Size(), maxSize)
-	}
-
-	// 打开文件并再次检查 inode，防止 TOCTOU
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	finfo, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	// 比较 inode（通过 size 和 modtime 近似，Go 标准库不直接暴露 inode）
-	if finfo.Size() != info.Size() || finfo.ModTime() != info.ModTime() {
-		return nil, fmt.Errorf("file changed between check and open (TOCTOU detected)")
-	}
-
-	data := make([]byte, finfo.Size())
-	n, err := f.Read(data)
-	if err != nil {
-		return nil, err
-	}
-	return data[:n], nil
-}

@@ -89,7 +89,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			if !cert.Enabled {
 				continue
 			}
-			if err := deployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
+			if err := fetchAndDeployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
 				log.Error("部署证书 %s 失败: %v", cert.CertName, err)
 			}
 		}
@@ -100,7 +100,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			fmt.Fprintf(os.Stderr, "证书不存在: %s\n", *certName)
 			os.Exit(1)
 		}
-		if err := deployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
+		if err := fetchAndDeployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
 			fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -109,8 +109,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 	fmt.Println("部署完成")
 }
 
-// deployCert 部署单个证书
-func deployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, api config.APIConfig, f *fetcher.Fetcher, log *logger.Logger) error {
+// fetchAndDeployCert 从 API 获取并部署单个证书到所有绑定
+func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, api config.APIConfig, f *fetcher.Fetcher, log *logger.Logger) error {
 	fmt.Printf("部署证书: %s\n", cert.CertName)
 
 	// 查询证书
@@ -186,7 +186,7 @@ func deployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *con
 func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, log *logger.Logger) error {
 	// 确保目录存在
 	certDir := filepath.Dir(binding.Paths.Certificate)
-	if err := os.MkdirAll(certDir, 0700); err != nil {
+	if err := util.EnsureDir(certDir, 0700); err != nil {
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 

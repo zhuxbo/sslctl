@@ -3,7 +3,6 @@ package deployer
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
@@ -37,20 +36,20 @@ func NewApacheDeployer(certPath, keyPath, chainPath, testCmd, reloadCmd string) 
 // key: 私钥
 func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 	// 1. 确保目录存在（统一使用 0700 权限保护敏感文件）
-	if err := os.MkdirAll(filepath.Dir(d.certPath), 0700); err != nil {
+	if err := util.EnsureDir(filepath.Dir(d.certPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
 		)
 	}
-	if err := os.MkdirAll(filepath.Dir(d.keyPath), 0700); err != nil {
+	if err := util.EnsureDir(filepath.Dir(d.keyPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteKey,
 			fmt.Sprintf("failed to create key directory: %s", filepath.Dir(d.keyPath)), err,
 		)
 	}
 	if d.chainPath != "" {
-		if err := os.MkdirAll(filepath.Dir(d.chainPath), 0700); err != nil {
+		if err := util.EnsureDir(filepath.Dir(d.chainPath), 0700); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorPermission, errors.PhaseWriteChain,
 				fmt.Sprintf("failed to create chain directory: %s", filepath.Dir(d.chainPath)), err,
