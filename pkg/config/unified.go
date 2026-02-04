@@ -258,11 +258,17 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 }
 
 // Reload 重新加载配置
+// 注意：在持有锁时完成重新加载，避免竞态条件
 func (cm *ConfigManager) Reload() (*Config, error) {
 	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	cm.config = nil
-	cm.mu.Unlock()
-	return cm.Load()
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	return cm.copyConfig(cfg), nil
 }
 
 // GetCert 获取指定证书配置

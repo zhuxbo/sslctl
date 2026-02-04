@@ -36,8 +36,8 @@ func NewApacheDeployer(certPath, keyPath, chainPath, testCmd, reloadCmd string) 
 // intermediate: 中间证书
 // key: 私钥
 func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
-	// 1. 确保目录存在
-	if err := os.MkdirAll(filepath.Dir(d.certPath), 0755); err != nil {
+	// 1. 确保目录存在（统一使用 0700 权限保护敏感文件）
+	if err := os.MkdirAll(filepath.Dir(d.certPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
@@ -50,7 +50,7 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 		)
 	}
 	if d.chainPath != "" {
-		if err := os.MkdirAll(filepath.Dir(d.chainPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(d.chainPath), 0700); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorPermission, errors.PhaseWriteChain,
 				fmt.Sprintf("failed to create chain directory: %s", filepath.Dir(d.chainPath)), err,

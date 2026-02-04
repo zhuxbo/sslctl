@@ -111,87 +111,6 @@ func TestScannedSite_DockerSite(t *testing.T) {
 	}
 }
 
-// TestToScannedSite_AllFields 测试类型转换
-func TestToScannedSite_AllFields(t *testing.T) {
-	configSite := &config.ScannedSite{
-		ID:              "full.example.com",
-		Name:            "Full Site",
-		Source:          "local",
-		ContainerID:     "",
-		ContainerName:   "",
-		ConfigFile:      "/etc/nginx/conf.d/full.conf",
-		ServerName:      "full.example.com",
-		ServerAlias:     []string{"www.full.example.com"},
-		ListenPorts:     []string{"443 ssl"},
-		CertificatePath: "/etc/ssl/full.crt",
-		PrivateKeyPath:  "/etc/ssl/full.key",
-		HostCertPath:    "",
-		HostKeyPath:     "",
-		VolumeMode:      false,
-	}
-
-	result := toScannedSite(configSite)
-
-	if result.ID != configSite.ID {
-		t.Errorf("ID = %s, 期望 %s", result.ID, configSite.ID)
-	}
-	if result.Name != configSite.Name {
-		t.Errorf("Name = %s, 期望 %s", result.Name, configSite.Name)
-	}
-	if result.Source != configSite.Source {
-		t.Errorf("Source = %s, 期望 %s", result.Source, configSite.Source)
-	}
-	if result.ConfigFile != configSite.ConfigFile {
-		t.Errorf("ConfigFile = %s, 期望 %s", result.ConfigFile, configSite.ConfigFile)
-	}
-	if result.ServerName != configSite.ServerName {
-		t.Errorf("ServerName = %s, 期望 %s", result.ServerName, configSite.ServerName)
-	}
-	if len(result.ServerAlias) != len(configSite.ServerAlias) {
-		t.Errorf("ServerAlias 长度 = %d, 期望 %d", len(result.ServerAlias), len(configSite.ServerAlias))
-	}
-	if len(result.ListenPorts) != len(configSite.ListenPorts) {
-		t.Errorf("ListenPorts 长度 = %d, 期望 %d", len(result.ListenPorts), len(configSite.ListenPorts))
-	}
-	if result.CertificatePath != configSite.CertificatePath {
-		t.Errorf("CertificatePath = %s, 期望 %s", result.CertificatePath, configSite.CertificatePath)
-	}
-	if result.PrivateKeyPath != configSite.PrivateKeyPath {
-		t.Errorf("PrivateKeyPath = %s, 期望 %s", result.PrivateKeyPath, configSite.PrivateKeyPath)
-	}
-}
-
-// TestToScannedSite_DockerFields 测试 Docker 站点字段转换
-func TestToScannedSite_DockerFields(t *testing.T) {
-	configSite := &config.ScannedSite{
-		ID:            "docker.example.com",
-		Name:          "Docker Site",
-		Source:        "docker",
-		ContainerID:   "container-123",
-		ContainerName: "nginx-container",
-		HostCertPath:  "/host/path/cert.pem",
-		HostKeyPath:   "/host/path/key.pem",
-		VolumeMode:    true,
-	}
-
-	result := toScannedSite(configSite)
-
-	if result.ContainerID != configSite.ContainerID {
-		t.Errorf("ContainerID = %s, 期望 %s", result.ContainerID, configSite.ContainerID)
-	}
-	if result.ContainerName != configSite.ContainerName {
-		t.Errorf("ContainerName = %s, 期望 %s", result.ContainerName, configSite.ContainerName)
-	}
-	if result.HostCertPath != configSite.HostCertPath {
-		t.Errorf("HostCertPath = %s, 期望 %s", result.HostCertPath, configSite.HostCertPath)
-	}
-	if result.HostKeyPath != configSite.HostKeyPath {
-		t.Errorf("HostKeyPath = %s, 期望 %s", result.HostKeyPath, configSite.HostKeyPath)
-	}
-	if result.VolumeMode != configSite.VolumeMode {
-		t.Errorf("VolumeMode = %v, 期望 %v", result.VolumeMode, configSite.VolumeMode)
-	}
-}
 
 // TestScanService_Creation 测试扫描服务创建
 func TestScanService_Creation(t *testing.T) {
@@ -519,18 +438,6 @@ func TestScanResult_TimeFormat(t *testing.T) {
 	}
 }
 
-// TestToScannedSite_EmptyInput 测试空输入转换
-func TestToScannedSite_EmptyInput(t *testing.T) {
-	configSite := &config.ScannedSite{}
-	result := toScannedSite(configSite)
-
-	if result.ID != "" {
-		t.Error("空输入转换后 ID 应为空")
-	}
-	if result.Source != "" {
-		t.Error("空输入转换后 Source 应为空")
-	}
-}
 
 // TestScanOptions_AllServerTypes 测试所有服务器类型选项
 func TestScanOptions_AllServerTypes(t *testing.T) {

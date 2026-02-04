@@ -74,6 +74,35 @@ var AllowedCommands = map[string]bool{
 	"ps -C nginx -o pid=": true, // 查找 nginx 进程
 	"ss -tlnp":            true, // 查看监听端口
 	"netstat -tlnp":       true, // 查看监听端口（备用）
+
+	// ========== sslctl 服务管理命令 ==========
+	// Linux - systemd
+	"systemctl daemon-reload":     true,
+	"systemctl start sslctl":      true,
+	"systemctl stop sslctl":       true,
+	"systemctl restart sslctl":    true,
+	"systemctl enable sslctl":     true,
+	"systemctl disable sslctl":    true,
+	"systemctl is-enabled sslctl": true,
+	"systemctl is-active sslctl":  true,
+	// Linux - SysVinit
+	"service sslctl start":   true,
+	"service sslctl stop":    true,
+	"service sslctl restart": true,
+	"service sslctl status":  true,
+	"chkconfig sslctl on":    true,
+	"chkconfig sslctl off":   true,
+	"update-rc.d sslctl defaults":  true,
+	"update-rc.d sslctl enable":    true,
+	"update-rc.d sslctl disable":   true,
+	"update-rc.d -f sslctl remove": true,
+	// Linux - OpenRC
+	"rc-service sslctl start":   true,
+	"rc-service sslctl stop":    true,
+	"rc-service sslctl restart": true,
+	"rc-service sslctl status":  true,
+	"rc-update add sslctl default": true,
+	"rc-update del sslctl default": true,
 }
 
 // AllowedScanExecutables 扫描器允许的可执行文件（用于动态路径）

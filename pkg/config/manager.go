@@ -95,22 +95,22 @@ func (m *Manager) ensureDirs() error {
 }
 
 // LoadSite 加载站点配置
+// 重要：返回配置的深拷贝副本，对返回值的修改不会影响内部缓存。
 func (m *Manager) LoadSite(siteName string) (*SiteConfig, error) {
 	m.mu.RLock()
 	configPath := m.getSiteConfigPath(siteName)
-	m.mu.RUnlock()
 
-	// 读取缓存
+	// 读取缓存（返回深拷贝）
 	if m.cacheTTL > 0 {
-		m.mu.RLock()
 		if sc, ok := m.cache[siteName]; ok {
 			if time.Since(m.cacheTime[siteName]) < m.cacheTTL {
+				configCopy := m.copySiteConfig(sc)
 				m.mu.RUnlock()
-				return sc, nil
+				return configCopy, nil
 			}
 		}
-		m.mu.RUnlock()
 	}
+	m.mu.RUnlock()
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -127,19 +127,36 @@ func (m *Manager) LoadSite(siteName string) (*SiteConfig, error) {
 		return nil, err
 	}
 
-	// 写入缓存
+	// 写入缓存（缓存独立副本）
 	if m.cacheTTL > 0 {
 		m.mu.Lock()
 		if m.cache == nil {
 			m.cache = make(map[string]*SiteConfig)
 			m.cacheTime = make(map[string]time.Time)
 		}
-		m.cache[siteName] = &config
+		cacheCopy := m.copySiteConfig(&config)
+		m.cache[siteName] = cacheCopy
 		m.cacheTime[siteName] = time.Now()
 		m.mu.Unlock()
 	}
 
-	return &config, nil
+	// 返回独立副本
+	returnCopy := m.copySiteConfig(&config)
+	return returnCopy, nil
+}
+
+// copySiteConfig 创建站点配置的深拷贝
+func (m *Manager) copySiteConfig(src *SiteConfig) *SiteConfig {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	// 深拷贝切片
+	if src.Domains != nil {
+		dst.Domains = make([]string, len(src.Domains))
+		copy(dst.Domains, src.Domains)
+	}
+	return &dst
 }
 
 // SaveSite 保存站点配置

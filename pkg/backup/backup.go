@@ -107,7 +107,9 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 	// 使用哈希校验比时间戳更可靠（不受文件系统精度影响，无法被 touch 欺骗）
 	newCertHash, err := computeFileHash(certPath)
 	if err != nil || newCertHash != certHash {
-		_ = os.RemoveAll(backupPath)
+		if rmErr := os.RemoveAll(backupPath); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "[BACKUP WARN] 清理损坏的备份失败 %s: %v\n", backupPath, rmErr)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("certificate file changed during backup: %w", err)
 		}
@@ -115,7 +117,9 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 	}
 	newKeyHash, err := computeFileHash(keyPath)
 	if err != nil || newKeyHash != keyHash {
-		_ = os.RemoveAll(backupPath)
+		if rmErr := os.RemoveAll(backupPath); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "[BACKUP WARN] 清理损坏的备份失败 %s: %v\n", backupPath, rmErr)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("private key file changed during backup: %w", err)
 		}
@@ -141,7 +145,9 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 				newChainHash, err := computeFileHash(actualChainPath)
 				if err != nil || newChainHash != chainHash {
 					// chain 文件已被修改，删除备份的 chain 文件
-					_ = os.Remove(backupChainPath)
+					if rmErr := os.Remove(backupChainPath); rmErr != nil {
+						fmt.Fprintf(os.Stderr, "[BACKUP WARN] 清理损坏的 chain 备份失败 %s: %v\n", backupChainPath, rmErr)
+					}
 					actualChainPath = ""
 				}
 			}

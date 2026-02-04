@@ -23,6 +23,8 @@ import (
 	"github.com/zhuxbo/sslctl/cmd/daemon"
 	"github.com/zhuxbo/sslctl/cmd/deploy"
 	"github.com/zhuxbo/sslctl/cmd/setup"
+	// 空白导入以触发 webserver 工厂注册
+	_ "github.com/zhuxbo/sslctl/internal"
 	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"

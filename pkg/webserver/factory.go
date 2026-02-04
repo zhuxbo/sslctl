@@ -1,135 +1,84 @@
 // Package webserver Web 服务器工厂
+// 使用注册机制避免 pkg 依赖 internal
 package webserver
 
 import (
 	"fmt"
-
-	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
-	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
-	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
+	"sync"
 )
+
+var (
+	scannerRegistry  = make(map[ServerType]ScannerFactory)
+	deployerRegistry = make(map[ServerType]DeployerFactory)
+	registryMu       sync.RWMutex
+)
+
+// RegisterScanner 注册扫描器工厂（由 internal 包在 init 时调用）
+func RegisterScanner(serverType ServerType, factory ScannerFactory) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	scannerRegistry[serverType] = factory
+}
+
+// RegisterDeployer 注册部署器工厂（由 internal 包在 init 时调用）
+func RegisterDeployer(serverType ServerType, factory DeployerFactory) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	deployerRegistry[serverType] = factory
+}
 
 // NewScanner 创建扫描器
 func NewScanner(serverType ServerType) (Scanner, error) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+
+	// 统一处理 Docker 变体
+	baseType := serverType
 	switch serverType {
-	case TypeNginx, TypeDockerNginx:
-		return &nginxScannerWrapper{scanner: nginxScanner.New()}, nil
-	case TypeApache, TypeDockerApache:
-		// TODO: 实现 Apache 扫描器
-		return nil, fmt.Errorf("apache scanner not implemented yet")
-	default:
-		return nil, fmt.Errorf("unknown server type: %s", serverType)
+	case TypeDockerNginx:
+		baseType = TypeNginx
+	case TypeDockerApache:
+		baseType = TypeApache
 	}
+
+	factory, ok := scannerRegistry[baseType]
+	if !ok {
+		return nil, fmt.Errorf("scanner not registered for type: %s", serverType)
+	}
+	return factory(), nil
 }
 
 // NewDeployer 创建部署器
 func NewDeployer(serverType ServerType, certPath, keyPath, chainPath, testCmd, reloadCmd string) (Deployer, error) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+
+	// 统一处理 Docker 变体
+	baseType := serverType
 	switch serverType {
-	case TypeNginx, TypeDockerNginx:
-		return &nginxDeployerWrapper{
-			deployer: nginxDeployer.NewNginxDeployer(certPath, keyPath, testCmd, reloadCmd),
-		}, nil
-	case TypeApache, TypeDockerApache:
-		return &apacheDeployerWrapper{
-			deployer: apacheDeployer.NewApacheDeployer(certPath, keyPath, chainPath, testCmd, reloadCmd),
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown server type: %s", serverType)
-	}
-}
-
-// nginxScannerWrapper Nginx 扫描器包装器
-type nginxScannerWrapper struct {
-	scanner *nginxScanner.Scanner
-}
-
-func (w *nginxScannerWrapper) Scan() ([]Site, error) {
-	// 统一扫描入口：先扫描本地，再扫描 Docker
-	localSites, err := w.ScanLocal()
-	if err != nil {
-		return nil, err
+	case TypeDockerNginx:
+		baseType = TypeNginx
+	case TypeDockerApache:
+		baseType = TypeApache
 	}
 
-	dockerSites, err := w.ScanDocker()
-	if err != nil {
-		// Docker 扫描失败不影响本地结果
-		return localSites, nil
+	factory, ok := deployerRegistry[baseType]
+	if !ok {
+		return nil, fmt.Errorf("deployer not registered for type: %s", serverType)
 	}
-
-	return append(localSites, dockerSites...), nil
+	return factory(certPath, keyPath, chainPath, testCmd, reloadCmd), nil
 }
 
-func (w *nginxScannerWrapper) ScanLocal() ([]Site, error) {
-	// 使用 ScanAll 获取所有站点
-	sites, err := w.scanner.ScanAll()
-	if err != nil {
-		return nil, err
+// ListRegisteredTypes 列出已注册的服务器类型（用于调试）
+func ListRegisteredTypes() (scanners []ServerType, deployers []ServerType) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+
+	for t := range scannerRegistry {
+		scanners = append(scanners, t)
 	}
-
-	var result []Site
-	for _, s := range sites {
-		result = append(result, Site{
-			Name:            s.ServerName,
-			ServerName:      s.ServerName,
-			ServerAlias:     s.ServerAlias,
-			ConfigFile:      s.ConfigFile,
-			ListenPorts:     s.ListenPorts,
-			CertificatePath: s.CertificatePath,
-			PrivateKeyPath:  s.PrivateKeyPath,
-			ServerType:      TypeNginx,
-		})
+	for t := range deployerRegistry {
+		deployers = append(deployers, t)
 	}
-	return result, nil
-}
-
-func (w *nginxScannerWrapper) ScanDocker() ([]Site, error) {
-	// Docker 扫描暂不支持
-	return nil, nil
-}
-
-func (w *nginxScannerWrapper) ServerType() ServerType {
-	return TypeNginx
-}
-
-// nginxDeployerWrapper Nginx 部署器包装器
-type nginxDeployerWrapper struct {
-	deployer *nginxDeployer.NginxDeployer
-}
-
-func (w *nginxDeployerWrapper) Deploy(cert, chain, key string) error {
-	return w.deployer.Deploy(cert, chain, key)
-}
-
-func (w *nginxDeployerWrapper) Reload() error {
-	return w.deployer.Reload()
-}
-
-func (w *nginxDeployerWrapper) Test() error {
-	return w.deployer.Test()
-}
-
-func (w *nginxDeployerWrapper) Rollback(backupCertPath, backupKeyPath, _ string) error {
-	// Nginx 不需要 chainPath，忽略第三个参数
-	return w.deployer.Rollback(backupCertPath, backupKeyPath)
-}
-
-// apacheDeployerWrapper Apache 部署器包装器
-type apacheDeployerWrapper struct {
-	deployer *apacheDeployer.ApacheDeployer
-}
-
-func (w *apacheDeployerWrapper) Deploy(cert, chain, key string) error {
-	return w.deployer.Deploy(cert, chain, key)
-}
-
-func (w *apacheDeployerWrapper) Reload() error {
-	return w.deployer.Reload()
-}
-
-func (w *apacheDeployerWrapper) Test() error {
-	return w.deployer.Test()
-}
-
-func (w *apacheDeployerWrapper) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error {
-	return w.deployer.Rollback(backupCertPath, backupKeyPath, backupChainPath)
+	return
 }

@@ -20,23 +20,8 @@ type ScanResult struct {
 	Sites       []ScannedSite `json:"sites"`
 }
 
-// ScannedSite 扫描到的站点
-type ScannedSite struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Source          string   `json:"source"` // local | docker
-	ContainerID     string   `json:"container_id,omitempty"`
-	ContainerName   string   `json:"container_name,omitempty"`
-	ConfigFile      string   `json:"config_file"`
-	ServerName      string   `json:"server_name"`
-	ServerAlias     []string `json:"server_alias,omitempty"`
-	ListenPorts     []string `json:"listen_ports"`
-	CertificatePath string   `json:"certificate_path"`
-	PrivateKeyPath  string   `json:"private_key_path"`
-	HostCertPath    string   `json:"host_cert_path,omitempty"`
-	HostKeyPath     string   `json:"host_key_path,omitempty"`
-	VolumeMode      bool     `json:"volume_mode,omitempty"`
-}
+// ScannedSite 扫描到的站点（类型别名，统一使用 config.ScannedSite）
+type ScannedSite = config.ScannedSite
 
 // DeployOptions 部署选项
 type DeployOptions struct {
@@ -67,22 +52,3 @@ type RenewResult struct {
 	DeployCount int
 }
 
-// toScannedSite 将 config.ScannedSite 转换为 certops.ScannedSite
-func toScannedSite(s *config.ScannedSite) ScannedSite {
-	return ScannedSite{
-		ID:              s.ID,
-		Name:            s.Name,
-		Source:          s.Source,
-		ContainerID:     s.ContainerID,
-		ContainerName:   s.ContainerName,
-		ConfigFile:      s.ConfigFile,
-		ServerName:      s.ServerName,
-		ServerAlias:     s.ServerAlias,
-		ListenPorts:     s.ListenPorts,
-		CertificatePath: s.CertificatePath,
-		PrivateKeyPath:  s.PrivateKeyPath,
-		HostCertPath:    s.HostCertPath,
-		HostKeyPath:     s.HostKeyPath,
-		VolumeMode:      s.VolumeMode,
-	}
-}

@@ -137,7 +137,9 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 		if keyPath == "" {
 			return nil, "", fmt.Errorf("missing local private key path")
 		}
-		keyData, err := os.ReadFile(keyPath)
+		// 使用安全读取函数，防止符号链接攻击和 TOCTOU
+		const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
+		keyData, err := safeReadKeyFile(keyPath, maxKeySize)
 		if err != nil {
 			return nil, "", fmt.Errorf("读取本地私钥失败: %w", err)
 		}
@@ -171,7 +173,9 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			s.log.Warn("证书 %s CSR 已提交超过 %s，尝试重新提交", cert.CertName, csrPendingTimeout)
 			// 注意：不在这里递增 IssueRetryCount，后面生成新 CSR 时会递增
 			cert.Metadata.LastIssueState = ""
-			cleanupPendingKey(workDir, cert.CertName)
+			if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
+				s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
+			}
 			if err := s.cfgManager.UpdateCert(cert); err != nil {
 				s.log.Warn("更新证书元数据失败: %v", err)
 			}
@@ -189,7 +193,9 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 				// 注意：不在这里递增 IssueRetryCount，下次生成新 CSR 时会递增
 				// 清空状态，下次检查将进入生成新 CSR 分支
 				cert.Metadata.LastIssueState = ""
-				cleanupPendingKey(workDir, cert.CertName)
+				if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
+					s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
+				}
 				_ = s.cfgManager.UpdateCert(cert)
 				return nil, "", nil
 			}
@@ -197,10 +203,11 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			// 签发成功，尝试读取待确认私钥
 			privateKey, err := readPendingKey(workDir, cert.CertName)
 			if err != nil {
-				// 回退到正式私钥
-				keyData, err := os.ReadFile(keyPath)
-				if err != nil {
-					return nil, "", fmt.Errorf("读取私钥失败: %w", err)
+				// 回退到正式私钥，使用安全读取函数
+				const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
+				keyData, readErr := safeReadKeyFile(keyPath, maxKeySize)
+				if readErr != nil {
+					return nil, "", fmt.Errorf("读取私钥失败: %w", readErr)
 				}
 				privateKey = string(keyData)
 			} else {
@@ -239,14 +246,18 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	if err := s.cfgManager.UpdateCert(cert); err != nil {
 		// 持久化失败时回滚内存中的计数，避免不一致
 		cert.Metadata.IssueRetryCount--
-		cleanupPendingKey(workDir, cert.CertName)
+		if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
+			s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
+		}
 		return nil, "", fmt.Errorf("持久化重试计数失败: %w", err)
 	}
 
 	certData, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), "")
 	if err != nil {
 		// 提交失败，清理待确认私钥（重试计数已持久化，下次重试会使用）
-		cleanupPendingKey(workDir, cert.CertName)
+		if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
+			s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
+		}
 		return nil, "", fmt.Errorf("提交 CSR 失败: %w", err)
 	}
 
@@ -389,9 +400,57 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 	return nil
 }
 
-// cleanupPendingKey 清理待确认私钥
-func cleanupPendingKey(workDir, certName string) {
+// cleanupPendingKey 清理待确认私钥，返回清理过程中遇到的第一个错误
+func cleanupPendingKey(workDir, certName string) error {
 	pendingPath := getPendingKeyPath(workDir, certName)
-	_ = os.Remove(pendingPath)
-	_ = os.Remove(filepath.Dir(pendingPath))
+	var firstErr error
+	if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
+		firstErr = err
+	}
+	if err := os.Remove(filepath.Dir(pendingPath)); err != nil && !os.IsNotExist(err) && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
+// safeReadKeyFile 安全读取私钥文件
+// 防止符号链接攻击和 TOCTOU，用于读取敏感的私钥文件
+func safeReadKeyFile(path string, maxSize int64) ([]byte, error) {
+	// 先检查是否为符号链接（Lstat 不跟随符号链接）
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lstat file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symbolic links not allowed for private key")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	if info.Size() > maxSize {
+		return nil, fmt.Errorf("file too large: %d > %d", info.Size(), maxSize)
+	}
+
+	// 打开文件并再次检查 inode，防止 TOCTOU
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	finfo, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	// 比较 inode（通过 size 和 modtime 近似，Go 标准库不直接暴露 inode）
+	if finfo.Size() != info.Size() || finfo.ModTime() != info.ModTime() {
+		return nil, fmt.Errorf("file changed between check and open (TOCTOU detected)")
+	}
+
+	data := make([]byte, finfo.Size())
+	n, err := f.Read(data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
 }

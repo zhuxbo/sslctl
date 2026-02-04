@@ -270,6 +270,14 @@ func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 				changes <- c.CurrentStatus
 			case svc.Stop, svc.Shutdown:
 				changes <- svc.Status{State: svc.StopPending}
+				// 等待 handler 完成（最多 30 秒），避免 goroutine 泄漏
+				// handler 内部会响应 SIGINT/SIGTERM 信号
+				select {
+				case <-done:
+					// handler 已完成
+				case <-time.After(30 * time.Second):
+					// 超时，强制退出
+				}
 				return
 			}
 		}

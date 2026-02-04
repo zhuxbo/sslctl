@@ -54,3 +54,10 @@ type Deployer interface {
 	// chainPath 可选，用于 Apache；Nginx 可忽略该参数
 	Rollback(backupCertPath, backupKeyPath, backupChainPath string) error
 }
+
+// ScannerFactory 扫描器工厂函数类型
+type ScannerFactory func() Scanner
+
+// DeployerFactory 部署器工厂函数类型
+// 参数：certPath, keyPath, chainPath, testCmd, reloadCmd
+type DeployerFactory func(certPath, keyPath, chainPath, testCmd, reloadCmd string) Deployer

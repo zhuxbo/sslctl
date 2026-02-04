@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 )
+
+// serviceNameRegex 服务名格式校验正则：只允许字母、数字、连字符、下划线
+var serviceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // InitSystem init 系统类型
 type InitSystem string
@@ -113,6 +117,14 @@ func Detect() InitSystem {
 func New(cfg *ServiceConfig) (Manager, error) {
 	if cfg == nil {
 		cfg = DefaultConfig()
+	}
+
+	// 服务名格式校验（防御深度：防止命令注入）
+	if !serviceNameRegex.MatchString(cfg.Name) {
+		return nil, fmt.Errorf("服务名格式无效（只允许字母、数字、连字符、下划线）: %s", cfg.Name)
+	}
+	if len(cfg.Name) > 64 {
+		return nil, fmt.Errorf("服务名过长（最大 64 字符）: %d", len(cfg.Name))
 	}
 
 	initSys := Detect()

@@ -43,7 +43,9 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		if keyPath == "" {
 			return nil, fmt.Errorf("缺少私钥路径")
 		}
-		keyData, err := os.ReadFile(keyPath)
+		// 使用安全读取函数，防止符号链接攻击和 TOCTOU
+		const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
+		keyData, err := util.SafeReadFile(keyPath, maxKeySize)
 		if err != nil {
 			return nil, fmt.Errorf("读取本地私钥失败: %w", err)
 		}

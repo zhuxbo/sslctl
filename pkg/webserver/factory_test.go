@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+// init 注册测试用的 mock 工厂函数
+func init() {
+	// 注册 Nginx 扫描器
+	RegisterScanner(TypeNginx, func() Scanner {
+		return &mockScanner{serverType: TypeNginx}
+	})
+
+	// 注册 Nginx 部署器
+	RegisterDeployer(TypeNginx, func(certPath, keyPath, chainPath, testCmd, reloadCmd string) Deployer {
+		return &mockDeployer{}
+	})
+
+	// 注册 Apache 部署器
+	RegisterDeployer(TypeApache, func(certPath, keyPath, chainPath, testCmd, reloadCmd string) Deployer {
+		return &mockDeployer{}
+	})
+}
+
+// mockScanner 测试用 mock 扫描器
+type mockScanner struct {
+	serverType ServerType
+}
+
+func (m *mockScanner) Scan() ([]Site, error)      { return nil, nil }
+func (m *mockScanner) ScanLocal() ([]Site, error) { return nil, nil }
+func (m *mockScanner) ScanDocker() ([]Site, error) { return nil, nil }
+func (m *mockScanner) ServerType() ServerType     { return m.serverType }
+
+// mockDeployer 测试用 mock 部署器
+type mockDeployer struct{}
+
+func (m *mockDeployer) Deploy(cert, chain, key string) error                           { return nil }
+func (m *mockDeployer) Reload() error                                                  { return nil }
+func (m *mockDeployer) Test() error                                                    { return nil }
+func (m *mockDeployer) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error { return nil }
+
 // TestNewScanner_Nginx 测试创建 Nginx 扫描器
 func TestNewScanner_Nginx(t *testing.T) {
 	scanner, err := NewScanner(TypeNginx)

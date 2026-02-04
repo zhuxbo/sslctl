@@ -384,16 +384,24 @@ func isValidContainerPath(path string) bool {
 	if path == "" {
 		return false
 	}
-	// 检查危险字符
-	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
-	for _, char := range dangerousChars {
-		if strings.Contains(path, char) {
-			return false
-		}
+	// 长度限制：防止缓冲区溢出和异常路径
+	if len(path) > 4096 {
+		return false
 	}
 	// 路径必须是绝对路径
 	if !strings.HasPrefix(path, "/") {
 		return false
+	}
+	// 检查路径穿越
+	if strings.Contains(path, "..") {
+		return false
+	}
+	// 检查危险字符（包括空格，可能导致命令解析问题）
+	dangerousChars := []string{" ", ";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "\t", "'", "\"", "\\", "*", "?", "[", "]"}
+	for _, char := range dangerousChars {
+		if strings.Contains(path, char) {
+			return false
+		}
 	}
 	return true
 }

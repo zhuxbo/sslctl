@@ -188,7 +188,10 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 
 	// 写入文件
 	if l.file != nil {
-		_, _ = l.file.WriteString(logLine)
+		if _, err := l.file.WriteString(logLine); err != nil {
+			// 降级到 stderr 输出，确保日志不丢失
+			fmt.Fprintf(os.Stderr, "[LOG WRITE ERROR] %v: %s", err, logLine)
+		}
 	}
 
 	// 同时输出到控制台
@@ -293,6 +296,9 @@ func (l *Logger) cleanOldLogs() {
 
 	// 删除超出保留数量的旧文件
 	for i := MaxLogBackups; i < len(fileInfos); i++ {
-		_ = os.Remove(fileInfos[i].path)
+		if err := os.Remove(fileInfos[i].path); err != nil {
+			// 记录清理失败，避免磁盘空间泄漏被忽视
+			fmt.Fprintf(os.Stderr, "[LOG CLEANUP ERROR] 清理旧日志失败 %s: %v\n", fileInfos[i].path, err)
+		}
 	}
 }

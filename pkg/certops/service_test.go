@@ -152,32 +152,3 @@ func TestPickKeyPath(t *testing.T) {
 	}
 }
 
-// TestToScannedSite 测试站点类型转换
-func TestToScannedSite(t *testing.T) {
-	configSite := &config.ScannedSite{
-		ID:              "example.com",
-		Name:            "Example Site",
-		Source:          "local",
-		ConfigFile:      "/etc/nginx/sites-enabled/example.conf",
-		ServerName:      "example.com",
-		ServerAlias:     []string{"www.example.com"},
-		ListenPorts:     []string{"443 ssl"},
-		CertificatePath: "/etc/ssl/cert.pem",
-		PrivateKeyPath:  "/etc/ssl/key.pem",
-	}
-
-	result := toScannedSite(configSite)
-
-	if result.ID != configSite.ID {
-		t.Errorf("ID = %s, 期望 %s", result.ID, configSite.ID)
-	}
-	if result.ServerName != configSite.ServerName {
-		t.Errorf("ServerName = %s, 期望 %s", result.ServerName, configSite.ServerName)
-	}
-	if result.Source != configSite.Source {
-		t.Errorf("Source = %s, 期望 %s", result.Source, configSite.Source)
-	}
-	if len(result.ServerAlias) != len(configSite.ServerAlias) {
-		t.Errorf("ServerAlias 长度 = %d, 期望 %d", len(result.ServerAlias), len(configSite.ServerAlias))
-	}
-}

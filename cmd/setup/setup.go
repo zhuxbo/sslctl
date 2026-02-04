@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
 	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
-	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
 	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
 	"github.com/zhuxbo/sslctl/pkg/matcher"
 	"github.com/zhuxbo/sslctl/pkg/service"
+	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
+	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
 // Run 运行 setup 命令
@@ -196,7 +196,9 @@ func Run(args []string, version, buildTime string, debug bool) {
 		// 本地私钥模式：尝试从第一个绑定的私钥路径读取
 		keyPath := bindings[0].Paths.PrivateKey
 		if keyPath != "" {
-			keyData, err := os.ReadFile(keyPath)
+			// 使用安全读取函数，防止符号链接攻击和 TOCTOU
+			const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
+			keyData, err := util.SafeReadFile(keyPath, maxKeySize)
 			if err == nil {
 				privateKey = string(keyData)
 				fmt.Printf("  使用本地私钥: %s\n", keyPath)
@@ -409,24 +411,20 @@ func deployCert(ctx context.Context, binding *config.SiteBinding, certData *fetc
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 
-	if binding.ServerType == config.ServerTypeNginx || binding.ServerType == config.ServerTypeDockerNginx {
-		d := nginxDeployer.NewNginxDeployer(
-			binding.Paths.Certificate,
-			binding.Paths.PrivateKey,
-			binding.Reload.TestCommand,
-			binding.Reload.ReloadCommand,
-		)
-		return d.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
-	}
-
-	d := apacheDeployer.NewApacheDeployer(
+	// 使用 webserver 抽象层创建部署器
+	deployer, err := webserver.NewDeployer(
+		webserver.ServerType(binding.ServerType),
 		binding.Paths.Certificate,
 		binding.Paths.PrivateKey,
 		binding.Paths.ChainFile,
 		binding.Reload.TestCommand,
 		binding.Reload.ReloadCommand,
 	)
-	return d.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
+	if err != nil {
+		return fmt.Errorf("创建部署器失败: %w", err)
+	}
+
+	return deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
 }
 
 // installService 安装守护服务
