@@ -28,8 +28,20 @@ func AtomicWrite(path string, content []byte, perm os.FileMode) error {
 	return nil
 }
 
-// CopyFile 复制文件
+// CopyFile 复制文件（带符号链接保护）
 func CopyFile(src, dst string) error {
+	// 先检查源文件是否为符号链接（Lstat 不跟随符号链接）
+	srcLstat, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to lstat source file: %w", err)
+	}
+	if srcLstat.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source is a symbolic link, not allowed for security")
+	}
+	if !srcLstat.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file")
+	}
+
 	// 打开源文件
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -37,10 +49,13 @@ func CopyFile(src, dst string) error {
 	}
 	defer func() { _ = srcFile.Close() }()
 
-	// 获取源文件信息
+	// 通过文件描述符再次验证（防止 TOCTOU）
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source changed to non-regular file (TOCTOU detected)")
 	}
 
 	// 创建目标文件
@@ -62,6 +77,44 @@ func CopyFile(src, dst string) error {
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// SafeReadFile 安全读取文件（带符号链接和 TOCTOU 保护）
+// 用于读取敏感文件（如证书、私钥），拒绝符号链接以防止路径劫持
+func SafeReadFile(path string, maxSize int64) ([]byte, error) {
+	// 先检查是否为符号链接（Lstat 不跟随符号链接）
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lstat file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symbolic links not allowed for security")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	if maxSize > 0 && info.Size() > maxSize {
+		return nil, fmt.Errorf("file too large (max %d bytes)", maxSize)
+	}
+
+	// 打开文件
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// 通过文件描述符再次验证（防止 TOCTOU）
+	fdInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file descriptor: %w", err)
+	}
+	if !fdInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("file changed to non-regular (TOCTOU detected)")
+	}
+
+	// 读取文件内容
+	return io.ReadAll(file)
 }
 
 // EnsureDir 确保目录存在

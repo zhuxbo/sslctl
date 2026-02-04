@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
+
+// tokenFormatRegex Token 格式正则：允许字母、数字、连字符、下划线、点
+var tokenFormatRegex = regexp.MustCompile(`^[A-Za-z0-9\-_\.]+$`)
 
 // ConfigManager 统一配置管理器
 type ConfigManager struct {
@@ -98,6 +102,14 @@ func (cm *ConfigManager) Load() (*Config, error) {
 }
 
 // copyConfig 创建配置的深拷贝
+//
+// 重要：并发安全保证
+// 此函数确保返回的配置对象与内部缓存完全独立，调用方可以安全修改返回值。
+//
+// 维护注意事项：
+// - 如果向 CertConfig 或 SiteBinding 添加新的引用类型字段（map、slice、指针），
+//   必须在此函数中添加对应的深拷贝逻辑，否则会破坏并发安全保证！
+// - 当前已处理的引用类型：Certificates(slice)、Bindings(slice)、Domains(slice)、Docker(*DockerInfo)
 func (cm *ConfigManager) copyConfig(src *Config) *Config {
 	if src == nil {
 		return nil
@@ -161,14 +173,14 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	// 环境变量优先级高于配置文件（带完整校验）
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
-		// Token 基本校验：长度合理（至少 8 字符，不超过 512 字符）
-		if len(envToken) >= 8 && len(envToken) <= 512 {
+		// Token 完整校验：长度 + 格式
+		if err := validateToken(envToken); err != nil {
+			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIToken, err)
+		} else {
 			if cm.config.API.Token != "" && cm.config.API.Token != envToken {
 				log.Printf("[config] API Token 被环境变量覆盖")
 			}
 			cm.config.API.Token = envToken
-		} else {
-			log.Printf("[config] 环境变量 %s 值长度无效（需 8-512 字符），忽略", EnvAPIToken)
 		}
 	}
 	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
@@ -196,8 +208,11 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 
 // saveLocked 保存配置（调用者需持有锁）
 // 注意：文件锁在所有操作之前获取，确保原子性和一致性
+// 使用 flock 机制，多个进程可以同时打开锁文件，但只有一个能获得排他锁
 func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	// 1. 先获取文件锁，防止并发写入和 TOCTOU 攻击
+	// 注意：这里使用 flock 而非 O_EXCL，因为 flock 是基于文件描述符的锁
+	// 多个进程可以同时打开同一个锁文件，但只有一个能成功获得 flock
 	lockPath := cm.configPath + ".lock"
 	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
@@ -429,65 +444,21 @@ func defaultSchedule() ScheduleConfig {
 }
 
 // validateAPIURL 校验 API URL 是否有效（包含 SSRF 防护）
-// 仅 localhost/127.0.0.1 允许 HTTP，其他必须使用 HTTPS
+// 委托给 validator.ValidateAPIURL 实现，避免代码重复
 func validateAPIURL(apiURL string) error {
-	u, err := url.Parse(apiURL)
-	if err != nil {
-		return fmt.Errorf("invalid API URL: %w", err)
-	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("API URL must use HTTP or HTTPS, got: %s", u.Scheme)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("API URL must have a valid host")
-	}
-
-	host := u.Hostname()
-	isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1"
-
-	// HTTP 仅允许 localhost
-	if u.Scheme == "http" && !isLocal {
-		return fmt.Errorf("HTTP only allowed for localhost, use HTTPS for remote servers")
-	}
-
-	// SSRF 防护：检查是否为内网 IP 或云元数据地址
-	if !isLocal {
-		if err := checkSSRF(host); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return validator.ValidateAPIURL(apiURL)
 }
 
-// checkSSRF 检查 SSRF 风险
-func checkSSRF(host string) error {
-	// 解析 IP 地址
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		// DNS 解析失败，拒绝请求以防止 DNS rebinding 攻击
-		return fmt.Errorf("DNS lookup failed for %s: %w", host, err)
+// validateToken 校验 Token 格式
+func validateToken(token string) error {
+	// 长度校验：8-512 字符
+	if len(token) < 8 || len(token) > 512 {
+		return fmt.Errorf("token length must be 8-512 characters, got %d", len(token))
 	}
-
-	for _, ip := range ips {
-		// 检查回环地址
-		if ip.IsLoopback() {
-			return fmt.Errorf("loopback address not allowed: %s", ip)
-		}
-		// 检查内网 IP (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-		if ip.IsPrivate() {
-			return fmt.Errorf("private IP not allowed: %s", ip)
-		}
-		// 检查链路本地地址 (169.254.0.0/16)
-		if ip.IsLinkLocalUnicast() {
-			return fmt.Errorf("link-local address not allowed: %s", ip)
-		}
-		// 检查云元数据地址 (169.254.169.254)
-		if ip.String() == "169.254.169.254" {
-			return fmt.Errorf("cloud metadata endpoint not allowed")
-		}
+	// 格式校验：只允许安全字符（防止注入）
+	if !tokenFormatRegex.MatchString(token) {
+		return fmt.Errorf("token contains invalid characters (allowed: A-Za-z0-9-_.)")
 	}
-
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -68,15 +69,50 @@ func Run(args []string, version, buildTime string, debug bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// 用于等待正在运行的任务完成
+	var wg sync.WaitGroup
+	taskRunning := make(chan struct{}, 1) // 防止任务重叠
+
 	// 启动时立即检查一次
-	checkAndDeploy(ctx, svc, log)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		checkAndDeploy(ctx, svc, log)
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
-			checkAndDeploy(ctx, svc, log)
+			// 检查是否有任务正在运行，防止重叠
+			select {
+			case taskRunning <- struct{}{}:
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer func() { <-taskRunning }()
+					checkAndDeploy(ctx, svc, log)
+				}()
+			default:
+				log.Debug("上一次检查任务仍在运行，跳过本次检查")
+			}
 		case sig := <-sigCh:
-			log.Info("收到信号 %v，正在退出", sig)
+			log.Info("收到信号 %v，正在退出...", sig)
+			// 取消 context，通知正在运行的任务停止
+			cancel()
+
+			// 等待任务完成（最多等待 30 秒）
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				log.Info("所有任务已完成，退出")
+			case <-time.After(30 * time.Second):
+				log.Warn("等待任务完成超时，强制退出")
+			}
 			return
 		}
 	}

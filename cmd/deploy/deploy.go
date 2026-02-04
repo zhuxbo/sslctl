@@ -15,6 +15,7 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
@@ -267,23 +268,16 @@ func runLocal(args []string, debug bool) {
 		log.SetLevel(logger.LevelDebug)
 	}
 
-	// 验证并读取证书文件
-	if err := validateFilePath(*certFile); err != nil {
-		fmt.Fprintf(os.Stderr, "证书文件路径无效: %v\n", err)
-		os.Exit(1)
-	}
-	certData, err := os.ReadFile(*certFile)
+	// 验证并读取证书文件（使用 SafeReadFile 防止 TOCTOU 攻击）
+	const maxCertFileSize = 1 << 20 // 1MB
+	certData, err := util.SafeReadFile(*certFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取证书文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 验证并读取私钥文件
-	if err := validateFilePath(*keyFile); err != nil {
-		fmt.Fprintf(os.Stderr, "私钥文件路径无效: %v\n", err)
-		os.Exit(1)
-	}
-	keyData, err := os.ReadFile(*keyFile)
+	keyData, err := util.SafeReadFile(*keyFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取私钥文件失败: %v\n", err)
 		os.Exit(1)
@@ -292,11 +286,7 @@ func runLocal(args []string, debug bool) {
 	// 读取 CA 证书文件（可选）
 	var caData string
 	if *caFile != "" {
-		if err := validateFilePath(*caFile); err != nil {
-			fmt.Fprintf(os.Stderr, "CA 证书文件路径无效: %v\n", err)
-			os.Exit(1)
-		}
-		ca, err := os.ReadFile(*caFile)
+		ca, err := util.SafeReadFile(*caFile, maxCertFileSize)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取 CA 证书文件失败: %v\n", err)
 			os.Exit(1)
@@ -399,9 +389,8 @@ func getSiteBindingForLocal(cfgManager *config.ConfigManager, siteName string) (
 	return buildBindingFromScanResult(site, cfgManager), nil
 }
 
-// validateFilePath 验证文件路径安全性
-// - 必须是常规文件（非目录、设备、符号链接等）
-// - 不能包含路径遍历序列
+// validateFilePath 验证文件路径安全性（已废弃，使用 util.SafeReadFile 代替）
+// 保留此函数用于兼容，但建议直接使用 SafeReadFile 进行原子性的验证和读取
 func validateFilePath(path string) error {
 	// 检查路径遍历
 	cleanPath := filepath.Clean(path)

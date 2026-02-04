@@ -70,8 +70,26 @@ func (c *Client) IsComposeMode() bool {
 	return c.useCompose
 }
 
+// allowedExecCommands 容器内允许执行的命令白名单
+// 仅允许 Web 服务器相关的测试和重载命令
+var allowedExecCommands = map[string]struct{}{
+	"nginx":     {},
+	"apachectl": {},
+	"apache2":   {},
+	"httpd":     {},
+	"cat":       {}, // 读取配置文件
+	"test":      {}, // 测试文件存在
+	"ls":        {}, // 列出目录
+}
+
 // Exec 在容器内执行命令
+// 注意：命令会经过白名单验证，只允许特定的 Web 服务器相关命令
 func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
+	// 安全校验：验证命令是否在白名单中
+	if err := validateExecCommand(cmd); err != nil {
+		return "", err
+	}
+
 	var execCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {
@@ -91,6 +109,38 @@ func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
 
 	output, err := execCmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
+}
+
+// validateExecCommand 验证命令是否安全
+// 检查命令的可执行文件是否在白名单中，并验证参数不包含危险字符
+func validateExecCommand(cmd string) error {
+	if cmd == "" {
+		return fmt.Errorf("empty command not allowed")
+	}
+
+	// 解析命令，获取可执行文件名
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return fmt.Errorf("invalid command format")
+	}
+
+	// 获取命令名（去除路径）
+	executable := filepath.Base(parts[0])
+
+	// 检查是否在白名单中
+	if _, ok := allowedExecCommands[executable]; !ok {
+		return fmt.Errorf("command not allowed: %s (allowed: nginx, apachectl, apache2, httpd, cat, test, ls)", executable)
+	}
+
+	// 检查整个命令是否包含危险字符（防止命令链接）
+	dangerousPatterns := []string{";", "&&", "||", "|", "`", "$(", "${", "\n", "\r"}
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(cmd, pattern) {
+			return fmt.Errorf("dangerous pattern in command: %s", pattern)
+		}
+	}
+
+	return nil
 }
 
 // CopyToContainer 复制文件到容器

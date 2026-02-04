@@ -37,8 +37,8 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 	// 1. 组合证书 (服务器证书 + 中间证书)
 	fullchain := cert + "\n" + intermediate
 
-	// 2. 确保证书与私钥目录存在
-	if err := os.MkdirAll(filepath.Dir(d.certPath), 0755); err != nil {
+	// 2. 确保证书与私钥目录存在（统一使用 0700 权限保护敏感文件）
+	if err := os.MkdirAll(filepath.Dir(d.certPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,

@@ -121,6 +121,17 @@ docker/test/
 
 开发中发现重要信息时，更新 `skills/` 目录：
 
+## 安全增强（2026-02 审核修复）
+
+- **Docker 命令白名单** - `internal/nginx/docker/client.go` Exec 方法添加命令白名单验证
+- **符号链接防护** - `pkg/util/file.go` CopyFile/SafeReadFile 添加 TOCTOU 保护
+- **守护进程优雅退出** - `cmd/daemon/daemon.go` 正确传播 context 取消，等待任务完成
+- **私钥目录权限统一** - 所有敏感目录统一使用 0700 权限
+- **Token 格式验证** - 环境变量 Token 添加正则格式校验
+- **SSRF 校验统一** - 提取到 `pkg/validator/ssrf.go`，消除重复代码
+- **日志切换容错** - 切换失败时保留旧文件继续写入
+- **回滚错误返回** - 部署失败且回滚失败时返回复合错误
+
 ## 开发规范
 
 详见 `skills/` 目录：

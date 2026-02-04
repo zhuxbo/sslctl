@@ -234,15 +234,21 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("保存待确认私钥失败: %w", err)
 	}
 
+	// CSR 成功提交前先递增并持久化重试计数（确保计数不会丢失）
+	cert.Metadata.IssueRetryCount++
+	if err := s.cfgManager.UpdateCert(cert); err != nil {
+		// 持久化失败时回滚内存中的计数，避免不一致
+		cert.Metadata.IssueRetryCount--
+		cleanupPendingKey(workDir, cert.CertName)
+		return nil, "", fmt.Errorf("持久化重试计数失败: %w", err)
+	}
+
 	certData, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), "")
 	if err != nil {
-		// 提交失败，清理待确认私钥
+		// 提交失败，清理待确认私钥（重试计数已持久化，下次重试会使用）
 		cleanupPendingKey(workDir, cert.CertName)
 		return nil, "", fmt.Errorf("提交 CSR 失败: %w", err)
 	}
-
-	// CSR 成功提交后才递增重试计数（确保失败不会误增计数）
-	cert.Metadata.IssueRetryCount++
 
 	if certData.OrderID > 0 {
 		cert.OrderID = certData.OrderID
@@ -253,7 +259,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	cert.Metadata.LastIssueState = certData.Status
 
 	if certData.Status != "active" || certData.Cert == "" {
-		// 保存元数据变更（包括 IssueRetryCount），确保重试计数持久化
+		// 保存元数据变更（OrderID、CSRSubmittedAt 等）
 		if err := s.cfgManager.UpdateCert(cert); err != nil {
 			s.log.Warn("保存证书元数据失败: %v", err)
 		}
