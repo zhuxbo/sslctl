@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	apacheDeployer "github.com/zhuxbo/cert-deploy/internal/apache/deployer"
-	nginxDeployer "github.com/zhuxbo/cert-deploy/internal/nginx/deployer"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	"github.com/zhuxbo/cert-deploy/pkg/validator"
+	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
 // Run 运行 deploy 命令
@@ -31,9 +31,9 @@ func Run(args []string, version, buildTime string, debug bool) {
 	all := fs.Bool("all", false, "部署所有证书")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy deploy --cert <name>\n")
-		fmt.Fprintf(os.Stderr, "      cert-deploy deploy --all\n")
-		fmt.Fprintf(os.Stderr, "      cert-deploy deploy local --cert <file> --key <file> --site <name>\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl deploy --cert <name>\n")
+		fmt.Fprintf(os.Stderr, "      sslctl deploy --all\n")
+		fmt.Fprintf(os.Stderr, "      sslctl deploy local --cert <file> --key <file> --site <name>\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -222,14 +222,14 @@ func runLocal(args []string, debug bool) {
 	siteName := fs.String("site", "", "目标站点名称")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy deploy local --cert <file> --key <file> --site <name>\n")
-		fmt.Fprintf(os.Stderr, "      cert-deploy deploy local --cert <file> --key <file> --ca <file> --site <name>\n\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl deploy local --cert <file> --key <file> --site <name>\n")
+		fmt.Fprintf(os.Stderr, "      sslctl deploy local --cert <file> --key <file> --ca <file> --site <name>\n\n")
 		fmt.Fprintf(os.Stderr, "从本地文件部署证书到指定站点。\n\n")
 		fmt.Fprintf(os.Stderr, "选项:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n示例:\n")
-		fmt.Fprintf(os.Stderr, "  cert-deploy deploy local --cert cert.pem --key key.pem --site example.com\n")
-		fmt.Fprintf(os.Stderr, "  cert-deploy deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com\n")
+		fmt.Fprintf(os.Stderr, "  sslctl deploy local --cert cert.pem --key key.pem --site example.com\n")
+		fmt.Fprintf(os.Stderr, "  sslctl deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com\n")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -267,14 +267,22 @@ func runLocal(args []string, debug bool) {
 		log.SetLevel(logger.LevelDebug)
 	}
 
-	// 读取证书文件
+	// 验证并读取证书文件
+	if err := validateFilePath(*certFile); err != nil {
+		fmt.Fprintf(os.Stderr, "证书文件路径无效: %v\n", err)
+		os.Exit(1)
+	}
 	certData, err := os.ReadFile(*certFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取证书文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 读取私钥文件
+	// 验证并读取私钥文件
+	if err := validateFilePath(*keyFile); err != nil {
+		fmt.Fprintf(os.Stderr, "私钥文件路径无效: %v\n", err)
+		os.Exit(1)
+	}
 	keyData, err := os.ReadFile(*keyFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取私钥文件失败: %v\n", err)
@@ -284,6 +292,10 @@ func runLocal(args []string, debug bool) {
 	// 读取 CA 证书文件（可选）
 	var caData string
 	if *caFile != "" {
+		if err := validateFilePath(*caFile); err != nil {
+			fmt.Fprintf(os.Stderr, "CA 证书文件路径无效: %v\n", err)
+			os.Exit(1)
+		}
 		ca, err := os.ReadFile(*caFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取 CA 证书文件失败: %v\n", err)
@@ -326,7 +338,7 @@ func runLocal(args []string, debug bool) {
 	binding, err := getSiteBindingForLocal(cfgManager, *siteName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "获取站点配置失败: %v\n", err)
-		fmt.Fprintf(os.Stderr, "提示: 请先运行 'cert-deploy scan' 扫描站点\n")
+		fmt.Fprintf(os.Stderr, "提示: 请先运行 'sslctl scan' 扫描站点\n")
 		os.Exit(1)
 	}
 
@@ -387,19 +399,43 @@ func getSiteBindingForLocal(cfgManager *config.ConfigManager, siteName string) (
 	return buildBindingFromScanResult(site, cfgManager), nil
 }
 
+// validateFilePath 验证文件路径安全性
+// - 必须是常规文件（非目录、设备、符号链接等）
+// - 不能包含路径遍历序列
+func validateFilePath(path string) error {
+	// 检查路径遍历
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("path contains traversal sequence")
+	}
+
+	// 获取文件信息（不跟随符号链接）
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("cannot stat file: %w", err)
+	}
+
+	// 必须是常规文件
+	if !info.Mode().IsRegular() {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic links not allowed for security")
+		}
+		return fmt.Errorf("not a regular file")
+	}
+
+	// 检查文件大小（防止读取超大文件导致内存耗尽）
+	const maxFileSize = 1 << 20 // 1MB，足够容纳证书和私钥
+	if info.Size() > maxFileSize {
+		return fmt.Errorf("file too large (max %d bytes)", maxFileSize)
+	}
+
+	return nil
+}
+
 // buildBindingFromScanResult 从扫描结果构造站点绑定
 func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.ConfigManager) *config.SiteBinding {
-	// 确定服务器类型
-	serverType := config.ServerTypeNginx
-	// 根据配置文件路径判断是 Nginx 还是 Apache
-	if strings.Contains(site.ConfigFile, "apache") || strings.Contains(site.ConfigFile, "httpd") {
-		serverType = config.ServerTypeApache
-		if site.Source == "docker" {
-			serverType = config.ServerTypeDockerApache
-		}
-	} else if site.Source == "docker" {
-		serverType = config.ServerTypeDockerNginx
-	}
+	// 确定服务器类型（多重判断提高准确性）
+	serverType := detectServerType(site)
 
 	// 确定证书路径
 	certPath := site.CertificatePath
@@ -459,4 +495,49 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 	}
 
 	return binding
+}
+
+// detectServerType 检测服务器类型（多重判断提高准确性）
+func detectServerType(site *config.ScannedSite) string {
+	isDocker := site.Source == "docker"
+
+	// 1. 通过配置文件内容特征判断（如果可读）
+	if site.ConfigFile != "" {
+		if content, err := os.ReadFile(site.ConfigFile); err == nil {
+			contentStr := string(content)
+			// Apache 特征指令
+			if strings.Contains(contentStr, "<VirtualHost") ||
+				strings.Contains(contentStr, "SSLCertificateFile") ||
+				strings.Contains(contentStr, "SSLCertificateKeyFile") {
+				if isDocker {
+					return config.ServerTypeDockerApache
+				}
+				return config.ServerTypeApache
+			}
+			// Nginx 特征指令
+			if strings.Contains(contentStr, "server {") ||
+				strings.Contains(contentStr, "ssl_certificate") ||
+				strings.Contains(contentStr, "ssl_certificate_key") {
+				if isDocker {
+					return config.ServerTypeDockerNginx
+				}
+				return config.ServerTypeNginx
+			}
+		}
+	}
+
+	// 2. 回退到路径关键词判断
+	configPath := strings.ToLower(site.ConfigFile)
+	if strings.Contains(configPath, "apache") || strings.Contains(configPath, "httpd") {
+		if isDocker {
+			return config.ServerTypeDockerApache
+		}
+		return config.ServerTypeApache
+	}
+
+	// 3. 默认为 Nginx
+	if isDocker {
+		return config.ServerTypeDockerNginx
+	}
+	return config.ServerTypeNginx
 }

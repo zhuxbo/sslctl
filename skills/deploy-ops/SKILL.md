@@ -16,15 +16,15 @@ irm https://example.com/install.ps1 | iex
 
 ```bash
 # 下载
-wget https://example.com/releases/cert-deploy-linux-amd64.tar.gz
-tar -xzf cert-deploy-linux-amd64.tar.gz
+wget https://example.com/releases/sslctl-linux-amd64.tar.gz
+tar -xzf sslctl-linux-amd64.tar.gz
 
 # 安装
-sudo mv cert-deploy /usr/local/bin/
-sudo chmod +x /usr/local/bin/cert-deploy
+sudo mv sslctl /usr/local/bin/
+sudo chmod +x /usr/local/bin/sslctl
 
 # 创建配置目录
-sudo mkdir -p /opt/cert-deploy/{certs,logs,backup,sites}
+sudo mkdir -p /opt/sslctl/{certs,logs,backup,sites}
 ```
 
 ---
@@ -32,7 +32,7 @@ sudo mkdir -p /opt/cert-deploy/{certs,logs,backup,sites}
 ## 目录结构
 
 ```
-/opt/cert-deploy/
+/opt/sslctl/
 ├── certs/              # 证书存储
 │   └── {domain}/
 │       ├── cert.pem
@@ -42,7 +42,7 @@ sudo mkdir -p /opt/cert-deploy/{certs,logs,backup,sites}
 ├── sites/              # 站点配置
 │   └── {site}.json
 ├── logs/               # 日志文件
-│   ├── cert-deploy.log
+│   ├── sslctl.log
 │   └── debug-{date}.log
 └── backup/             # 证书备份
     └── {domain}/{timestamp}/
@@ -56,23 +56,23 @@ sudo mkdir -p /opt/cert-deploy/{certs,logs,backup,sites}
 
 ```bash
 # 扫描站点
-cert-deploy nginx scan
+sslctl nginx scan
 
 # 部署证书
-cert-deploy nginx deploy --site example.com
+sslctl nginx deploy --site example.com
 
 # Debug 模式
-cert-deploy --debug nginx deploy --site example.com
+sslctl --debug nginx deploy --site example.com
 ```
 
 ### Daemon 模式
 
 ```bash
 # 前台运行
-cert-deploy nginx daemon
+sslctl nginx daemon
 
 # 后台运行（配合 systemd）
-systemctl start cert-deploy
+systemctl start sslctl
 ```
 
 ---
@@ -82,14 +82,14 @@ systemctl start cert-deploy
 ### 服务文件
 
 ```ini
-# /etc/systemd/system/cert-deploy.service
+# /etc/systemd/system/sslctl.service
 [Unit]
 Description=CertDeploy Certificate Management
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/cert-deploy nginx daemon
+ExecStart=/usr/local/bin/sslctl nginx daemon
 Restart=always
 RestartSec=10
 
@@ -102,14 +102,14 @@ WantedBy=multi-user.target
 ```bash
 # 安装服务
 sudo systemctl daemon-reload
-sudo systemctl enable cert-deploy
-sudo systemctl start cert-deploy
+sudo systemctl enable sslctl
+sudo systemctl start sslctl
 
 # 查看状态
-sudo systemctl status cert-deploy
+sudo systemctl status sslctl
 
 # 查看日志
-sudo journalctl -u cert-deploy -f
+sudo journalctl -u sslctl -f
 ```
 
 ---
@@ -127,15 +127,15 @@ sudo journalctl -u cert-deploy -f
 
 ### 日志文件
 
-- 生产模式：`/opt/cert-deploy/logs/cert-deploy.log`
-- Debug 模式：`/opt/cert-deploy/logs/debug-{date}.log`
+- 生产模式：`/opt/sslctl/logs/sslctl.log`
+- Debug 模式：`/opt/sslctl/logs/debug-{date}.log`
 
 ### 日志轮转
 
 建议配置 logrotate：
 
 ```
-/opt/cert-deploy/logs/*.log {
+/opt/sslctl/logs/*.log {
     daily
     rotate 7
     compress
@@ -151,8 +151,8 @@ sudo journalctl -u cert-deploy -f
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `CERT_DEPLOY_DEBUG` | 启用 debug 模式 | 0 |
-| `CERT_DEPLOY_DIR` | 工作目录 | /opt/cert-deploy |
+| `SSLCTL_DEBUG` | 启用 debug 模式 | 0 |
+| `SSLCTL_DIR` | 工作目录 | /opt/sslctl |
 | `LOG_LEVEL` | 日志级别 | info |
 
 ---
@@ -205,7 +205,7 @@ sudo journalctl -u cert-deploy -f
 
 ### 证书状态
 
-| 状态 | 说明 | cert-deploy 处理 |
+| 状态 | 说明 | sslctl 处理 |
 |------|------|-----------------|
 | `active` | 证书就绪 | 直接部署 |
 | `processing` | 验证中 | 放置验证文件，轮询等待 |
@@ -215,7 +215,7 @@ sudo journalctl -u cert-deploy -f
 ### 部署流程
 
 ```
-cert-deploy                    Manager API                    CA
+sslctl                    Manager API                    CA
     │                              │                          │
     │ 1. GET /api/deploy?domain=   │                          │
     │ ────────────────────────────>│                          │
@@ -288,8 +288,8 @@ cert-deploy                    Manager API                    CA
           "server_type": "nginx",
           "enabled": true,
           "paths": {
-            "certificate": "/opt/cert-deploy/certs/www.example.com/cert.pem",
-            "private_key": "/opt/cert-deploy/certs/www.example.com/key.pem"
+            "certificate": "/opt/sslctl/certs/www.example.com/cert.pem",
+            "private_key": "/opt/sslctl/certs/www.example.com/key.pem"
           }
         }
       ]
@@ -346,7 +346,7 @@ cert-deploy                    Manager API                    CA
 
 ```bash
 # 一键部署时启用本地私钥模式
-cert-deploy setup --url <url> --token <token> --order <id> --local-key
+sslctl setup --url <url> --token <token> --order <id> --local-key
 ```
 
 ### 配置文件

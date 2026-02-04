@@ -39,10 +39,10 @@ RUN printf '%s\n' \
     a2ensite shop.example.com.conf
 
 # Create work directory
-RUN mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
+RUN mkdir -p /opt/sslctl/{sites,logs,backup,certs}
 
-COPY cert-deploy-apache /usr/local/bin/
-RUN chmod +x /usr/local/bin/cert-deploy-apache
+COPY sslctl-apache /usr/local/bin/
+RUN chmod +x /usr/local/bin/sslctl-apache
 
 # Start Apache in foreground
 CMD ["apachectl", "-D", "FOREGROUND"]

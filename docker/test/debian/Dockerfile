@@ -34,9 +34,9 @@ RUN printf '%s\n' \
     ln -s /etc/nginx/sites-available/test.example.com.conf /etc/nginx/sites-enabled/
 
 # Create work directory
-RUN mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
+RUN mkdir -p /opt/sslctl/{sites,logs,backup,certs}
 
-COPY cert-deploy-nginx /usr/local/bin/
-RUN chmod +x /usr/local/bin/cert-deploy-nginx
+COPY sslctl-nginx /usr/local/bin/
+RUN chmod +x /usr/local/bin/sslctl-nginx
 
 CMD ["nginx", "-g", "daemon off;"]

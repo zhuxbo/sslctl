@@ -13,13 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 创建 SSL 目录
 RUN mkdir -p /etc/nginx/ssl
 
-# 复制 cert-deploy 客户端
-COPY cert-deploy-nginx-linux-amd64 /usr/local/bin/cert-deploy
-RUN chmod +x /usr/local/bin/cert-deploy
+# 复制 sslctl 客户端
+COPY sslctl-nginx-linux-amd64 /usr/local/bin/sslctl
+RUN chmod +x /usr/local/bin/sslctl
 
 # 创建工作目录
-RUN mkdir -p /opt/cert-deploy/sites /opt/cert-deploy/logs /opt/cert-deploy/backup
+RUN mkdir -p /opt/sslctl/sites /opt/sslctl/logs /opt/sslctl/backup
 
-WORKDIR /opt/cert-deploy
+WORKDIR /opt/sslctl
 
 CMD ["nginx", "-g", "daemon off;"]

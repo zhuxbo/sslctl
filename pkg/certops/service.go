@@ -5,10 +5,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/backup"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/backup"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
 // Service 证书服务

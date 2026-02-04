@@ -1,6 +1,6 @@
-# cert-deploy Windows 安装脚本
+# sslctl Windows 安装脚本
 # 自动检测架构，下载部署工具
-# 使用方法: irm https://raw.githubusercontent.com/zhuxbo/cert-deploy/main/deploy/install.ps1 | iex
+# 使用方法: irm https://raw.githubusercontent.com/zhuxbo/sslctl/main/deploy/install.ps1 | iex
 
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
@@ -40,7 +40,7 @@ if ($services.Count -gt 0) {
 try {
     $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServer -ErrorAction SilentlyContinue
     if ($iisFeature -and $iisFeature.State -eq 'Enabled') {
-        Write-Warn "检测到 IIS，请使用 cert-deploy-iis 项目 (https://github.com/cnssl/cert-deploy-iis)"
+        Write-Warn "检测到 IIS，请使用 sslctl-iis 项目 (https://github.com/cnssl/sslctl-iis)"
     }
 } catch {}
 
@@ -48,7 +48,7 @@ try {
 function Get-LatestVersion {
     $version = $null
     try {
-        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/zhuxbo/cert-deploy/releases" -TimeoutSec 30 -ErrorAction Stop
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/zhuxbo/sslctl/releases" -TimeoutSec 30 -ErrorAction Stop
         if ($releases.Count -gt 0) {
             $version = $releases[0].tag_name
         }
@@ -67,13 +67,13 @@ if (-not $Version) {
 Write-Info "最新版本: $Version"
 
 # 创建安装目录
-$InstallDir = "C:\cert-deploy"
+$InstallDir = "C:\sslctl"
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
 # 创建工作目录
-$WorkDir = "C:\cert-deploy"
+$WorkDir = "C:\sslctl"
 foreach ($dir in @("sites", "logs", "backup", "certs")) {
     $path = Join-Path $WorkDir $dir
     if (-not (Test-Path $path)) {
@@ -82,9 +82,9 @@ foreach ($dir in @("sites", "logs", "backup", "certs")) {
 }
 
 # 下载
-$Filename = "cert-deploy-windows-$Arch.exe.gz"
+$Filename = "sslctl-windows-$Arch.exe.gz"
 $TempFile = "$env:TEMP\$Filename"
-$GithubUrl = "https://github.com/zhuxbo/cert-deploy/releases/download/$Version/$Filename"
+$GithubUrl = "https://github.com/zhuxbo/sslctl/releases/download/$Version/$Filename"
 
 Write-Info "下载 $Filename..."
 
@@ -103,7 +103,7 @@ if (-not $downloaded) {
 Write-Info "安装中..."
 Add-Type -AssemblyName System.IO.Compression
 
-$ExePath = "$InstallDir\cert-deploy.exe"
+$ExePath = "$InstallDir\sslctl.exe"
 $inStream = [System.IO.File]::OpenRead($TempFile)
 $gzipStream = New-Object System.IO.Compression.GzipStream($inStream, [System.IO.Compression.CompressionMode]::Decompress)
 $outStream = [System.IO.File]::Create($ExePath)
@@ -130,13 +130,13 @@ Write-Host ""
 Write-Info "安装完成！"
 Write-Host ""
 Write-Host "使用方法 (需重新打开终端):"
-Write-Host "  cert-deploy nginx scan                    # 扫描 Nginx SSL 站点"
-Write-Host "  cert-deploy apache scan                   # 扫描 Apache SSL 站点"
-Write-Host "  cert-deploy nginx deploy --site example.com  # 部署证书"
-Write-Host "  cert-deploy --debug nginx scan            # 调试模式"
-Write-Host "  cert-deploy help                          # 查看帮助"
+Write-Host "  sslctl nginx scan                    # 扫描 Nginx SSL 站点"
+Write-Host "  sslctl apache scan                   # 扫描 Apache SSL 站点"
+Write-Host "  sslctl nginx deploy --site example.com  # 部署证书"
+Write-Host "  sslctl --debug nginx scan            # 调试模式"
+Write-Host "  sslctl help                          # 查看帮助"
 Write-Host ""
-Write-Host "配置目录: C:\cert-deploy\sites\"
-Write-Host "日志目录: C:\cert-deploy\logs\"
+Write-Host "配置目录: C:\sslctl\sites\"
+Write-Host "日志目录: C:\sslctl\logs\"
 Write-Host ""
-Write-Host "IIS 用户请使用: https://github.com/cnssl/cert-deploy-iis"
+Write-Host "IIS 用户请使用: https://github.com/cnssl/sslctl-iis"

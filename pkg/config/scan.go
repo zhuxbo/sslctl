@@ -47,9 +47,9 @@ type ScannedSite struct {
 // getWorkDir 获取工作目录
 func getWorkDir() string {
 	if os.PathSeparator == '\\' {
-		return `C:\cert-deploy`
+		return `C:\sslctl`
 	}
-	return "/opt/cert-deploy"
+	return "/opt/sslctl"
 }
 
 // GetScanResultPath 获取扫描结果文件路径

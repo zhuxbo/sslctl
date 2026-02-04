@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
 // TestScanOptions_Defaults 测试扫描选项默认值

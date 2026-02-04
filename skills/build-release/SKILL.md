@@ -32,18 +32,18 @@ make clean
 
 | OS | Arch | 输出文件 |
 |----|------|---------|
-| linux | amd64 | `cert-deploy-linux-amd64` |
-| linux | arm64 | `cert-deploy-linux-arm64` |
-| darwin | amd64 | `cert-deploy-darwin-amd64` |
-| darwin | arm64 | `cert-deploy-darwin-arm64` |
-| windows | amd64 | `cert-deploy-windows-amd64.exe` |
+| linux | amd64 | `sslctl-linux-amd64` |
+| linux | arm64 | `sslctl-linux-arm64` |
+| darwin | amd64 | `sslctl-darwin-amd64` |
+| darwin | arm64 | `sslctl-darwin-arm64` |
+| windows | amd64 | `sslctl-windows-amd64.exe` |
 
 ### 编译参数
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -ldflags="-s -w -X main.version=${VERSION}" \
-  -o dist/cert-deploy-linux-amd64 ./cmd
+  -o dist/sslctl-linux-amd64 ./cmd
 ```
 
 ---
@@ -102,7 +102,7 @@ var (
 make build-all
 
 # 打包
-cd dist && tar -czf cert-deploy-v1.0.0-linux-amd64.tar.gz cert-deploy-linux-amd64
+cd dist && tar -czf sslctl-v1.0.0-linux-amd64.tar.gz sslctl-linux-amd64
 ```
 
 ---

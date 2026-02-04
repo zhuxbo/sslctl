@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
+	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
+	"github.com/zhuxbo/sslctl/pkg/config"
 )
 
 // ScanSites 扫描站点

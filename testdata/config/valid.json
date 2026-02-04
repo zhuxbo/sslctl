@@ -21,8 +21,8 @@
           "server_type": "nginx",
           "enabled": true,
           "paths": {
-            "certificate": "/opt/cert-deploy/certs/example.com/cert.pem",
-            "private_key": "/opt/cert-deploy/certs/example.com/key.pem"
+            "certificate": "/opt/sslctl/certs/example.com/cert.pem",
+            "private_key": "/opt/sslctl/certs/example.com/key.pem"
           }
         }
       ]

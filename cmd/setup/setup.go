@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	apacheDeployer "github.com/zhuxbo/cert-deploy/internal/apache/deployer"
-	apacheScanner "github.com/zhuxbo/cert-deploy/internal/apache/scanner"
-	nginxDeployer "github.com/zhuxbo/cert-deploy/internal/nginx/deployer"
-	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	"github.com/zhuxbo/cert-deploy/pkg/matcher"
-	"github.com/zhuxbo/cert-deploy/pkg/service"
-	"github.com/zhuxbo/cert-deploy/pkg/validator"
+	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
+	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
+	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/matcher"
+	"github.com/zhuxbo/sslctl/pkg/service"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
 // Run 运行 setup 命令
@@ -36,7 +36,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	noService := fs.Bool("no-service", false, "不安装守护服务")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy setup --url <base_url> --token <token> --order <order_id>\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl setup --url <base_url> --token <token> --order <order_id>\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -264,7 +264,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		fmt.Println("\n步骤 6/6: 安装守护服务...")
 		if err := installService(); err != nil {
 			fmt.Fprintf(os.Stderr, "  安装服务失败: %v\n", err)
-			fmt.Println("  可稍后使用 'cert-deploy service repair' 修复")
+			fmt.Println("  可稍后使用 'sslctl service repair' 修复")
 		} else {
 			fmt.Println("  ✓ 服务已安装并启动")
 		}
@@ -280,8 +280,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	if !*noService {
 		fmt.Println("\n守护服务命令:")
-		fmt.Println("  systemctl status cert-deploy    # 查看状态")
-		fmt.Println("  journalctl -u cert-deploy -f    # 查看日志")
+		fmt.Println("  systemctl status sslctl    # 查看状态")
+		fmt.Println("  journalctl -u sslctl -f    # 查看日志")
 	}
 }
 

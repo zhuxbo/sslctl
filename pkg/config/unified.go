@@ -4,9 +4,11 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,9 +28,9 @@ type ConfigManager struct {
 func NewConfigManager() (*ConfigManager, error) {
 	var workDir string
 	if runtime.GOOS == "windows" {
-		workDir = `C:\cert-deploy`
+		workDir = `C:\sslctl`
 	} else {
-		workDir = "/opt/cert-deploy"
+		workDir = "/opt/sslctl"
 	}
 
 	return NewConfigManagerWithDir(workDir)
@@ -156,12 +158,28 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	cm.config = &cfg
 
-	// 环境变量优先级高于配置文件
+	// 环境变量优先级高于配置文件（带校验）
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
-		cm.config.API.Token = envToken
+		// Token 基本校验：长度合理（至少 8 字符，不超过 512 字符）
+		if len(envToken) >= 8 && len(envToken) <= 512 {
+			if cm.config.API.Token != "" && cm.config.API.Token != envToken {
+				log.Printf("[config] API Token 被环境变量覆盖")
+			}
+			cm.config.API.Token = envToken
+		} else {
+			log.Printf("[config] 环境变量 %s 值长度无效，忽略", EnvAPIToken)
+		}
 	}
 	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
-		cm.config.API.URL = envURL
+		// URL 基本校验：必须是 http:// 或 https:// 开头
+		if strings.HasPrefix(envURL, "https://") || strings.HasPrefix(envURL, "http://") {
+			if cm.config.API.URL != "" && cm.config.API.URL != envURL {
+				log.Printf("[config] API URL 被环境变量覆盖")
+			}
+			cm.config.API.URL = envURL
+		} else {
+			log.Printf("[config] 环境变量 %s 值格式无效（需 http/https），忽略", EnvAPIURL)
+		}
 	}
 
 	return cm.config, nil
@@ -343,13 +361,17 @@ func (cm *ConfigManager) ListEnabledCerts() ([]CertConfig, error) {
 }
 
 // SetAPI 设置 API 配置
+// 注意：此方法在持有锁的情况下重新加载配置，确保不会覆盖其他并发修改
 func (cm *ConfigManager) SetAPI(api APIConfig) error {
-	cfg, err := cm.Load()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
 	if err != nil {
 		return err
 	}
 	cfg.API = api
-	return cm.Save(cfg)
+	return cm.saveLocked(cfg)
 }
 
 // GetWorkDir 获取工作目录

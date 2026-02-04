@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/testdata/certs"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/testdata/certs"
 )
 
 // TestDeployToBinding_Nginx 测试 Nginx 部署
@@ -404,7 +404,7 @@ func TestGetSiteBindingForLocal_ScanFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
 
-	// 创建 scan-result.json（需要写入系统路径 /opt/cert-deploy/）
+	// 创建 scan-result.json（需要写入系统路径 /opt/sslctl/）
 	scanResult := &config.ScanResult{
 		Sites: []config.ScannedSite{
 			{

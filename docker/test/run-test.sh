@@ -1,5 +1,5 @@
 #!/bin/bash
-# cert-deploy 测试脚本
+# sslctl 测试脚本
 
 set -e
 
@@ -37,7 +37,7 @@ if [[ ! " $VALID_DISTROS " =~ " $DISTRO " ]]; then
 fi
 
 # 检查二进制文件
-BINARY="$DIST_DIR/cert-deploy-nginx-linux-amd64"
+BINARY="$DIST_DIR/sslctl-nginx-linux-amd64"
 if [[ ! -f "$BINARY" ]]; then
     log_warn "二进制文件不存在，正在构建..."
     cd "$PROJECT_ROOT"
@@ -90,7 +90,7 @@ EOF
 log_info "站点配置已创建"
 
 # 构建镜像
-IMAGE_NAME="cert-test-$DISTRO-nginx"
+IMAGE_NAME="sslctl-test-$DISTRO-nginx"
 log_info "构建镜像: $IMAGE_NAME"
 docker build -t "$IMAGE_NAME" "$TEST_DIR"
 
@@ -102,7 +102,7 @@ log_info "启动测试容器..."
 docker run -d \
     --name "$IMAGE_NAME" \
     --network cert-manager_cert-net \
-    -v "$TEST_DIR/sites:/opt/cert-deploy/sites" \
+    -v "$TEST_DIR/sites:/opt/sslctl/sites" \
     "$IMAGE_NAME"
 
 # 等待容器启动
@@ -110,7 +110,7 @@ sleep 2
 
 # 执行部署测试
 log_info "执行证书部署..."
-docker exec "$IMAGE_NAME" cert-deploy -site test.local
+docker exec "$IMAGE_NAME" sslctl -site test.local
 
 log_info "测试完成"
 log_info "查看日志: docker logs $IMAGE_NAME"

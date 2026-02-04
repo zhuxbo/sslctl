@@ -20,7 +20,7 @@ echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 # 构建二进制文件
 build_binary() {
-    echo_info "构建 cert-deploy-nginx (Linux amd64)..."
+    echo_info "构建 sslctl-nginx (Linux amd64)..."
     cd "$PROJECT_ROOT"
 
     # 检查 Go 是否可用
@@ -34,18 +34,18 @@ build_binary() {
     fi
 
     # 动态编译（适用于 glibc 系统：Ubuntu/Debian/Rocky）
-    GOOS=linux GOARCH=amd64 $GO_CMD build -o bin/cert-deploy-nginx-linux-amd64 ./cmd/nginx/
+    GOOS=linux GOARCH=amd64 $GO_CMD build -o bin/sslctl-nginx-linux-amd64 ./cmd/nginx/
 
     # 静态编译（适用于 musl libc 系统：Alpine）
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $GO_CMD build -o bin/cert-deploy-nginx-linux-amd64-static ./cmd/nginx/
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $GO_CMD build -o bin/sslctl-nginx-linux-amd64-static ./cmd/nginx/
 
     # 复制到各个测试目录
     for dist in ubuntu debian rocky; do
-        cp bin/cert-deploy-nginx-linux-amd64 "$SCRIPT_DIR/$dist/cert-deploy-nginx"
+        cp bin/sslctl-nginx-linux-amd64 "$SCRIPT_DIR/$dist/sslctl-nginx"
     done
 
     # Alpine 使用静态编译版本
-    cp bin/cert-deploy-nginx-linux-amd64-static "$SCRIPT_DIR/alpine/cert-deploy-nginx"
+    cp bin/sslctl-nginx-linux-amd64-static "$SCRIPT_DIR/alpine/sslctl-nginx"
 
     echo_success "构建完成"
 }
@@ -61,7 +61,7 @@ build_images() {
 # 测试单个发行版
 test_distro() {
     local distro=$1
-    local container="cert-deploy-test-$distro"
+    local container="sslctl-test-$distro"
 
     echo ""
     echo "========================================"
@@ -74,7 +74,7 @@ test_distro() {
 
     # 测试 1: 扫描功能
     echo_info "[$distro] 测试扫描功能..."
-    if docker exec "$container" /usr/local/bin/cert-deploy-nginx -scan 2>&1 | tee /tmp/scan-$distro.log; then
+    if docker exec "$container" /usr/local/bin/sslctl-nginx -scan 2>&1 | tee /tmp/scan-$distro.log; then
         if grep -q "检测到 Nginx 配置" /tmp/scan-$distro.log; then
             echo_success "[$distro] 配置检测成功"
         else
@@ -105,11 +105,11 @@ test_distro() {
 
     # 测试 4: 版本信息
     echo_info "[$distro] 检查版本..."
-    docker exec "$container" /usr/local/bin/cert-deploy-nginx -version
+    docker exec "$container" /usr/local/bin/sslctl-nginx -version
 
     # 测试 5: 工作目录
     echo_info "[$distro] 检查工作目录..."
-    if docker exec "$container" ls /opt/cert-deploy/ 2>/dev/null; then
+    if docker exec "$container" ls /opt/sslctl/ 2>/dev/null; then
         echo_success "[$distro] 工作目录正常"
     else
         echo_error "[$distro] 工作目录不存在"
@@ -148,7 +148,7 @@ show_summary() {
 # 主流程
 main() {
     echo "========================================"
-    echo "  cert-deploy 多发行版测试"
+    echo "  sslctl 多发行版测试"
     echo "========================================"
     echo ""
 

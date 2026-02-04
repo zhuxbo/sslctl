@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
 // API 响应状态码
@@ -182,25 +182,26 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 		}
 
 		resp, err := f.client.Do(req)
+
+		// 请求成功且不需要重试，返回响应（由调用者关闭 Body）
 		if err == nil && !isRetryable(nil, resp.StatusCode) {
 			return resp, nil
 		}
 
-		// 记录错误
+		// 记录错误并确保关闭响应体
+		var statusCode int
 		if err != nil {
+			// 网络错误：Go http.Client.Do 规范保证 err != nil 时 resp == nil
 			lastErr = err
-			// 当 err != nil 但 resp != nil 时，关闭响应体防止连接泄漏
-			if resp != nil {
-				_ = resp.Body.Close()
-			}
 		} else {
-			// 尝试读取错误详情
+			// HTTP 错误但需要重试（5xx、429 等）
+			statusCode = resp.StatusCode
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			_ = resp.Body.Close()
+			_ = resp.Body.Close() // 必须关闭，防止连接泄漏
 			if len(body) > 0 {
-				lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+				lastErr = fmt.Errorf("HTTP %d: %s", statusCode, string(body))
 			} else {
-				lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+				lastErr = fmt.Errorf("HTTP %d", statusCode)
 			}
 		}
 
@@ -210,10 +211,6 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 		}
 
 		// 检查是否可重试
-		statusCode := 0
-		if resp != nil {
-			statusCode = resp.StatusCode
-		}
 		if !isRetryable(err, statusCode) {
 			break
 		}
@@ -272,8 +269,8 @@ func checkSSRF(host string) error {
 	// 解析 IP 地址
 	ips, err := net.LookupIP(host)
 	if err != nil {
-		// DNS 解析失败，允许通过（可能是有效的外部域名但当前无法解析）
-		return nil
+		// DNS 解析失败，拒绝请求以防止 DNS rebinding 攻击
+		return fmt.Errorf("DNS lookup failed for %s: %w", host, err)
 	}
 
 	for _, ip := range ips {

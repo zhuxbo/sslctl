@@ -3,7 +3,7 @@ package validator
 import (
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/testdata/certs"
+	"github.com/zhuxbo/sslctl/testdata/certs"
 )
 
 func TestValidateCert_ValidCert(t *testing.T) {

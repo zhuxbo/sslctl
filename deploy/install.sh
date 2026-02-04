@@ -1,5 +1,5 @@
 #!/bin/bash
-# cert-deploy 安装脚本
+# sslctl 安装脚本
 # 自动检测系统和架构，下载部署工具
 
 set -e
@@ -14,7 +14,7 @@ echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Release 服务器
-RELEASE_URL="https://cert-deploy-cn.cnssl.com"
+RELEASE_URL="https://sslctl.cnssl.com"
 
 # 参数解析
 CHANNEL=""          # 空=自动，stable/dev=指定
@@ -197,8 +197,8 @@ fi
 
 # 检测已安装版本
 CURRENT_VERSION=""
-if [ -x /usr/local/bin/cert-deploy ]; then
-    CURRENT_VERSION=$(/usr/local/bin/cert-deploy --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' || echo "")
+if [ -x /usr/local/bin/sslctl ]; then
+    CURRENT_VERSION=$(/usr/local/bin/sslctl --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' || echo "")
     # 规范化为带 v 前缀
     [ -n "$CURRENT_VERSION" ] && CURRENT_VERSION=$(normalize_version "$CURRENT_VERSION")
 fi
@@ -218,7 +218,7 @@ if [ -n "$CURRENT_VERSION" ]; then
 fi
 
 # 下载
-FILENAME="cert-deploy-${OS}-${ARCH}.gz"
+FILENAME="sslctl-${OS}-${ARCH}.gz"
 DOWNLOAD_URL="$RELEASE_URL/$CHANNEL/$VERSION/$FILENAME"
 
 echo_info "下载 $FILENAME..."
@@ -231,11 +231,11 @@ fi
 # 解压并安装
 echo_info "安装中..."
 gunzip -f "/tmp/$FILENAME"
-mv "/tmp/cert-deploy-${OS}-${ARCH}" /usr/local/bin/cert-deploy
-chmod +x /usr/local/bin/cert-deploy
+mv "/tmp/sslctl-${OS}-${ARCH}" /usr/local/bin/sslctl
+chmod +x /usr/local/bin/sslctl
 
 # 创建工作目录
-mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
+mkdir -p /opt/sslctl/{sites,logs,backup,certs}
 
 # 检测 init 系统
 detect_init_system() {
@@ -275,14 +275,14 @@ echo_info "检测到 init 系统: $INIT_SYSTEM"
 
 # 安装服务（仅首次安装时创建，升级时保留现有配置）
 install_service() {
-    local DAEMON_CMD="/usr/local/bin/cert-deploy daemon"
+    local DAEMON_CMD="/usr/local/bin/sslctl daemon"
 
     case "$INIT_SYSTEM" in
         systemd)
-            if [ ! -f /etc/systemd/system/cert-deploy.service ]; then
-                cat > /etc/systemd/system/cert-deploy.service << EOF
+            if [ ! -f /etc/systemd/system/sslctl.service ]; then
+                cat > /etc/systemd/system/sslctl.service << EOF
 [Unit]
-Description=Certificate Deploy Client
+Description=SSL Certificate Manager
 After=network-online.target
 Wants=network-online.target
 
@@ -293,7 +293,7 @@ Restart=always
 RestartSec=30
 User=root
 Group=root
-WorkingDirectory=/opt/cert-deploy
+WorkingDirectory=/opt/sslctl
 StandardOutput=journal
 StandardError=journal
 
@@ -301,54 +301,54 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
                 systemctl daemon-reload
-                systemctl enable cert-deploy
-                systemctl start cert-deploy
+                systemctl enable sslctl
+                systemctl start sslctl
                 echo_info "已安装并启动 systemd 服务"
             fi
             ;;
         openrc)
-            if [ ! -f /etc/init.d/cert-deploy ]; then
-                cat > /etc/init.d/cert-deploy << 'EOF'
+            if [ ! -f /etc/init.d/sslctl ]; then
+                cat > /etc/init.d/sslctl << 'EOF'
 #!/sbin/openrc-run
 
-name="cert-deploy"
-description="Certificate Deploy Client"
-command="/usr/local/bin/cert-deploy"
+name="sslctl"
+description="SSL Certificate Manager"
+command="/usr/local/bin/sslctl"
 command_args="daemon"
 command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"
-directory="/opt/cert-deploy"
+directory="/opt/sslctl"
 
 depend() {
     need net
     after firewall
 }
 EOF
-                chmod +x /etc/init.d/cert-deploy
-                rc-update add cert-deploy default
-                rc-service cert-deploy start
+                chmod +x /etc/init.d/sslctl
+                rc-update add sslctl default
+                rc-service sslctl start
                 echo_info "已安装并启动 OpenRC 服务"
             fi
             ;;
         sysvinit)
-            if [ ! -f /etc/init.d/cert-deploy ]; then
-                cat > /etc/init.d/cert-deploy << 'EOF'
+            if [ ! -f /etc/init.d/sslctl ]; then
+                cat > /etc/init.d/sslctl << 'EOF'
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          cert-deploy
+# Provides:          sslctl
 # Required-Start:    $network $remote_fs
 # Required-Stop:     $network $remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Certificate Deploy Client
+# Short-Description: SSL Certificate Manager
 # Description:       SSL 证书自动部署服务
 ### END INIT INFO
 
-NAME="cert-deploy"
-DAEMON="/usr/local/bin/cert-deploy"
+NAME="sslctl"
+DAEMON="/usr/local/bin/sslctl"
 DAEMON_ARGS="daemon"
 PIDFILE="/var/run/${NAME}.pid"
-WORKDIR="/opt/cert-deploy"
+WORKDIR="/opt/sslctl"
 
 read_pid() {
     local pid=""
@@ -407,24 +407,24 @@ case "$1" in
     *)       echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
 esac
 EOF
-                chmod +x /etc/init.d/cert-deploy
+                chmod +x /etc/init.d/sslctl
 
                 # Debian/Ubuntu
                 if command -v update-rc.d >/dev/null 2>&1; then
-                    update-rc.d cert-deploy defaults
+                    update-rc.d sslctl defaults
                 # CentOS/RHEL
                 elif command -v chkconfig >/dev/null 2>&1; then
-                    chkconfig --add cert-deploy
-                    chkconfig cert-deploy on
+                    chkconfig --add sslctl
+                    chkconfig sslctl on
                 fi
 
-                /etc/init.d/cert-deploy start
+                /etc/init.d/sslctl start
                 echo_info "已安装并启动 SysVinit 服务"
             fi
             ;;
         *)
             echo_warn "未知的 init 系统，跳过服务安装"
-            echo_warn "请手动运行: cert-deploy daemon"
+            echo_warn "请手动运行: sslctl daemon"
             ;;
     esac
 }
@@ -435,12 +435,12 @@ echo ""
 echo_info "安装完成！"
 echo ""
 echo "使用方法:"
-echo "  cert-deploy scan                           # 扫描站点"
-echo "  cert-deploy deploy --site example.com      # 部署证书"
-echo "  cert-deploy status                         # 查看服务状态"
-echo "  cert-deploy upgrade                        # 升级工具"
-echo "  cert-deploy service repair                 # 修复服务"
-echo "  cert-deploy --debug scan                   # 调试模式"
-echo "  cert-deploy help                           # 查看帮助"
+echo "  sslctl scan                           # 扫描站点"
+echo "  sslctl deploy --site example.com      # 部署证书"
+echo "  sslctl status                         # 查看服务状态"
+echo "  sslctl upgrade                        # 升级工具"
+echo "  sslctl service repair                 # 修复服务"
+echo "  sslctl --debug scan                   # 调试模式"
+echo "  sslctl help                           # 查看帮助"
 echo ""
-echo "配置目录: /opt/cert-deploy/sites/"
+echo "配置目录: /opt/sslctl/sites/"

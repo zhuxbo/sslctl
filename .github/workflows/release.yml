@@ -60,11 +60,11 @@ jobs:
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
           LDFLAGS="-s -w -X 'main.version=${VERSION}' -X 'main.buildTime=${BUILD_TIME}'"
 
-          go build -ldflags "$LDFLAGS" -o cert-deploy-${{ matrix.suffix }}${{ matrix.ext }} ./cmd
+          go build -ldflags "$LDFLAGS" -o sslctl-${{ matrix.suffix }}${{ matrix.ext }} ./cmd
 
       - name: Compress
         run: |
-          gzip -k cert-deploy-${{ matrix.suffix }}${{ matrix.ext }}
+          gzip -k sslctl-${{ matrix.suffix }}${{ matrix.ext }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -121,31 +121,31 @@ jobs:
 
             | 平台 | 文件 |
             |------|------|
-            | Linux x64 | cert-deploy-linux-amd64.gz |
-            | Linux ARM64 | cert-deploy-linux-arm64.gz |
-            | Windows x64 | cert-deploy-windows-amd64.exe.gz |
+            | Linux x64 | sslctl-linux-amd64.gz |
+            | Linux ARM64 | sslctl-linux-arm64.gz |
+            | Windows x64 | sslctl-windows-amd64.exe.gz |
 
             ### 使用方法
 
             ```bash
             # 扫描站点
-            cert-deploy nginx scan
-            cert-deploy apache scan
+            sslctl nginx scan
+            sslctl apache scan
 
             # 部署证书
-            cert-deploy nginx deploy --site example.com
-            cert-deploy apache deploy --site example.com
+            sslctl nginx deploy --site example.com
+            sslctl apache deploy --site example.com
 
             # 守护进程模式
-            cert-deploy nginx daemon
-            cert-deploy apache daemon
+            sslctl nginx daemon
+            sslctl apache daemon
 
             # 调试模式
-            cert-deploy --debug nginx deploy --site example.com
+            sslctl --debug nginx deploy --site example.com
             ```
 
             ### IIS 支持
 
-            IIS 版本已独立为 [cert-deploy-iis](https://github.com/cnssl/cert-deploy-iis) 项目，基于 .NET 8，提供 GUI 界面。
+            IIS 版本已独立为 [sslctl-iis](https://github.com/cnssl/sslctl-iis) 项目，基于 .NET 8，提供 GUI 界面。
           files: dist/*.gz
           draft: false

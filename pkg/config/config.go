@@ -139,7 +139,7 @@ func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 
 // GetCertDir 获取证书存储目录
 func GetCertDir(siteName string) string {
-	return "/opt/cert-deploy/certs/" + siteName
+	return "/opt/sslctl/certs/" + siteName
 }
 
 // GetDefaultCertPath 获取默认证书路径

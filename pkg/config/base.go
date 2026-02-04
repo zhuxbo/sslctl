@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/zhuxbo/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
 // KeyConfig 私钥配置
@@ -113,8 +113,8 @@ const (
 
 // 环境变量常量
 const (
-	EnvAPIToken = "CERT_DEPLOY_API_TOKEN" // API Token 环境变量
-	EnvAPIURL   = "CERT_DEPLOY_API_URL"   // API URL 环境变量
+	EnvAPIToken = "SSLCTL_API_TOKEN" // API Token 环境变量
+	EnvAPIURL   = "SSLCTL_API_URL"   // API URL 环境变量
 )
 
 // ScheduleConfig 调度配置

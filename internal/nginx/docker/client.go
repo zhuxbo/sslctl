@@ -290,7 +290,7 @@ func CheckComposeAvailable() bool {
 // CopyFilesForBackup 从容器复制证书文件用于备份
 // 返回临时目录路径，调用者负责清理
 func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath string) (tmpCertPath, tmpKeyPath string, err error) {
-	tmpDir, err := os.MkdirTemp("", "cert-deploy-backup-")
+	tmpDir, err := os.MkdirTemp("", "sslctl-backup-")
 	if err != nil {
 		return "", "", fmt.Errorf("create temp dir failed: %w", err)
 	}

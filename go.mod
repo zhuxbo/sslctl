@@ -1,4 +1,4 @@
-module github.com/zhuxbo/cert-deploy
+module github.com/zhuxbo/sslctl
 
 go 1.24.0
 

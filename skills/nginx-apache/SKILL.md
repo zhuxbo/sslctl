@@ -41,7 +41,7 @@ server {
 所有重载命令通过 `internal/executor` 包执行，使用白名单机制：
 
 ```go
-import "github.com/zhuxbo/cert-deploy/internal/executor"
+import "github.com/zhuxbo/sslctl/internal/executor"
 
 // 白名单中的命令
 executor.Run("nginx -t")
@@ -88,7 +88,7 @@ executor.Run("systemctl reload nginx")
 所有重载命令通过 `internal/executor` 包执行，使用白名单机制：
 
 ```go
-import "github.com/zhuxbo/cert-deploy/internal/executor"
+import "github.com/zhuxbo/sslctl/internal/executor"
 
 executor.Run("apachectl -t")
 executor.Run("apachectl graceful")
@@ -119,7 +119,7 @@ executor.Run("systemctl reload apache2")
 ### 默认存储路径
 
 ```
-/opt/cert-deploy/certs/{domain}/
+/opt/sslctl/certs/{domain}/
 ├── cert.pem
 ├── privkey.pem
 ├── chain.pem
@@ -131,7 +131,7 @@ executor.Run("systemctl reload apache2")
 ```bash
 chmod 644 cert.pem chain.pem fullchain.pem
 chmod 600 privkey.pem
-chown root:root /opt/cert-deploy/certs/
+chown root:root /opt/sslctl/certs/
 ```
 
 ---
@@ -151,7 +151,7 @@ chown root:root /opt/cert-deploy/certs/
 部署前备份旧证书：
 
 ```bash
-/opt/cert-deploy/backup/{domain}/{timestamp}/
+/opt/sslctl/backup/{domain}/{timestamp}/
 ├── cert.pem
 ├── privkey.pem
 └── ...

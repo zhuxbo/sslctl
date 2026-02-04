@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/csr"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	"github.com/zhuxbo/cert-deploy/pkg/util"
-	"github.com/zhuxbo/cert-deploy/pkg/validator"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/csr"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
 // IssueResult 签发结果

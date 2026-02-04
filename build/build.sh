@@ -40,7 +40,7 @@ EOF
 fi
 LDFLAGS="-s -w -X 'main.version=${VERSION}' -X 'main.buildTime=${BUILD_TIME}'"
 
-echo "Building cert-deploy ${VERSION} (${BUILD_TIME})"
+echo "Building sslctl ${VERSION} (${BUILD_TIME})"
 
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
@@ -56,7 +56,7 @@ for target in "${TARGETS[@]}"; do
     GOOS="${target%/*}"
     GOARCH="${target#*/}"
 
-    OUTPUT_NAME="cert-deploy-${GOOS}-${GOARCH}"
+    OUTPUT_NAME="sslctl-${GOOS}-${GOARCH}"
     if [ "$GOOS" = "windows" ]; then
         OUTPUT_NAME="${OUTPUT_NAME}.exe"
     fi

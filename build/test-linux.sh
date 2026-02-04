@@ -1,5 +1,5 @@
 #!/bin/bash
-# cert-deploy Linux 发行版容器测试脚本
+# sslctl Linux 发行版容器测试脚本
 # 在各种 Linux 发行版容器中测试服务管理功能
 
 # 注意: 不使用 set -e，因为某些测试命令可能失败是正常的
@@ -81,7 +81,7 @@ detect_arch() {
 # 构建测试用二进制
 build_binary() {
     local arch="$1"
-    local output="${PROJECT_DIR}/dist/cert-deploy-linux-${arch}"
+    local output="${PROJECT_DIR}/dist/sslctl-linux-${arch}"
 
     if [ -f "$output" ]; then
         echo_info "使用已存在的二进制: $output"
@@ -116,7 +116,7 @@ init_report() {
     local test_time=$(date '+%Y-%m-%d %H:%M:%S')
 
     cat > "$REPORT_FILE" << EOF
-# cert-deploy Linux 测试报告
+# sslctl Linux 测试报告
 
 生成时间: $test_time
 
@@ -171,11 +171,11 @@ get_install_script() {
 set -e
 
 # 安装二进制
-cp /test/cert-deploy /usr/local/bin/cert-deploy
-chmod +x /usr/local/bin/cert-deploy
+cp /test/sslctl /usr/local/bin/sslctl
+chmod +x /usr/local/bin/sslctl
 
 # 创建工作目录
-mkdir -p /opt/cert-deploy/{sites,logs,backup,certs}
+mkdir -p /opt/sslctl/{sites,logs,backup,certs}
 INSTALL_EOF
 
     # 根据 init 系统添加服务安装
@@ -184,20 +184,20 @@ INSTALL_EOF
             cat << 'SYSTEMD_EOF'
 
 # 创建 systemd 服务
-cat > /etc/systemd/system/cert-deploy.service << 'EOF'
+cat > /etc/systemd/system/sslctl.service << 'EOF'
 [Unit]
-Description=Certificate Deploy Client
+Description=SSL Certificate Manager
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/cert-deploy daemon
+ExecStart=/usr/local/bin/sslctl daemon
 Restart=always
 RestartSec=30
 User=root
 Group=root
-WorkingDirectory=/opt/cert-deploy
+WorkingDirectory=/opt/sslctl
 StandardOutput=journal
 StandardError=journal
 
@@ -206,8 +206,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable cert-deploy
-systemctl start cert-deploy
+systemctl enable sslctl
+systemctl start sslctl
 sleep 2
 SYSTEMD_EOF
             ;;
@@ -215,16 +215,16 @@ SYSTEMD_EOF
             cat << 'OPENRC_EOF'
 
 # 创建 OpenRC 服务
-cat > /etc/init.d/cert-deploy << 'EOF'
+cat > /etc/init.d/sslctl << 'EOF'
 #!/sbin/openrc-run
 
-name="cert-deploy"
-description="Certificate Deploy Client"
-command="/usr/local/bin/cert-deploy"
+name="sslctl"
+description="SSL Certificate Manager"
+command="/usr/local/bin/sslctl"
 command_args="daemon"
 command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"
-directory="/opt/cert-deploy"
+directory="/opt/sslctl"
 
 depend() {
     need net
@@ -232,10 +232,10 @@ depend() {
 }
 EOF
 
-chmod +x /etc/init.d/cert-deploy
-rc-update add cert-deploy default
+chmod +x /etc/init.d/sslctl
+rc-update add sslctl default
 # 启动可能失败（容器环境限制），忽略错误
-rc-service cert-deploy start || true
+rc-service sslctl start || true
 sleep 2
 OPENRC_EOF
             ;;
@@ -243,23 +243,23 @@ OPENRC_EOF
             cat << 'SYSVINIT_EOF'
 
 # 创建 SysVinit 服务
-cat > /etc/init.d/cert-deploy << 'EOF'
+cat > /etc/init.d/sslctl << 'EOF'
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          cert-deploy
+# Provides:          sslctl
 # Required-Start:    $network $remote_fs
 # Required-Stop:     $network $remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Certificate Deploy Client
+# Short-Description: SSL Certificate Manager
 # Description:       SSL 证书自动部署服务
 ### END INIT INFO
 
-NAME="cert-deploy"
-DAEMON="/usr/local/bin/cert-deploy"
+NAME="sslctl"
+DAEMON="/usr/local/bin/sslctl"
 DAEMON_ARGS="daemon"
 PIDFILE="/var/run/${NAME}.pid"
-WORKDIR="/opt/cert-deploy"
+WORKDIR="/opt/sslctl"
 
 start() {
     echo "Starting $NAME..."
@@ -303,14 +303,14 @@ case "$1" in
 esac
 EOF
 
-chmod +x /etc/init.d/cert-deploy
+chmod +x /etc/init.d/sslctl
 
 # Debian/Devuan 使用 update-rc.d
 if command -v update-rc.d >/dev/null 2>&1; then
-    update-rc.d cert-deploy defaults
+    update-rc.d sslctl defaults
 fi
 
-/etc/init.d/cert-deploy start
+/etc/init.d/sslctl start
 sleep 2
 SYSVINIT_EOF
             ;;
@@ -325,13 +325,13 @@ test_install() {
     echo_step "  TC-01: 测试安装..."
 
     # 检查二进制
-    if ! docker exec "$container" test -x /usr/local/bin/cert-deploy; then
+    if ! docker exec "$container" test -x /usr/local/bin/sslctl; then
         echo_error "    二进制未安装"
         return 1
     fi
 
     # 检查工作目录
-    if ! docker exec "$container" test -d /opt/cert-deploy; then
+    if ! docker exec "$container" test -d /opt/sslctl; then
         echo_error "    工作目录未创建"
         return 1
     fi
@@ -339,19 +339,19 @@ test_install() {
     # 检查服务文件
     case "$init_system" in
         systemd)
-            if ! docker exec "$container" test -f /etc/systemd/system/cert-deploy.service; then
+            if ! docker exec "$container" test -f /etc/systemd/system/sslctl.service; then
                 echo_error "    systemd 服务文件未创建"
                 return 1
             fi
             ;;
         openrc)
-            if ! docker exec "$container" test -f /etc/init.d/cert-deploy; then
+            if ! docker exec "$container" test -f /etc/init.d/sslctl; then
                 echo_error "    OpenRC 服务脚本未创建"
                 return 1
             fi
             ;;
         sysvinit)
-            if ! docker exec "$container" test -f /etc/init.d/cert-deploy; then
+            if ! docker exec "$container" test -f /etc/init.d/sslctl; then
                 echo_error "    SysVinit 服务脚本未创建"
                 return 1
             fi
@@ -361,7 +361,7 @@ test_install() {
     # 检查服务配置（注：daemon 在没有站点配置时会正常退出，所以只检查启用状态）
     case "$init_system" in
         systemd)
-            if ! docker exec "$container" systemctl is-enabled cert-deploy &>/dev/null; then
+            if ! docker exec "$container" systemctl is-enabled sslctl &>/dev/null; then
                 echo_error "    开机自启未启用 (systemd)"
                 return 1
             fi
@@ -369,7 +369,7 @@ test_install() {
             ;;
         openrc)
             # 检查是否在 default runlevel
-            if docker exec "$container" rc-update show default 2>/dev/null | grep -q cert-deploy; then
+            if docker exec "$container" rc-update show default 2>/dev/null | grep -q sslctl; then
                 echo_info "    OpenRC 服务已安装并启用"
             else
                 echo_warn "    OpenRC 服务可能未完全配置（容器限制）"
@@ -377,7 +377,7 @@ test_install() {
             ;;
         sysvinit)
             # 检查服务脚本是否可执行
-            if docker exec "$container" test -x /etc/init.d/cert-deploy; then
+            if docker exec "$container" test -x /etc/init.d/sslctl; then
                 echo_info "    SysVinit 服务脚本已安装"
             fi
             ;;
@@ -395,7 +395,7 @@ test_status() {
     echo_step "  TC-02: 测试 status 命令..."
 
     local output
-    output=$(docker exec "$container" /usr/local/bin/cert-deploy status 2>&1) || true
+    output=$(docker exec "$container" /usr/local/bin/sslctl status 2>&1) || true
 
     # 检查版本信息
     if ! echo "$output" | grep -q "版本:"; then
@@ -432,45 +432,45 @@ test_repair() {
     # 先停止并破坏服务
     case "$init_system" in
         systemd)
-            docker exec "$container" systemctl stop cert-deploy 2>/dev/null || true
-            docker exec "$container" rm -f /etc/systemd/system/cert-deploy.service
+            docker exec "$container" systemctl stop sslctl 2>/dev/null || true
+            docker exec "$container" rm -f /etc/systemd/system/sslctl.service
             docker exec "$container" systemctl daemon-reload
             ;;
         openrc)
-            docker exec "$container" rc-service cert-deploy stop 2>/dev/null || true
-            docker exec "$container" rm -f /etc/init.d/cert-deploy
+            docker exec "$container" rc-service sslctl stop 2>/dev/null || true
+            docker exec "$container" rm -f /etc/init.d/sslctl
             ;;
         sysvinit)
-            docker exec "$container" /etc/init.d/cert-deploy stop 2>/dev/null || true
-            docker exec "$container" rm -f /etc/init.d/cert-deploy
+            docker exec "$container" /etc/init.d/sslctl stop 2>/dev/null || true
+            docker exec "$container" rm -f /etc/init.d/sslctl
             ;;
     esac
 
     # 执行 repair（忽略退出码，因为 daemon 可能因无配置而退出）
-    docker exec "$container" /usr/local/bin/cert-deploy service repair 2>&1 || true
+    docker exec "$container" /usr/local/bin/sslctl service repair 2>&1 || true
 
     sleep 2
 
     # 验证服务文件恢复
     case "$init_system" in
         systemd)
-            if ! docker exec "$container" test -f /etc/systemd/system/cert-deploy.service; then
+            if ! docker exec "$container" test -f /etc/systemd/system/sslctl.service; then
                 echo_error "    服务文件未恢复 (systemd)"
                 return 1
             fi
-            if ! docker exec "$container" systemctl is-enabled cert-deploy &>/dev/null; then
+            if ! docker exec "$container" systemctl is-enabled sslctl &>/dev/null; then
                 echo_error "    服务未启用 (systemd)"
                 return 1
             fi
             ;;
         openrc)
-            if ! docker exec "$container" test -f /etc/init.d/cert-deploy; then
+            if ! docker exec "$container" test -f /etc/init.d/sslctl; then
                 echo_error "    服务脚本未恢复 (OpenRC)"
                 return 1
             fi
             ;;
         sysvinit)
-            if ! docker exec "$container" test -f /etc/init.d/cert-deploy; then
+            if ! docker exec "$container" test -f /etc/init.d/sslctl; then
                 echo_error "    服务脚本未恢复 (SysVinit)"
                 return 1
             fi
@@ -488,7 +488,7 @@ test_upgrade() {
     echo_step "  TC-04: 测试 upgrade --check 命令..."
 
     local output
-    output=$(docker exec "$container" /usr/local/bin/cert-deploy upgrade --check 2>&1) || true
+    output=$(docker exec "$container" /usr/local/bin/sslctl upgrade --check 2>&1) || true
 
     # 检查是否显示版本信息
     if ! echo "$output" | grep -qE "(当前版本|最新版本|检查更新|获取版本)"; then
@@ -509,14 +509,14 @@ test_uninstall() {
     echo_step "  TC-05: 测试 uninstall 命令..."
 
     # 执行卸载
-    docker exec "$container" /usr/local/bin/cert-deploy uninstall 2>&1 || true
+    docker exec "$container" /usr/local/bin/sslctl uninstall 2>&1 || true
 
     sleep 1
 
     # 验证服务已停止和删除
     case "$init_system" in
         systemd)
-            if docker exec "$container" systemctl is-active cert-deploy &>/dev/null; then
+            if docker exec "$container" systemctl is-active sslctl &>/dev/null; then
                 echo_error "    服务未停止 (systemd)"
                 return 1
             fi
@@ -524,13 +524,13 @@ test_uninstall() {
     esac
 
     # 验证二进制已删除
-    if docker exec "$container" test -f /usr/local/bin/cert-deploy 2>/dev/null; then
+    if docker exec "$container" test -f /usr/local/bin/sslctl 2>/dev/null; then
         echo_error "    二进制未删除"
         return 1
     fi
 
     # 验证配置目录保留
-    if ! docker exec "$container" test -d /opt/cert-deploy 2>/dev/null; then
+    if ! docker exec "$container" test -d /opt/sslctl 2>/dev/null; then
         echo_error "    配置目录被意外删除"
         return 1
     fi
@@ -548,16 +548,16 @@ test_purge() {
     echo_step "  TC-06: 测试 uninstall --purge 命令..."
 
     # 重新安装
-    docker exec "$container" cp /test/cert-deploy /usr/local/bin/cert-deploy
-    docker exec "$container" chmod +x /usr/local/bin/cert-deploy
+    docker exec "$container" cp /test/sslctl /usr/local/bin/sslctl
+    docker exec "$container" chmod +x /usr/local/bin/sslctl
 
     # 执行 purge 卸载
-    docker exec "$container" /usr/local/bin/cert-deploy uninstall --purge 2>&1 || true
+    docker exec "$container" /usr/local/bin/sslctl uninstall --purge 2>&1 || true
 
     sleep 1
 
     # 验证配置目录已删除
-    if docker exec "$container" test -d /opt/cert-deploy 2>/dev/null; then
+    if docker exec "$container" test -d /opt/sslctl 2>/dev/null; then
         echo_error "    配置目录未删除"
         return 1
     fi
@@ -573,8 +573,8 @@ run_distro_test() {
 
     IFS='|' read -r name image init_system docker_opts <<< "$distro_config"
 
-    local container_name="cert-deploy-test-${name}-${arch}"
-    local binary_path="${PROJECT_DIR}/dist/cert-deploy-linux-${arch}"
+    local container_name="sslctl-test-${name}-${arch}"
+    local binary_path="${PROJECT_DIR}/dist/sslctl-linux-${arch}"
 
     echo ""
     echo_info "=========================================="
@@ -596,7 +596,7 @@ run_distro_test() {
     fi
 
     # 挂载测试二进制
-    start_cmd="$start_cmd -v ${binary_path}:/test/cert-deploy:ro"
+    start_cmd="$start_cmd -v ${binary_path}:/test/sslctl:ro"
 
     # 根据发行版设置启动命令
     case "$init_system" in
@@ -638,8 +638,8 @@ run_distro_test() {
         fi
     fi
 
-    # 安装 cert-deploy
-    echo_step "安装 cert-deploy..."
+    # 安装 sslctl
+    echo_step "安装 sslctl..."
     local install_script
     install_script=$(get_install_script "$init_system")
 
@@ -761,7 +761,7 @@ EOF
 
 # 主函数
 main() {
-    echo_info "cert-deploy Linux 发行版测试"
+    echo_info "sslctl Linux 发行版测试"
     echo ""
 
     # 检查 Docker
@@ -795,7 +795,7 @@ main() {
 
         # 清理所有测试容器（确保内存释放）
         echo_step "清理旧容器..."
-        docker ps -a --filter "name=cert-deploy-test-" -q | xargs -r docker rm -f 2>/dev/null || true
+        docker ps -a --filter "name=sslctl-test-" -q | xargs -r docker rm -f 2>/dev/null || true
 
         # 拉取镜像
         echo_step "拉取镜像: $image"
@@ -811,7 +811,7 @@ main() {
 
         # 强制清理（释放内存）
         echo_step "清理容器和缓存..."
-        docker ps -a --filter "name=cert-deploy-test-" -q | xargs -r docker rm -f 2>/dev/null || true
+        docker ps -a --filter "name=sslctl-test-" -q | xargs -r docker rm -f 2>/dev/null || true
         docker system prune -f 2>/dev/null || true
 
         # 短暂等待内存释放

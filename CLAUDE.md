@@ -1,4 +1,4 @@
-# cert-deploy
+# sslctl
 
 SSL 证书自动部署工具，Go 语言实现，支持 Nginx、Apache、Docker。
 
@@ -39,46 +39,72 @@ testdata/      # 测试数据和工具
 
 ```bash
 # 一键部署（推荐）
-cert-deploy setup --url <url> --token <token> --order <order_id>
+sslctl setup --url <url> --token <token> --order <order_id>
 
 # 站点扫描
-cert-deploy scan                       # 扫描站点（自动检测 Web 服务器）
-cert-deploy scan --ssl-only            # 仅扫描 SSL 站点
+sslctl scan                       # 扫描站点（自动检测 Web 服务器）
+sslctl scan --ssl-only            # 仅扫描 SSL 站点
 
 # 证书部署
-cert-deploy deploy --cert <name>       # 部署指定证书
-cert-deploy deploy --all               # 部署所有证书
+sslctl deploy --cert <name>       # 部署指定证书
+sslctl deploy --all               # 部署所有证书
 
 # 本地证书部署（不依赖 API）
-cert-deploy deploy local --cert <file> --key <file> --site <name>
-cert-deploy deploy local --cert <file> --key <file> --ca <file> --site <name>  # Apache
+sslctl deploy local --cert <file> --key <file> --site <name>
+sslctl deploy local --cert <file> --key <file> --ca <file> --site <name>  # Apache
 
 # 服务管理
-cert-deploy status                     # 查看服务状态
-cert-deploy service repair             # 修复服务
-cert-deploy upgrade                    # 升级工具
-cert-deploy uninstall                  # 卸载
+sslctl status                     # 查看服务状态
+sslctl service repair             # 修复服务
+sslctl upgrade                    # 升级工具
+sslctl uninstall                  # 卸载
 ```
 
 ## 配置文件
 
-统一配置文件：`/opt/cert-deploy/config.json`
+统一配置文件：`/opt/sslctl/config.json`
 
-证书存储目录：`/opt/cert-deploy/certs/{site_name}/`
+证书存储目录：`/opt/sslctl/certs/{site_name}/`
 
 ## 环境变量
 
 | 变量                      | 说明                             |
 |---------------------------|----------------------------------|
-| `CERT_DEPLOY_API_TOKEN`   | API Token（优先级高于配置文件）  |
-| `CERT_DEPLOY_API_URL`     | API URL（优先级高于配置文件）    |
+| `SSLCTL_API_TOKEN`   | API Token（优先级高于配置文件）  |
+| `SSLCTL_API_URL`     | API URL（优先级高于配置文件）    |
 
 ## 测试
 
 ```bash
 go test -v ./...                           # 运行单元测试
 go test -coverprofile=coverage.out ./...   # 测试并生成覆盖率
-bash build/test-linux.sh                   # Linux 容器测试
+bash build/test-linux.sh                   # Linux 发行版服务管理测试
+
+# 容器端到端测试
+bash docker/test/scripts/run-mock-tests.sh                # Mock API 离线测试
+bash docker/test/scripts/run-e2e-tests.sh --token <token> # 真实 API 测试
+bash docker/test/scripts/run-e2e-tests.sh --all           # 全发行版测试
+```
+
+## 容器测试目录
+
+```text
+docker/test/
+├── scripts/           # 测试脚本
+│   ├── common.sh      # 公共函数
+│   ├── run-e2e-tests.sh    # E2E 测试主脚本
+│   ├── run-mock-tests.sh   # Mock 测试主脚本
+│   ├── test-setup.sh       # setup 命令测试
+│   ├── test-deploy.sh      # deploy 命令测试
+│   ├── test-deploy-local.sh # deploy local 测试
+│   └── test-scan.sh        # scan 命令测试
+├── e2e/               # E2E 测试环境
+│   ├── docker-compose.e2e.yml
+│   ├── nginx-e2e/     # Nginx E2E 容器
+│   └── apache-e2e/    # Apache E2E 容器
+├── mock-api/          # Mock API 服务
+│   └── main.go        # 支持场景切换、请求记录
+└── reports/           # 测试报告输出
 ```
 
 ## 续签模式

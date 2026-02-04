@@ -44,10 +44,10 @@ func TestSystemdManager_servicePath(t *testing.T) {
 // TestSystemdManager_serviceContent 测试服务文件内容生成
 func TestSystemdManager_serviceContent(t *testing.T) {
 	cfg := &ServiceConfig{
-		Name:        "cert-deploy",
+		Name:        "sslctl",
 		Description: "SSL 证书自动部署服务",
-		ExecPath:    "/usr/local/bin/cert-deploy",
-		WorkDir:     "/opt/cert-deploy",
+		ExecPath:    "/usr/local/bin/sslctl",
+		WorkDir:     "/opt/sslctl",
 	}
 	mgr := NewSystemdManager(cfg)
 

@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	apacheDeployer "github.com/zhuxbo/cert-deploy/internal/apache/deployer"
-	nginxDeployer "github.com/zhuxbo/cert-deploy/internal/nginx/deployer"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/util"
-	"github.com/zhuxbo/cert-deploy/pkg/validator"
+	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
 // DeployOne 部署指定证书

@@ -14,8 +14,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatal("DefaultConfig 返回 nil")
 	}
 
-	if cfg.Name != "cert-deploy" {
-		t.Errorf("Name = %s, 期望 cert-deploy", cfg.Name)
+	if cfg.Name != "sslctl" {
+		t.Errorf("Name = %s, 期望 sslctl", cfg.Name)
 	}
 
 	if cfg.DisplayName == "" {
@@ -40,17 +40,17 @@ func TestDefaultConfig_Windows(t *testing.T) {
 	cfg := DefaultConfig()
 
 	if runtime.GOOS == "windows" {
-		if cfg.ExecPath != `C:\Program Files\cert-deploy\cert-deploy.exe` {
+		if cfg.ExecPath != `C:\Program Files\sslctl\sslctl.exe` {
 			t.Logf("Windows ExecPath: %s", cfg.ExecPath)
 		}
-		if cfg.WorkDir != `C:\ProgramData\cert-deploy` {
+		if cfg.WorkDir != `C:\ProgramData\sslctl` {
 			t.Logf("Windows WorkDir: %s", cfg.WorkDir)
 		}
 	} else {
-		if cfg.ExecPath != "/usr/local/bin/cert-deploy" {
+		if cfg.ExecPath != "/usr/local/bin/sslctl" {
 			t.Errorf("Linux ExecPath = %s", cfg.ExecPath)
 		}
-		if cfg.WorkDir != "/opt/cert-deploy" {
+		if cfg.WorkDir != "/opt/sslctl" {
 			t.Errorf("Linux WorkDir = %s", cfg.WorkDir)
 		}
 	}

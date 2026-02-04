@@ -4,7 +4,7 @@ package matcher
 import (
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/config"
 )
 
 // TestMatchDomain 测试单域名匹配

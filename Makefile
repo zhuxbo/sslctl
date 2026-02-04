@@ -1,4 +1,4 @@
-# cert-deploy Makefile
+# sslctl Makefile
 # 构建证书部署工具
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -21,7 +21,7 @@ all: build
 
 # 帮助信息
 help:
-	@echo "cert-deploy 构建工具"
+	@echo "sslctl 构建工具"
 	@echo ""
 	@echo "使用方法:"
 	@echo "  make build           构建当前平台"
@@ -35,9 +35,9 @@ help:
 	@echo "  make deps            下载依赖"
 	@echo ""
 	@echo "构建说明:"
-	@echo "  - 统一二进制文件: cert-deploy"
+	@echo "  - 统一二进制文件: sslctl"
 	@echo "  - 支持 Nginx 和 Apache"
-	@echo "  - 使用子命令: cert-deploy nginx scan / cert-deploy apache deploy"
+	@echo "  - 使用子命令: sslctl nginx scan / sslctl apache deploy"
 	@echo ""
 	@echo "环境变量:"
 	@echo "  VERSION              版本号 (默认: git tag)"
@@ -50,8 +50,8 @@ deps:
 # 构建当前平台
 build:
 	@mkdir -p $(DIST_DIR)
-	go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd
-	@echo "Built: $(DIST_DIR)/cert-deploy"
+	go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl$(if $(filter Windows_NT,$(OS)),.exe,) ./cmd
+	@echo "Built: $(DIST_DIR)/sslctl"
 
 # 构建所有平台
 build-all: clean build-linux build-windows
@@ -61,15 +61,15 @@ build-all: clean build-linux build-windows
 build-linux:
 	@mkdir -p $(DIST_DIR)
 	@echo "Building for Linux..."
-	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-linux-amd64 ./cmd
-	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-linux-arm64 ./cmd
+	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-linux-amd64 ./cmd
+	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-linux-arm64 ./cmd
 	@echo "Built: Linux amd64/arm64"
 
 # 构建 Windows (amd64)
 build-windows:
 	@mkdir -p $(DIST_DIR)
 	@echo "Building for Windows..."
-	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/cert-deploy-windows-amd64.exe ./cmd
+	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-windows-amd64.exe ./cmd
 	@echo "Built: Windows amd64"
 
 # 运行测试
@@ -84,7 +84,7 @@ lint:
 # gzip 压缩所有二进制文件
 compress:
 	@echo "Compressing binaries with gzip..."
-	@for f in $(DIST_DIR)/cert-deploy-*; do \
+	@for f in $(DIST_DIR)/sslctl-*; do \
 		if [ -f "$$f" ] && [ ! -f "$$f.gz" ] && ! echo "$$f" | grep -q "\.gz$$"; then \
 			echo "Compressing: $$f"; \
 			gzip -k -f "$$f"; \

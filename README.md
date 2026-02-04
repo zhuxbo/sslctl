@@ -1,4 +1,4 @@
-# cert-deploy
+# sslctl
 
 SSL 证书部署工具，支持 Nginx、Apache，支持 Docker 容器。
 
@@ -6,26 +6,26 @@ SSL 证书部署工具，支持 Nginx、Apache，支持 Docker 容器。
 
 ```bash
 # 安装最新稳定版
-curl -fsSL https://cert-deploy-cn.cnssl.com/install.sh | sudo bash
+curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash
 
 # 安装测试版
-curl -fsSL https://cert-deploy-cn.cnssl.com/install.sh | sudo bash -s -- --dev
+curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --dev
 
 # 安装指定版本
-curl -fsSL https://cert-deploy-cn.cnssl.com/install.sh | sudo bash -s -- --version 1.0.0
+curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --version 1.0.0
 
 # 强制重新安装
-curl -fsSL https://cert-deploy-cn.cnssl.com/install.sh | sudo bash -s -- --force
+curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --force
 ```
 
-手动安装: 从 [Releases](https://cert-deploy-cn.cnssl.com/releases.json) 下载解压，重命名为 `cert-deploy`。
+手动安装: 从 [Releases](https://sslctl-cn.cnssl.com/releases.json) 下载解压，重命名为 `sslctl`。
 
 ## 使用
 
 ### 一键部署（推荐）
 
 ```bash
-cert-deploy setup --url https://api.example.com --token your-token --order 12345
+sslctl setup --url https://api.example.com --token your-token --order 12345
 ```
 
 自动完成：
@@ -42,40 +42,40 @@ cert-deploy setup --url https://api.example.com --token your-token --order 12345
 ### 扫描站点
 
 ```bash
-cert-deploy scan              # 扫描所有站点
-cert-deploy scan --ssl-only   # 仅扫描 SSL 站点
+sslctl scan              # 扫描所有站点
+sslctl scan --ssl-only   # 仅扫描 SSL 站点
 ```
 
 ### 本地证书部署
 
 ```bash
 # 部署本地证书文件到站点
-cert-deploy deploy local --cert cert.pem --key key.pem --site example.com
+sslctl deploy local --cert cert.pem --key key.pem --site example.com
 
 # 带 CA 证书链部署（Apache 配置了 SSLCertificateChainFile 时需要）
-cert-deploy deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com
+sslctl deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-site.com
 ```
 
 选项：
 - `--cert`: 证书文件路径（必需）
 - `--key`: 私钥文件路径（必需）
 - `--ca`: CA 证书链文件路径（Apache 配置了证书链路径时必需）
-- `--site`: 目标站点名称（必需，需先运行 `cert-deploy scan`）
+- `--site`: 目标站点名称（必需，需先运行 `sslctl scan`）
 
 站点信息优先从 `config.json` 获取，回退到 `scan-result.json`。
 
 **其他命令:**
 
 ```bash
-cert-deploy deploy --cert order-12345         # 部署指定证书
-cert-deploy deploy --all                      # 部署所有证书
-cert-deploy status                            # 查看服务状态
-cert-deploy upgrade                           # 升级到最新版本
-cert-deploy upgrade --check                   # 检查更新
-cert-deploy service repair                    # 修复 systemd 服务
-cert-deploy --debug scan                      # 调试模式
-cert-deploy uninstall                         # 卸载
-cert-deploy uninstall --purge                 # 卸载并清理配置
+sslctl deploy --cert order-12345         # 部署指定证书
+sslctl deploy --all                      # 部署所有证书
+sslctl status                            # 查看服务状态
+sslctl upgrade                           # 升级到最新版本
+sslctl upgrade --check                   # 检查更新
+sslctl service repair                    # 修复 systemd 服务
+sslctl --debug scan                      # 调试模式
+sslctl uninstall                         # 卸载
+sslctl uninstall --purge                 # 卸载并清理配置
 ```
 
 ## 平台支持
@@ -93,16 +93,16 @@ cert-deploy uninstall --purge                 # 卸载并清理配置
 
 ```bash
 # 启用调试模式
-cert-deploy --debug deploy --site example.com
+sslctl --debug deploy --site example.com
 ```
 
 - 详细日志输出（请求/响应、配置解析、文件操作）
-- 日志写入文件：`/opt/cert-deploy/logs/debug/`
+- 日志写入文件：`/opt/sslctl/logs/debug/`
 
 ## 工作目录
 
 ```
-/opt/cert-deploy/
+/opt/sslctl/
 ├── config.json     # 统一配置文件
 ├── certs/          # 证书存储
 │   └── {site_name}/
@@ -134,13 +134,13 @@ cert-deploy --debug deploy --site example.com
 
 | 变量 | 说明 |
 |------|------|
-| `CERT_DEPLOY_API_TOKEN` | API Token（优先级高于配置文件） |
-| `CERT_DEPLOY_API_URL` | API URL（优先级高于配置文件） |
+| `SSLCTL_API_TOKEN` | API Token（优先级高于配置文件） |
+| `SSLCTL_API_URL` | API URL（优先级高于配置文件） |
 
 使用示例：
 ```bash
-export CERT_DEPLOY_API_TOKEN="your-secret-token"
-cert-deploy status
+export SSLCTL_API_TOKEN="your-secret-token"
+sslctl status
 ```
 
 ## 配置结构
@@ -171,8 +171,8 @@ cert-deploy status
           "server_type": "nginx",
           "enabled": true,
           "paths": {
-            "certificate": "/opt/cert-deploy/certs/www.example.com/cert.pem",
-            "private_key": "/opt/cert-deploy/certs/www.example.com/key.pem"
+            "certificate": "/opt/sslctl/certs/www.example.com/cert.pem",
+            "private_key": "/opt/sslctl/certs/www.example.com/key.pem"
           }
         }
       ]
@@ -207,8 +207,8 @@ cert-deploy status
 ## Docker 支持
 
 ```bash
-cert-deploy scan              # 自动检测本地或 Docker
-cert-deploy deploy --site example.com  # 根据配置选择部署方式
+sslctl scan              # 自动检测本地或 Docker
+sslctl deploy --site example.com  # 根据配置选择部署方式
 ```
 
 Docker 站点配置添加 `docker` 字段：
@@ -236,14 +236,37 @@ go test -v ./...
 go test -coverprofile=coverage.out ./...
 go tool cover -func=coverage.out | grep total
 
-# Linux 发行版容器测试（需要 Docker）
+# Linux 发行版服务管理测试（需要 Docker）
 bash build/test-linux.sh
 ```
 
-容器测试覆盖 5 种发行版 × 3 种 init 系统：
+### 容器端到端测试
+
+```bash
+# Mock 测试（离线，不依赖外部 API）
+bash docker/test/scripts/run-mock-tests.sh
+
+# E2E 测试（使用真实 API）
+export SSLCTL_API_TOKEN="your-token"
+export SSLCTL_API_URL="https://api.example.com/api/deploy"
+bash docker/test/scripts/run-e2e-tests.sh
+
+# 测试所有发行版 + 服务器组合
+bash docker/test/scripts/run-e2e-tests.sh --all
+
+# 指定发行版和服务器类型
+bash docker/test/scripts/run-e2e-tests.sh --distro ubuntu --server nginx
+```
+
+测试报告输出到 `docker/test/reports/test-report.md`。
+
+**发行版服务管理测试**覆盖 5 种发行版 × 3 种 init 系统：
 - systemd: Ubuntu 22.04, Debian 12, AlmaLinux 9
 - OpenRC: Alpine 3.19
 - SysVinit: Devuan 5
+
+**E2E 测试**覆盖 4 种发行版 × 2 种服务器：
+- Ubuntu, Debian, Alpine, Rocky × Nginx, Apache
 
 ## License
 

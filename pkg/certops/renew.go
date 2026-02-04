@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/csr"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/validator"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/csr"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 )
 
 // csrPendingTimeout CSR 处于 processing 状态的最大等待时间
@@ -168,7 +168,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	if cert.Metadata.LastIssueState == "processing" {
 		if !cert.Metadata.CSRSubmittedAt.IsZero() && time.Since(cert.Metadata.CSRSubmittedAt) > csrPendingTimeout {
 			s.log.Warn("证书 %s CSR 已提交超过 %s，尝试重新提交", cert.CertName, csrPendingTimeout)
-			cert.Metadata.IssueRetryCount++
+			// 注意：不在这里递增 IssueRetryCount，后面生成新 CSR 时会递增
 			cert.Metadata.LastIssueState = ""
 			cleanupPendingKey(workDir, cert.CertName)
 			if err := s.cfgManager.UpdateCert(cert); err != nil {
@@ -185,11 +185,11 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			}
 			if certData.Status != "active" || certData.Cert == "" {
 				s.log.Warn("证书 %s 状态异常: %s，将重新提交 CSR", cert.CertName, certData.Status)
-				cert.Metadata.IssueRetryCount++
-				// 立即持久化 IssueRetryCount
-				_ = s.cfgManager.UpdateCert(cert)
+				// 注意：不在这里递增 IssueRetryCount，下次生成新 CSR 时会递增
+				// 清空状态，下次检查将进入生成新 CSR 分支
 				cert.Metadata.LastIssueState = ""
 				cleanupPendingKey(workDir, cert.CertName)
+				_ = s.cfgManager.UpdateCert(cert)
 				return nil, "", nil
 			}
 
@@ -213,11 +213,6 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	}
 
 	// 生成新的私钥与 CSR
-	// 递增重试计数器（首次续签从 0 递增到 1）
-	cert.Metadata.IssueRetryCount++
-	// 立即持久化 IssueRetryCount
-	_ = s.cfgManager.UpdateCert(cert)
-
 	commonName := ""
 	if len(cert.Domains) > 0 {
 		commonName = cert.Domains[0]
@@ -244,6 +239,9 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		cleanupPendingKey(workDir, cert.CertName)
 		return nil, "", fmt.Errorf("提交 CSR 失败: %w", err)
 	}
+
+	// CSR 成功提交后才递增重试计数（确保失败不会误增计数）
+	cert.Metadata.IssueRetryCount++
 
 	if certData.OrderID > 0 {
 		cert.OrderID = certData.OrderID
@@ -349,16 +347,25 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 	}
 	// 移动文件
 	if err := os.Rename(pendingPath, targetPath); err != nil {
-		// 如果跨文件系统，使用复制+删除
+		// 如果跨文件系统，使用原子写入：先写临时文件，再重命名
 		data, readErr := os.ReadFile(pendingPath)
 		if readErr != nil {
-			cleanupPendingKey(workDir, certName) // 确保清理
-			return readErr
+			// 读取失败，保留 pending 私钥以便手动恢复
+			return fmt.Errorf("读取待确认私钥失败: %w", readErr)
 		}
-		if writeErr := os.WriteFile(targetPath, data, 0600); writeErr != nil {
-			cleanupPendingKey(workDir, certName) // 确保清理
-			return writeErr
+		// 原子写入：先写到目标目录的临时文件，再重命名
+		tmpPath := targetPath + ".tmp"
+		if writeErr := os.WriteFile(tmpPath, data, 0600); writeErr != nil {
+			// 写入失败，保留 pending 私钥以便手动恢复
+			_ = os.Remove(tmpPath) // 清理可能的部分写入
+			return fmt.Errorf("写入目标私钥失败: %w", writeErr)
 		}
+		if renameErr := os.Rename(tmpPath, targetPath); renameErr != nil {
+			// 重命名失败，保留 pending 私钥以便手动恢复
+			_ = os.Remove(tmpPath) // 清理临时文件
+			return fmt.Errorf("重命名目标私钥失败: %w", renameErr)
+		}
+		// 成功后才清理 pending 私钥
 		_ = os.Remove(pendingPath)
 	}
 	// 清理待确认目录

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/certops"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/certops"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
 // TestCheckAndDeploy_Success 测试成功检查部署

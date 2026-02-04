@@ -4,7 +4,7 @@ package certops
 import (
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/config"
 )
 
 // ScanOptions 扫描选项

@@ -31,8 +31,8 @@ chown -R release:release /home/release/.ssh
 
 3. **创建发布目录并设置权限**
 ```bash
-mkdir -p /www/wwwroot/cert-deploy-cn.cnssl.com
-chown -R release:release /www/wwwroot/cert-deploy-cn.cnssl.com
+mkdir -p /www/wwwroot/sslctl.cnssl.com
+chown -R release:release /www/wwwroot/sslctl.cnssl.com
 ```
 
 4. **安装 Python3**（用于更新 releases.json）

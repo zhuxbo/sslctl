@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zhuxbo/cert-deploy/internal/executor"
-	"github.com/zhuxbo/cert-deploy/pkg/errors"
-	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/internal/executor"
+	"github.com/zhuxbo/sslctl/pkg/errors"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // NginxDeployer Nginx 部署器

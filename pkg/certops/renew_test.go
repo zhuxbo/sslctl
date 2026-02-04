@@ -7,19 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	certs "github.com/zhuxbo/cert-deploy/testdata/certs"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	certs "github.com/zhuxbo/sslctl/testdata/certs"
 )
 
 // TestGetPendingKeyPath 测试待确认私钥路径生成
 func TestGetPendingKeyPath(t *testing.T) {
-	workDir := "/opt/cert-deploy"
+	workDir := "/opt/sslctl"
 	certName := "order-123"
 
 	path := getPendingKeyPath(workDir, certName)
-	expected := "/opt/cert-deploy/pending-keys/order-123/pending-key.pem"
+	expected := "/opt/sslctl/pending-keys/order-123/pending-key.pem"
 
 	if path != expected {
 		t.Errorf("getPendingKeyPath() = %s, 期望 %s", path, expected)
@@ -248,7 +248,7 @@ func TestGetPendingKeyPath_Format(t *testing.T) {
 		certName string
 		want     string
 	}{
-		{"/opt/cert-deploy", "order-123", "/opt/cert-deploy/pending-keys/order-123/pending-key.pem"},
+		{"/opt/sslctl", "order-123", "/opt/sslctl/pending-keys/order-123/pending-key.pem"},
 		{"/var/lib/cert", "test.com", "/var/lib/cert/pending-keys/test.com/pending-key.pem"},
 		{"/tmp", "cert-abc", "/tmp/pending-keys/cert-abc/pending-key.pem"},
 	}

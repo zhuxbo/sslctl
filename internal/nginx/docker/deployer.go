@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // DeployerOptions 部署器选项
@@ -185,7 +185,7 @@ func (d *Deployer) deployToHost(fullchain, key string) error {
 // deployToContainer 复制到容器（docker cp 模式）
 func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string) error {
 	// 创建临时目录
-	tmpDir, err := os.MkdirTemp("", "cert-deploy-")
+	tmpDir, err := os.MkdirTemp("", "sslctl-")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
 	}

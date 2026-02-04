@@ -3,7 +3,7 @@
 ## 项目结构
 
 ```
-cert-deploy/
+sslctl/
 ├── cmd/
 │   ├── main.go           # 统一入口
 │   ├── setup/            # 一键部署命令
@@ -100,7 +100,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 ### go.mod
 
 ```go
-module github.com/example/cert-deploy
+module github.com/example/sslctl
 
 go 1.21
 
@@ -186,16 +186,16 @@ testdata/
 
 ```bash
 # Linux
-GOOS=linux GOARCH=amd64 go build -o cert-deploy ./cmd
+GOOS=linux GOARCH=amd64 go build -o sslctl ./cmd
 
 # Windows
-GOOS=windows GOARCH=amd64 go build -o cert-deploy.exe ./cmd
+GOOS=windows GOARCH=amd64 go build -o sslctl.exe ./cmd
 ```
 
 ### 静态编译
 
 ```bash
-CGO_ENABLED=0 go build -ldflags="-s -w" -o cert-deploy ./cmd
+CGO_ENABLED=0 go build -ldflags="-s -w" -o sslctl ./cmd
 ```
 
 ---
@@ -207,7 +207,7 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o cert-deploy ./cmd
 使用 `internal/executor` 包执行系统命令，不要直接使用 `exec.Command`：
 
 ```go
-import "github.com/zhuxbo/cert-deploy/internal/executor"
+import "github.com/zhuxbo/sslctl/internal/executor"
 
 // 正确：使用统一的 executor
 if err := executor.Run("nginx -s reload"); err != nil {

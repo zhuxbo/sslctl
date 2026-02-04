@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/certops"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/certops"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
 // Run 运行守护进程
@@ -39,7 +39,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		log.SetLevel(logger.LevelDebug)
 	}
 
-	log.Info("cert-deploy daemon 启动 (version: %s)", version)
+	log.Info("sslctl daemon 启动 (version: %s)", version)
 
 	// 加载配置
 	cfg, err := cfgManager.Load()

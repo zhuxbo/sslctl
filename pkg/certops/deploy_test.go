@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/pkg/backup"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/fetcher"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	certs "github.com/zhuxbo/cert-deploy/testdata/certs"
+	"github.com/zhuxbo/sslctl/pkg/backup"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	certs "github.com/zhuxbo/sslctl/testdata/certs"
 )
 
 // TestPickKeyPath_AllCases 详细测试 pickKeyPath 函数

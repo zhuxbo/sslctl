@@ -20,11 +20,11 @@ func isWindows() bool {
 
 // Manager 配置管理器
 type Manager struct {
-	workDir   string // 工作目录(cert-deploy/)
-	sitesDir  string // 站点配置目录(cert-deploy/sites/)
-	logsDir   string // 日志目录(cert-deploy/logs/)
-	backupDir string // 备份目录(cert-deploy/backup/)
-	certsDir  string // 临时证书目录(cert-deploy/certs/)
+	workDir   string // 工作目录(sslctl/)
+	sitesDir  string // 站点配置目录(sslctl/sites/)
+	logsDir   string // 日志目录(sslctl/logs/)
+	backupDir string // 备份目录(sslctl/backup/)
+	certsDir  string // 临时证书目录(sslctl/certs/)
 	mu        sync.RWMutex
 
 	// 简单配置缓存（可选）
@@ -38,9 +38,9 @@ func NewManager() (*Manager, error) {
 	// 固定工作目录
 	var workDir string
 	if isWindows() {
-		workDir = `C:\cert-deploy`
+		workDir = `C:\sslctl`
 	} else {
-		workDir = "/opt/cert-deploy"
+		workDir = "/opt/sslctl"
 	}
 
 	m := &Manager{

@@ -49,13 +49,13 @@ RUN printf '%s\n' \
     a2ensite apache-test.example.com.conf
 
 # Copy binaries
-COPY cert-deploy-apache /usr/local/bin/
+COPY sslctl-apache /usr/local/bin/
 COPY mock-api /usr/local/bin/
-RUN chmod +x /usr/local/bin/cert-deploy-apache /usr/local/bin/mock-api
+RUN chmod +x /usr/local/bin/sslctl-apache /usr/local/bin/mock-api
 
 # Create work directory and site configuration
-RUN mkdir -p /opt/cert-deploy/sites /opt/cert-deploy/logs /opt/cert-deploy/backup /opt/cert-deploy/certs && \
-    echo '{"version":"1.0","site_name":"apache-test.example.com","enabled":true,"server_type":"apache","api":{"url":"http://127.0.0.1:8080/api/cert","refer_id":"test-token-12345","callback_url":"http://127.0.0.1:8080/api/callback"},"domains":["apache-test.example.com"],"paths":{"certificate":"/etc/apache2/ssl/apache-test.example.com/fullchain.pem","private_key":"/etc/apache2/ssl/apache-test.example.com/privkey.pem","config_file":"/etc/apache2/sites-enabled/apache-test.example.com.conf"},"reload":{"test_command":"apache2ctl -t","reload_command":"apache2ctl graceful"},"schedule":{"check_interval_hours":12,"renew_before_days":30},"validation":{"verify_domain":false,"test_https":false,"ignore_domain_mismatch":true},"backup":{"enabled":true,"keep_versions":3},"metadata":{}}' > /opt/cert-deploy/sites/apache-test.example.com.json
+RUN mkdir -p /opt/sslctl/sites /opt/sslctl/logs /opt/sslctl/backup /opt/sslctl/certs && \
+    echo '{"version":"1.0","site_name":"apache-test.example.com","enabled":true,"server_type":"apache","api":{"url":"http://127.0.0.1:8080/api/cert","refer_id":"test-token-12345","callback_url":"http://127.0.0.1:8080/api/callback"},"domains":["apache-test.example.com"],"paths":{"certificate":"/etc/apache2/ssl/apache-test.example.com/fullchain.pem","private_key":"/etc/apache2/ssl/apache-test.example.com/privkey.pem","config_file":"/etc/apache2/sites-enabled/apache-test.example.com.conf"},"reload":{"test_command":"apache2ctl -t","reload_command":"apache2ctl graceful"},"schedule":{"check_interval_hours":12,"renew_before_days":30},"validation":{"verify_domain":false,"test_https":false,"ignore_domain_mismatch":true},"backup":{"enabled":true,"keep_versions":3},"metadata":{}}' > /opt/sslctl/sites/apache-test.example.com.json
 
 # Create test script
 RUN printf '%s\n' '#!/bin/bash' \
@@ -89,7 +89,7 @@ RUN printf '%s\n' '#!/bin/bash' \
     '' \
     '# Run deployment' \
     'echo "[5/6] Running certificate deployment..."' \
-    'cert-deploy-apache -site apache-test.example.com' \
+    'sslctl-apache -site apache-test.example.com' \
     'echo ""' \
     '' \
     '# Show new cert info' \
@@ -99,13 +99,13 @@ RUN printf '%s\n' '#!/bin/bash' \
     '' \
     '# Show backup' \
     'echo "=== Backup files ==="' \
-    'ls -la /opt/cert-deploy/backup/ 2>/dev/null || echo "No backup dir"' \
-    'find /opt/cert-deploy/backup -type f 2>/dev/null || echo "No backup files"' \
+    'ls -la /opt/sslctl/backup/ 2>/dev/null || echo "No backup dir"' \
+    'find /opt/sslctl/backup -type f 2>/dev/null || echo "No backup files"' \
     'echo ""' \
     '' \
     '# Show logs' \
     'echo "=== Deploy logs ==="' \
-    'cat /opt/cert-deploy/logs/*.log 2>/dev/null | tail -20 || echo "No logs"' \
+    'cat /opt/sslctl/logs/*.log 2>/dev/null | tail -20 || echo "No logs"' \
     'echo ""' \
     '' \
     'echo "=== Test Complete ===" ' \

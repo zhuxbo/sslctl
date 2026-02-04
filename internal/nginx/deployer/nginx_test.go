@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/internal/executor"
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // TestNewNginxDeployer 测试创建 Nginx 部署器

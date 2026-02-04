@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // Metadata 备份元数据
@@ -86,30 +86,51 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 		return nil, fmt.Errorf("failed to backup private key: %w", err)
 	}
 
-	// 3.1 验证源文件在备份期间未被修改
+	// 3.1 验证源文件在备份期间未被修改（TOCTOU 保护）
+	// 如果 os.Stat 失败（文件被删除等），也视为文件已被修改
 	newCertStat, err := os.Stat(certPath)
-	if err == nil && newCertStat.ModTime() != certModTime {
-		// 源文件已被修改，删除备份并返回错误
+	if err != nil || newCertStat.ModTime() != certModTime {
+		// 源文件已被修改或删除，删除备份并返回错误
 		_ = os.RemoveAll(backupPath)
+		if err != nil {
+			return nil, fmt.Errorf("certificate file changed during backup: %w", err)
+		}
 		return nil, fmt.Errorf("certificate file changed during backup")
 	}
 	newKeyStat, err := os.Stat(keyPath)
-	if err == nil && newKeyStat.ModTime() != keyModTime {
-		// 源文件已被修改，删除备份并返回错误
+	if err != nil || newKeyStat.ModTime() != keyModTime {
+		// 源文件已被修改或删除，删除备份并返回错误
 		_ = os.RemoveAll(backupPath)
+		if err != nil {
+			return nil, fmt.Errorf("private key file changed during backup: %w", err)
+		}
 		return nil, fmt.Errorf("private key file changed during backup")
 	}
 
-	// 4. 备份证书链文件（可选）
+	// 4. 备份证书链文件（可选，带 TOCTOU 保护）
 	var actualChainPath string
 	if len(chainPath) > 0 && chainPath[0] != "" {
 		actualChainPath = chainPath[0]
-		backupChainPath := filepath.Join(backupPath, "chain.pem")
-		if err := util.CopyFile(actualChainPath, backupChainPath); err != nil {
-			// chain 文件备份失败不影响整体备份
-			// 清空 actualChainPath 确保 metadata 不记录未备份的文件
-			// 这样回滚时不会尝试恢复不存在的 chain 文件
+		// 记录 chain 文件的修改时间
+		chainStat, err := os.Stat(actualChainPath)
+		if err != nil {
+			// chain 文件不存在，跳过备份
 			actualChainPath = ""
+		} else {
+			chainModTime := chainStat.ModTime()
+			backupChainPath := filepath.Join(backupPath, "chain.pem")
+			if err := util.CopyFile(actualChainPath, backupChainPath); err != nil {
+				// chain 文件备份失败不影响整体备份
+				actualChainPath = ""
+			} else {
+				// 验证 chain 文件在备份期间未被修改
+				newChainStat, err := os.Stat(actualChainPath)
+				if err != nil || newChainStat.ModTime() != chainModTime {
+					// chain 文件已被修改，删除备份的 chain 文件
+					_ = os.Remove(backupChainPath)
+					actualChainPath = ""
+				}
+			}
 		}
 	}
 

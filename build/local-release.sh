@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# cert-deploy 本地发布脚本
+# sslctl 本地发布脚本
 # 构建并发布到本地目录
 #
 # 用法:
@@ -109,9 +109,9 @@ version_entry = {
     'date': datetime.now().strftime('%Y-%m-%d'),
     'path': version_dir,
     'files': {
-        'linux-amd64': f'{version_dir}/cert-deploy-linux-amd64.gz',
-        'linux-arm64': f'{version_dir}/cert-deploy-linux-arm64.gz',
-        'windows-amd64': f'{version_dir}/cert-deploy-windows-amd64.exe.gz'
+        'linux-amd64': f'{version_dir}/sslctl-linux-amd64.gz',
+        'linux-arm64': f'{version_dir}/sslctl-linux-arm64.gz',
+        'windows-amd64': f'{version_dir}/sslctl-windows-amd64.exe.gz'
     }
 }
 
@@ -325,7 +325,7 @@ main() {
 
     echo ""
     echo "========================================"
-    echo "  cert-deploy 本地发布脚本"
+    echo "  sslctl 本地发布脚本"
     echo "========================================"
     echo ""
 

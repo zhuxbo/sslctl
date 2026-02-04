@@ -4,9 +4,9 @@ package webserver
 import (
 	"fmt"
 
-	apacheDeployer "github.com/zhuxbo/cert-deploy/internal/apache/deployer"
-	nginxDeployer "github.com/zhuxbo/cert-deploy/internal/nginx/deployer"
-	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
+	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
+	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 )
 
 // NewScanner 创建扫描器

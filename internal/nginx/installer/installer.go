@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // NginxInstaller Nginx HTTPS 安装器

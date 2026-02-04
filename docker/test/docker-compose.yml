@@ -4,7 +4,7 @@ services:
     build:
       context: ./ubuntu
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-ubuntu
+    container_name: sslctl-test-ubuntu
     hostname: ubuntu-nginx
     networks:
       - test-net
@@ -14,7 +14,7 @@ services:
     build:
       context: ./debian
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-debian
+    container_name: sslctl-test-debian
     hostname: debian-nginx
     networks:
       - test-net
@@ -24,7 +24,7 @@ services:
     build:
       context: ./rocky
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-rocky
+    container_name: sslctl-test-rocky
     hostname: rocky-nginx
     networks:
       - test-net
@@ -34,7 +34,7 @@ services:
     build:
       context: ./alpine
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-alpine
+    container_name: sslctl-test-alpine
     hostname: alpine-nginx
     networks:
       - test-net
@@ -44,7 +44,7 @@ services:
     build:
       context: ./ubuntu-apache
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-ubuntu-apache
+    container_name: sslctl-test-ubuntu-apache
     hostname: ubuntu-apache
     networks:
       - test-net
@@ -54,7 +54,7 @@ services:
     build:
       context: ./rocky-apache
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-rocky-apache
+    container_name: sslctl-test-rocky-apache
     hostname: rocky-apache
     networks:
       - test-net
@@ -64,7 +64,7 @@ services:
     build:
       context: ./alpine-apache
       dockerfile: Dockerfile
-    container_name: cert-deploy-test-alpine-apache
+    container_name: sslctl-test-alpine-apache
     hostname: alpine-apache
     networks:
       - test-net

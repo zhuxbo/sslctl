@@ -1,4 +1,4 @@
-// cert-deploy - SSL 证书自动部署工具
+// sslctl - SSL 证书自动部署工具
 // 支持 Nginx、Apache
 package main
 
@@ -20,14 +20,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/cert-deploy/cmd/daemon"
-	"github.com/zhuxbo/cert-deploy/cmd/deploy"
-	"github.com/zhuxbo/cert-deploy/cmd/setup"
-	nginxScanner "github.com/zhuxbo/cert-deploy/internal/nginx/scanner"
-	"github.com/zhuxbo/cert-deploy/pkg/certops"
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
-	"github.com/zhuxbo/cert-deploy/pkg/service"
+	"github.com/zhuxbo/sslctl/cmd/daemon"
+	"github.com/zhuxbo/sslctl/cmd/deploy"
+	"github.com/zhuxbo/sslctl/cmd/setup"
+	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
+	"github.com/zhuxbo/sslctl/pkg/certops"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/service"
 )
 
 var (
@@ -68,7 +68,7 @@ func main() {
 	// 设置 debug 模式
 	if debug {
 		_ = os.Setenv("LOG_LEVEL", "debug")
-		_ = os.Setenv("CERT_DEPLOY_DEBUG", "1")
+		_ = os.Setenv("SSLCTL_DEBUG", "1")
 	}
 
 	cmd := args[0]
@@ -92,7 +92,7 @@ func main() {
 	case "uninstall":
 		runUninstall(subArgs)
 	case "version", "-v", "--version":
-		fmt.Printf("cert-deploy %s (built at %s)\n", version, buildTime)
+		fmt.Printf("sslctl %s (built at %s)\n", version, buildTime)
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -103,10 +103,10 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Printf(`cert-deploy %s - SSL 证书自动部署工具
+	fmt.Printf(`sslctl %s - SSL 证书自动部署工具
 
 使用方法:
-  cert-deploy [--debug] <command> [options]
+  sslctl [--debug] <command> [options]
 
 命令:
   scan            扫描站点（自动检测 Web 服务器）
@@ -123,36 +123,36 @@ func printUsage() {
   --debug   启用调试模式（详细日志）
 
 常用命令:
-  cert-deploy scan                          扫描所有站点
-  cert-deploy scan --ssl-only               仅扫描 SSL 站点
-  cert-deploy deploy --cert <name>          部署指定证书
-  cert-deploy deploy --all                  部署所有证书
-  cert-deploy status                        查看服务状态
-  cert-deploy upgrade                       升级到最新版本
-  cert-deploy upgrade --check               检查更新
-  cert-deploy service repair                修复 systemd 服务
+  sslctl scan                          扫描所有站点
+  sslctl scan --ssl-only               仅扫描 SSL 站点
+  sslctl deploy --cert <name>          部署指定证书
+  sslctl deploy --all                  部署所有证书
+  sslctl status                        查看服务状态
+  sslctl upgrade                       升级到最新版本
+  sslctl upgrade --check               检查更新
+  sslctl service repair                修复 systemd 服务
 
 一键部署:
-  cert-deploy setup --url <url> --token <token> --order <order_id>
-  cert-deploy setup --url <url> --token <token> --order <order_id> --local-key
-  cert-deploy setup --url <url> --token <token> --order <order_id> --yes --no-service
+  sslctl setup --url <url> --token <token> --order <order_id>
+  sslctl setup --url <url> --token <token> --order <order_id> --local-key
+  sslctl setup --url <url> --token <token> --order <order_id> --yes --no-service
 
 卸载:
-  cert-deploy uninstall           # 卸载程序
-  cert-deploy uninstall --purge   # 卸载并清理配置
+  sslctl uninstall           # 卸载程序
+  sslctl uninstall --purge   # 卸载并清理配置
 
 示例:
-  cert-deploy scan
-  cert-deploy --debug deploy --cert example.com
-  cert-deploy setup --url https://api.example.com --token abc123 --order 12345
+  sslctl scan
+  sslctl --debug deploy --cert example.com
+  sslctl setup --url https://api.example.com --token abc123 --order 12345
 
-更多信息请访问: https://github.com/zhuxbo/cert-deploy
+更多信息请访问: https://github.com/zhuxbo/sslctl
 `, version)
 }
 
 // runWindowsService 以 Windows 服务方式运行
 func runWindowsService() {
-	err := service.RunAsService("cert-deploy", func() {
+	err := service.RunAsService("sslctl", func() {
 		daemon.Run(nil, version, buildTime, false)
 	})
 	if err != nil {
@@ -167,7 +167,7 @@ func runScan(args []string, debug bool) {
 	sslOnly := fs.Bool("ssl-only", false, "仅扫描 SSL 站点")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy scan [选项]\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl scan [选项]\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -279,7 +279,7 @@ func runStatus() {
 // runService 管理服务
 func runService(args []string) {
 	if len(args) == 0 || args[0] != "repair" {
-		fmt.Println("用法: cert-deploy service repair")
+		fmt.Println("用法: sslctl service repair")
 		fmt.Println("")
 		fmt.Printf("修复/重新安装服务 (当前系统: %s)\n", service.GetInitSystemName())
 		os.Exit(1)
@@ -326,7 +326,7 @@ func repairService() {
 	if err := svcMgr.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "启动服务失败: %v\n", err)
 		if runtime.GOOS == "linux" {
-			fmt.Fprintln(os.Stderr, "\n查看详细日志: journalctl -u cert-deploy -n 50")
+			fmt.Fprintln(os.Stderr, "\n查看详细日志: journalctl -u sslctl -n 50")
 		}
 		os.Exit(1)
 	}
@@ -339,7 +339,7 @@ func repairService() {
 	} else {
 		fmt.Fprintln(os.Stderr, "服务启动后退出")
 		if runtime.GOOS == "linux" {
-			fmt.Fprintln(os.Stderr, "查看日志: journalctl -u cert-deploy -n 50")
+			fmt.Fprintln(os.Stderr, "查看日志: journalctl -u sslctl -n 50")
 		}
 		os.Exit(1)
 	}
@@ -379,7 +379,7 @@ func runUpgrade(args []string) {
 	checkOnly := fs.Bool("check", false, "仅检查更新")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy upgrade [选项]\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl upgrade [选项]\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -393,7 +393,7 @@ func runUpgrade(args []string) {
 		os.Exit(1)
 	}
 
-	releaseURL := "https://cert-deploy-cn.cnssl.com"
+	releaseURL := "https://sslctl.cnssl.com"
 
 	// 1. 获取远程版本信息
 	fmt.Println("检查更新...")
@@ -455,7 +455,7 @@ func runUpgrade(args []string) {
 	// 4. 如果 --check，显示信息后返回
 	if *checkOnly {
 		if current != target {
-			fmt.Println("\n有新版本可用，运行 'cert-deploy upgrade' 进行升级")
+			fmt.Println("\n有新版本可用，运行 'sslctl upgrade' 进行升级")
 		}
 		return
 	}
@@ -467,9 +467,9 @@ func runUpgrade(args []string) {
 	arch := runtime.GOARCH
 	var filename string
 	if osName == "windows" {
-		filename = fmt.Sprintf("cert-deploy-%s-%s.exe.gz", osName, arch)
+		filename = fmt.Sprintf("sslctl-%s-%s.exe.gz", osName, arch)
 	} else {
-		filename = fmt.Sprintf("cert-deploy-%s-%s.gz", osName, arch)
+		filename = fmt.Sprintf("sslctl-%s-%s.gz", osName, arch)
 	}
 	downloadURL := fmt.Sprintf("%s/%s/%s/%s", releaseURL, ch, target, filename)
 
@@ -518,7 +518,7 @@ func runUpgrade(args []string) {
 	defer func() { _ = gzReader.Close() }()
 
 	// 写入临时文件
-	tmpFile, err := os.CreateTemp("", "cert-deploy-*")
+	tmpFile, err := os.CreateTemp("", "sslctl-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "创建临时文件失败: %v\n", err)
 		os.Exit(1)
@@ -543,14 +543,14 @@ func runUpgrade(args []string) {
 	// 6. 替换二进制
 	var binPath string
 	if runtime.GOOS == "windows" {
-		// Windows: 使用当前可执行文件路径或 %LOCALAPPDATA%\cert-deploy
+		// Windows: 使用当前可执行文件路径或 %LOCALAPPDATA%\sslctl
 		if exePath, err := os.Executable(); err == nil {
 			binPath = exePath
 		} else {
-			binPath = filepath.Join(os.Getenv("LOCALAPPDATA"), "cert-deploy", "cert-deploy.exe")
+			binPath = filepath.Join(os.Getenv("LOCALAPPDATA"), "sslctl", "sslctl.exe")
 		}
 	} else {
-		binPath = "/usr/local/bin/cert-deploy"
+		binPath = "/usr/local/bin/sslctl"
 	}
 
 	// 确保目录存在
@@ -624,7 +624,7 @@ func runUninstall(args []string) {
 	purge := fs.Bool("purge", false, "同时删除配置文件和数据")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: cert-deploy uninstall [--purge]\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法: sslctl uninstall [--purge]\n\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -638,7 +638,7 @@ func runUninstall(args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("开始卸载 cert-deploy...")
+	fmt.Println("开始卸载 sslctl...")
 
 	// 1. 卸载服务
 	svcMgr, err := service.New(nil)

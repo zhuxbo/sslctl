@@ -56,19 +56,19 @@ type ServiceConfig struct {
 
 // DefaultConfig 默认服务配置
 func DefaultConfig() *ServiceConfig {
-	execPath := "/usr/local/bin/cert-deploy"
+	execPath := "/usr/local/bin/sslctl"
 	if runtime.GOOS == "windows" {
-		execPath = `C:\Program Files\cert-deploy\cert-deploy.exe`
+		execPath = `C:\Program Files\sslctl\sslctl.exe`
 	}
 
-	workDir := "/opt/cert-deploy"
+	workDir := "/opt/sslctl"
 	if runtime.GOOS == "windows" {
-		workDir = `C:\ProgramData\cert-deploy`
+		workDir = `C:\ProgramData\sslctl`
 	}
 
 	return &ServiceConfig{
-		Name:        "cert-deploy",
-		DisplayName: "Certificate Deploy Client",
+		Name:        "sslctl",
+		DisplayName: "SSL Certificate Manager",
 		Description: "SSL 证书自动部署服务",
 		ExecPath:    execPath,
 		WorkDir:     workDir,

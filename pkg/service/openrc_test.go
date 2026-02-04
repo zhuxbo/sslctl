@@ -45,11 +45,11 @@ func TestOpenRCManager_servicePath(t *testing.T) {
 // TestOpenRCManager_serviceContent 测试服务脚本内容生成
 func TestOpenRCManager_serviceContent(t *testing.T) {
 	cfg := &ServiceConfig{
-		Name:        "cert-deploy",
+		Name:        "sslctl",
 		DisplayName: "SSL 证书部署服务",
 		Description: "SSL 证书自动部署和管理服务",
-		ExecPath:    "/usr/local/bin/cert-deploy",
-		WorkDir:     "/opt/cert-deploy",
+		ExecPath:    "/usr/local/bin/sslctl",
+		WorkDir:     "/opt/sslctl",
 	}
 	mgr := NewOpenRCManager(cfg)
 
@@ -115,9 +115,9 @@ func TestOpenRCManager_serviceContent_Variables(t *testing.T) {
 // TestOpenRCManager_serviceContent_DaemonArgs 测试 daemon 参数
 func TestOpenRCManager_serviceContent_DaemonArgs(t *testing.T) {
 	cfg := &ServiceConfig{
-		Name:     "cert-deploy",
-		ExecPath: "/usr/local/bin/cert-deploy",
-		WorkDir:  "/opt/cert-deploy",
+		Name:     "sslctl",
+		ExecPath: "/usr/local/bin/sslctl",
+		WorkDir:  "/opt/sslctl",
 	}
 	mgr := NewOpenRCManager(cfg)
 
@@ -164,9 +164,9 @@ func TestOpenRCManager_serviceContent_Dependencies(t *testing.T) {
 // TestOpenRCManager_serviceContent_PidFile 测试 PID 文件配置
 func TestOpenRCManager_serviceContent_PidFile(t *testing.T) {
 	cfg := &ServiceConfig{
-		Name:     "cert-deploy",
-		ExecPath: "/usr/local/bin/cert-deploy",
-		WorkDir:  "/opt/cert-deploy",
+		Name:     "sslctl",
+		ExecPath: "/usr/local/bin/sslctl",
+		WorkDir:  "/opt/sslctl",
 	}
 	mgr := NewOpenRCManager(cfg)
 
@@ -231,7 +231,7 @@ func TestOpenRCManager_servicePath_Format(t *testing.T) {
 		name     string
 		expected string
 	}{
-		{"cert-deploy", "/etc/init.d/cert-deploy"},
+		{"sslctl", "/etc/init.d/sslctl"},
 		{"nginx", "/etc/init.d/nginx"},
 		{"my-app", "/etc/init.d/my-app"},
 	}
@@ -258,11 +258,11 @@ func TestOpenRCManager_serviceContent_MultipleConfigs(t *testing.T) {
 		workDir     string
 	}{
 		{
-			name:        "cert-deploy",
+			name:        "sslctl",
 			displayName: "Certificate Deploy",
 			description: "SSL certificate deployment service",
-			execPath:    "/usr/local/bin/cert-deploy",
-			workDir:     "/opt/cert-deploy",
+			execPath:    "/usr/local/bin/sslctl",
+			workDir:     "/opt/sslctl",
 		},
 		{
 			name:        "my-app",

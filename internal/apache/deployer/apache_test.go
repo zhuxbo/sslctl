@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/internal/executor"
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // TestNewApacheDeployer 测试创建 Apache 部署器

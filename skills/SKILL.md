@@ -1,4 +1,4 @@
-# cert-deploy Skills
+# sslctl Skills
 
 本目录包含项目开发规范和知识库，按领域组织。
 

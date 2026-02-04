@@ -1,14 +1,14 @@
-# cert-deploy 本地发布配置
+# sslctl 本地发布配置
 # 复制为 local-release.conf 并填写实际值
 
 # ========================================
 # Release 服务配置
 # ========================================
 # 本地 release 服务目录
-RELEASE_DIR="/var/www/release/cert-deploy"
+RELEASE_DIR="/var/www/release/sslctl"
 
 # 本地 release 服务 URL（用于生成下载链接）
-RELEASE_URL="http://localhost:8888/cert-deploy"
+RELEASE_URL="http://localhost:8888/sslctl"
 
 # ========================================
 # 可选配置

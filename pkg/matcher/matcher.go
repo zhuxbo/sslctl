@@ -4,7 +4,7 @@ package matcher
 import (
 	"strings"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/config"
 )
 
 // Matcher 域名匹配器

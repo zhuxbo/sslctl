@@ -779,8 +779,8 @@ func TestGetCertDir(t *testing.T) {
 		siteName string
 		want     string
 	}{
-		{"example.com", "/opt/cert-deploy/certs/example.com"},
-		{"test.example.com", "/opt/cert-deploy/certs/test.example.com"},
+		{"example.com", "/opt/sslctl/certs/example.com"},
+		{"test.example.com", "/opt/sslctl/certs/test.example.com"},
 	}
 
 	for _, tt := range tests {
@@ -796,17 +796,17 @@ func TestGetDefaultPaths(t *testing.T) {
 	siteName := "example.com"
 
 	certPath := GetDefaultCertPath(siteName)
-	if certPath != "/opt/cert-deploy/certs/example.com/cert.pem" {
+	if certPath != "/opt/sslctl/certs/example.com/cert.pem" {
 		t.Errorf("GetDefaultCertPath() = %s", certPath)
 	}
 
 	keyPath := GetDefaultKeyPath(siteName)
-	if keyPath != "/opt/cert-deploy/certs/example.com/key.pem" {
+	if keyPath != "/opt/sslctl/certs/example.com/key.pem" {
 		t.Errorf("GetDefaultKeyPath() = %s", keyPath)
 	}
 
 	chainPath := GetDefaultChainPath(siteName)
-	if chainPath != "/opt/cert-deploy/certs/example.com/chain.pem" {
+	if chainPath != "/opt/sslctl/certs/example.com/chain.pem" {
 		t.Errorf("GetDefaultChainPath() = %s", chainPath)
 	}
 }
@@ -1341,10 +1341,10 @@ func TestTimeConstants(t *testing.T) {
 
 // TestEnvConstants 测试环境变量常量
 func TestEnvConstants(t *testing.T) {
-	if EnvAPIToken != "CERT_DEPLOY_API_TOKEN" {
+	if EnvAPIToken != "SSLCTL_API_TOKEN" {
 		t.Errorf("EnvAPIToken = %s", EnvAPIToken)
 	}
-	if EnvAPIURL != "CERT_DEPLOY_API_URL" {
+	if EnvAPIURL != "SSLCTL_API_URL" {
 		t.Errorf("EnvAPIURL = %s", EnvAPIURL)
 	}
 }

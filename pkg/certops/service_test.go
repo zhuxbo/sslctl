@@ -4,8 +4,8 @@ package certops
 import (
 	"testing"
 
-	"github.com/zhuxbo/cert-deploy/pkg/config"
-	"github.com/zhuxbo/cert-deploy/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
 // TestNewService 测试服务创建

@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/zhuxbo/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // SSLSite Docker 容器内的 SSL 站点
