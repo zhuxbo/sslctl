@@ -14,14 +14,16 @@ sslctl/
 │   ├── apache/           # Apache 扫描/部署
 │   └── executor/         # 统一命令执行器（白名单）
 ├── pkg/
-│   ├── certops/          # 证书操作服务层
+│   ├── certops/          # 证书操作服务层（含私钥管理）
 │   ├── config/           # 配置管理（深拷贝并发安全）
 │   ├── fetcher/          # API 客户端（含 SSRF 防护）
 │   ├── backup/           # 备份管理（原子性检查）
 │   ├── logger/           # 日志模块（敏感信息过滤）
 │   ├── matcher/          # 域名匹配
 │   ├── validator/        # 证书验证
-│   └── service/          # 系统服务管理
+│   ├── service/          # 系统服务管理
+│   ├── upgrade/          # 升级模块（版本检查/下载/安装）
+│   └── util/             # 工具函数（文件操作/权限检查）
 └── go.mod
 ```
 

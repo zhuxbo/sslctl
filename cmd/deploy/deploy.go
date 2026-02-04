@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
@@ -131,26 +132,12 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取
-	privateKey := certData.PrivateKey
-	if privateKey == "" {
-		// 本地私钥模式或 API 未返回私钥，尝试从第一个绑定的私钥路径读取
-		if len(cert.Bindings) > 0 {
-			keyPath := cert.Bindings[0].Paths.PrivateKey
-			if keyPath != "" {
-				// 使用安全读取函数，防止符号链接攻击和 TOCTOU
-				const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-				keyData, err := util.SafeReadFile(keyPath, maxKeySize)
-				if err != nil {
-					return fmt.Errorf("读取本地私钥失败: %w", err)
-				}
-				privateKey = string(keyData)
-				fmt.Printf("  使用本地私钥: %s\n", keyPath)
-			}
-		}
+	privateKey, err := certops.GetPrivateKeyFromBindings(cert.Bindings, certData.PrivateKey)
+	if err != nil {
+		return err
 	}
-
-	if privateKey == "" {
-		return fmt.Errorf("缺少私钥（API 未返回且本地不存在）")
+	if certData.PrivateKey == "" && len(cert.Bindings) > 0 && cert.Bindings[0].Paths.PrivateKey != "" {
+		fmt.Printf("  使用本地私钥: %s\n", cert.Bindings[0].Paths.PrivateKey)
 	}
 
 	// 验证私钥与证书匹配

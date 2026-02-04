@@ -36,20 +36,10 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		return nil, fmt.Errorf("证书未就绪 (status=%s)", certData.Status)
 	}
 
-	// 获取私钥
-	privateKey := certData.PrivateKey
-	if privateKey == "" {
-		keyPath := pickKeyPath(cert)
-		if keyPath == "" {
-			return nil, fmt.Errorf("缺少私钥路径")
-		}
-		// 使用安全读取函数，防止符号链接攻击和 TOCTOU
-		const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-		keyData, err := util.SafeReadFile(keyPath, maxKeySize)
-		if err != nil {
-			return nil, fmt.Errorf("读取本地私钥失败: %w", err)
-		}
-		privateKey = string(keyData)
+	// 获取私钥：优先使用 API 返回，否则从本地读取
+	privateKey, err := GetPrivateKey(cert, certData.PrivateKey, s.log)
+	if err != nil {
+		return nil, err
 	}
 
 	// 部署到所有绑定

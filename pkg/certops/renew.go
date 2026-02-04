@@ -132,24 +132,9 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取
-	privateKey := certData.PrivateKey
-	if privateKey == "" {
-		keyPath := pickKeyPath(cert)
-		if keyPath == "" {
-			return nil, "", fmt.Errorf("missing local private key path")
-		}
-		// 使用安全读取函数，防止符号链接攻击和 TOCTOU
-		const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-		keyData, err := util.SafeReadFile(keyPath, maxKeySize)
-		if err != nil {
-			return nil, "", fmt.Errorf("读取本地私钥失败: %w", err)
-		}
-		privateKey = string(keyData)
-		s.log.Debug("证书 %s 使用本地私钥: %s", cert.CertName, keyPath)
-	}
-
-	if privateKey == "" {
-		return nil, "", fmt.Errorf("缺少私钥（API 未返回且本地不存在）")
+	privateKey, err := GetPrivateKey(cert, certData.PrivateKey, s.log)
+	if err != nil {
+		return nil, "", err
 	}
 	return certData, privateKey, nil
 }
@@ -205,8 +190,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			privateKey, err := readPendingKey(workDir, cert.CertName)
 			if err != nil {
 				// 回退到正式私钥，使用安全读取函数
-				const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-				keyData, readErr := util.SafeReadFile(keyPath, maxKeySize)
+				keyData, readErr := util.SafeReadFile(keyPath, config.MaxPrivateKeySize)
 				if readErr != nil {
 					return nil, "", fmt.Errorf("读取私钥失败: %w", readErr)
 				}

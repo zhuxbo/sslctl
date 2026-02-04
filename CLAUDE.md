@@ -18,7 +18,7 @@ cmd/           # CLI 入口
   daemon/      # 守护进程
   deploy/      # 证书部署
 pkg/           # 可复用包
-  certops/     # 证书操作服务层（扫描/部署/续签），依赖 webserver 抽象层
+  certops/     # 证书操作服务层（扫描/部署/续签/私钥管理），依赖 webserver 抽象层
   webserver/   # Web 服务器抽象层（统一 Scanner/Deployer/Rollback 接口）
   config/      # 配置管理（文件锁+内存锁双重保护，返回深拷贝确保并发安全，含 SSRF 防护）
   errors/      # 错误类型定义（含结构化部署错误 StructuredDeployError）
@@ -26,7 +26,9 @@ pkg/           # 可复用包
   fetcher/     # API 客户端（含 SSRF/DNS Rebinding 防护）
   backup/      # 备份管理（哈希校验 TOCTOU 保护）
   service/     # 系统服务管理
+  upgrade/     # 升级模块（版本检查/下载/校验/安装）
   logger/      # 日志（含敏感信息过滤、路径脱敏、日志轮转）
+  util/        # 工具函数（文件操作/权限检查）
 internal/      # 内部实现
   nginx/       # Nginx 扫描/部署
   apache/      # Apache 扫描/部署
@@ -131,6 +133,13 @@ docker/test/
 - **SSRF 校验统一** - 提取到 `pkg/validator/ssrf.go`，消除重复代码
 - **日志切换容错** - 切换失败时保留旧文件继续写入
 - **回滚错误返回** - 部署失败且回滚失败时返回复合错误
+
+## 代码质量优化（2026-02）
+
+- **私钥读取统一** - `pkg/certops/private_key.go` 提取 GetPrivateKey/GetPrivateKeyFromBindings，消除 5 处重复代码
+- **升级模块独立** - `pkg/upgrade/` 将升级逻辑从 cmd/main.go 提取为可复用模块（release.go/installer.go/upgrade.go）
+- **权限检查统一** - `pkg/util/privilege.go` 提取 CheckRootPrivilege，消除 4 处重复代码
+- **遗留代码清理** - 删除 `internal/nginx/config/`（重复配置结构）和 `pkg/config/manager.go`（未使用的 Manager 类型）
 
 ## 开发规范
 

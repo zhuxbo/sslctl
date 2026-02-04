@@ -111,6 +111,12 @@ const (
 	DefaultCheckIntervalHours = 6 // 默认检查间隔（小时）
 )
 
+// 文件大小限制常量
+const (
+	MaxPrivateKeySize = 16 * 1024 // 16KB - 足够 RSA-8192 私钥
+	MaxCertFileSize   = 1 << 20   // 1MB - 证书文件大小限制
+)
+
 // 环境变量常量
 const (
 	EnvAPIToken = "SSLCTL_API_TOKEN" // API Token 环境变量

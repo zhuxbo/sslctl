@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
+	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
@@ -46,9 +46,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
-	// 检查权限
-	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "请使用 root 权限运行此命令")
+	if err := util.CheckRootPrivilege(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -188,24 +187,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从站点现有路径读取
-	privateKey := certData.PrivateKey
-	if privateKey == "" && len(bindings) > 0 {
-		// 本地私钥模式：尝试从第一个绑定的私钥路径读取
-		keyPath := bindings[0].Paths.PrivateKey
-		if keyPath != "" {
-			// 使用安全读取函数，防止符号链接攻击和 TOCTOU
-			const maxKeySize = 16 * 1024 // 16KB 足够 RSA-8192 私钥
-			keyData, err := util.SafeReadFile(keyPath, maxKeySize)
-			if err == nil {
-				privateKey = string(keyData)
-				fmt.Printf("  使用本地私钥: %s\n", keyPath)
-			}
-		}
-	}
-
-	if privateKey == "" {
-		fmt.Fprintln(os.Stderr, "缺少私钥（API 未返回且本地不存在）")
+	privateKey, err := certops.GetPrivateKeyFromBindings(bindings, certData.PrivateKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "获取私钥失败: %v\n", err)
 		os.Exit(1)
+	}
+	if certData.PrivateKey == "" && len(bindings) > 0 && bindings[0].Paths.PrivateKey != "" {
+		fmt.Printf("  使用本地私钥: %s\n", bindings[0].Paths.PrivateKey)
 	}
 
 	// 验证私钥与证书匹配
