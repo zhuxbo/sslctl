@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
@@ -158,7 +159,7 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	cm.config = &cfg
 
-	// 环境变量优先级高于配置文件（带校验）
+	// 环境变量优先级高于配置文件（带完整校验）
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
 		// Token 基本校验：长度合理（至少 8 字符，不超过 512 字符）
 		if len(envToken) >= 8 && len(envToken) <= 512 {
@@ -167,18 +168,18 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 			}
 			cm.config.API.Token = envToken
 		} else {
-			log.Printf("[config] 环境变量 %s 值长度无效，忽略", EnvAPIToken)
+			log.Printf("[config] 环境变量 %s 值长度无效（需 8-512 字符），忽略", EnvAPIToken)
 		}
 	}
 	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
-		// URL 基本校验：必须是 http:// 或 https:// 开头
-		if strings.HasPrefix(envURL, "https://") || strings.HasPrefix(envURL, "http://") {
+		// URL 完整校验：格式 + SSRF 防护
+		if err := validateAPIURL(envURL); err != nil {
+			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIURL, err)
+		} else {
 			if cm.config.API.URL != "" && cm.config.API.URL != envURL {
 				log.Printf("[config] API URL 被环境变量覆盖")
 			}
 			cm.config.API.URL = envURL
-		} else {
-			log.Printf("[config] 环境变量 %s 值格式无效（需 http/https），忽略", EnvAPIURL)
 		}
 	}
 
@@ -420,6 +421,69 @@ func defaultSchedule() ScheduleConfig {
 		RenewBeforeDays:    PullRenewDefaultDay,
 		RenewMode:          RenewModePull,
 	}
+}
+
+// validateAPIURL 校验 API URL 是否有效（包含 SSRF 防护）
+// 仅 localhost/127.0.0.1 允许 HTTP，其他必须使用 HTTPS
+func validateAPIURL(apiURL string) error {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return fmt.Errorf("invalid API URL: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("API URL must use HTTP or HTTPS, got: %s", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("API URL must have a valid host")
+	}
+
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1"
+
+	// HTTP 仅允许 localhost
+	if u.Scheme == "http" && !isLocal {
+		return fmt.Errorf("HTTP only allowed for localhost, use HTTPS for remote servers")
+	}
+
+	// SSRF 防护：检查是否为内网 IP 或云元数据地址
+	if !isLocal {
+		if err := checkSSRF(host); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkSSRF 检查 SSRF 风险
+func checkSSRF(host string) error {
+	// 解析 IP 地址
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// DNS 解析失败，拒绝请求以防止 DNS rebinding 攻击
+		return fmt.Errorf("DNS lookup failed for %s: %w", host, err)
+	}
+
+	for _, ip := range ips {
+		// 检查回环地址
+		if ip.IsLoopback() {
+			return fmt.Errorf("loopback address not allowed: %s", ip)
+		}
+		// 检查内网 IP (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+		if ip.IsPrivate() {
+			return fmt.Errorf("private IP not allowed: %s", ip)
+		}
+		// 检查链路本地地址 (169.254.0.0/16)
+		if ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("link-local address not allowed: %s", ip)
+		}
+		// 检查云元数据地址 (169.254.169.254)
+		if ip.String() == "169.254.169.254" {
+			return fmt.Errorf("cloud metadata endpoint not allowed")
+		}
+	}
+
+	return nil
 }
 
 // InitConfig 初始化配置（一键部署使用）

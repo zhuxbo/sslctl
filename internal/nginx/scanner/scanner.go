@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // SSLSite 扫描到的 SSL 站点信息
@@ -112,8 +114,7 @@ func DetectNginx() (configPath string, err error) {
 // getNginxConfigFromTest 通过 nginx -t 获取配置路径
 func getNginxConfigFromTest() (string, error) {
 	// nginx -t 输出: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-	cmd := exec.Command("nginx", "-t")
-	output, _ := cmd.CombinedOutput() // 忽略错误，即使配置有问题也能获取路径
+	output, _ := executor.RunOutput("nginx -t") // 忽略错误，即使配置有问题也能获取路径
 
 	// 匹配配置文件路径
 	re := regexp.MustCompile(`configuration file (.+?) `)
@@ -131,8 +132,7 @@ func getNginxConfigFromTest() (string, error) {
 // getNginxConfigFromVersion 通过 nginx -V 获取配置路径
 func getNginxConfigFromVersion() (string, error) {
 	// nginx -V 输出包含: --conf-path=/etc/nginx/nginx.conf
-	cmd := exec.Command("nginx", "-V")
-	output, err := cmd.CombinedOutput()
+	output, err := executor.RunOutput("nginx -V")
 	if err != nil {
 		return "", err
 	}
@@ -180,8 +180,7 @@ func getCommonNginxPaths() []string {
 // GetMergedConfig 使用 nginx -T 获取合并后的完整配置
 // 返回配置内容和各配置文件的位置映射
 func GetMergedConfig() (string, map[int]string, error) {
-	cmd := exec.Command("nginx", "-T")
-	output, err := cmd.CombinedOutput()
+	output, err := executor.RunOutput("nginx -T")
 	if err != nil {
 		// 即使有警告也可能输出配置，检查是否有内容
 		if len(output) == 0 {
@@ -902,8 +901,7 @@ func findNginxFromProcessLinux() string {
 
 	// 方法2: 通过 ps 查找 nginx 进程
 	// ps -C nginx -o pid= 获取 nginx 进程的 PID
-	cmd := exec.Command("ps", "-C", "nginx", "-o", "pid=")
-	output, err := cmd.Output()
+	output, err := executor.RunOutput("ps -C nginx -o pid=")
 	if err != nil || len(output) == 0 {
 		return ""
 	}
@@ -939,12 +937,10 @@ func findNginxFromProcessLinux() string {
 // findBinaryFromPort 通过端口查找进程的可执行文件路径
 func findBinaryFromPort(processName string) string {
 	// 尝试 ss 命令: ss -tlnp | grep :80
-	cmd := exec.Command("ss", "-tlnp")
-	output, err := cmd.Output()
+	output, err := executor.RunOutput("ss -tlnp")
 	if err != nil {
 		// 尝试 netstat
-		cmd = exec.Command("netstat", "-tlnp")
-		output, err = cmd.Output()
+		output, err = executor.RunOutput("netstat -tlnp")
 		if err != nil {
 			return ""
 		}
@@ -1037,8 +1033,7 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 		return nil, fmt.Errorf("未找到 nginx 可执行文件")
 	}
 
-	cmd := exec.Command(nginxPath, "-T")
-	output, err := cmd.CombinedOutput()
+	output, err := executor.RunScan(nginxPath, "-T")
 	if err != nil {
 		// 检查是否有有效输出（可能只是警告）
 		if !strings.Contains(string(output), "server") {

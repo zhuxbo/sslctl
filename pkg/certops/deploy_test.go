@@ -211,7 +211,8 @@ func TestDeployToBinding_UnsupportedServerType(t *testing.T) {
 	if err == nil {
 		t.Error("不支持的服务器类型应返回错误")
 	}
-	if err != nil && !strings.Contains(err.Error(), "不支持的服务器类型") {
+	// 通过 webserver 抽象层，错误信息变为 "创建部署器失败: unknown server type"
+	if err != nil && !strings.Contains(err.Error(), "unknown server type") && !strings.Contains(err.Error(), "创建部署器失败") {
 		t.Errorf("错误信息不正确: %v", err)
 	}
 }

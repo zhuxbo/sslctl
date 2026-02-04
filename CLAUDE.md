@@ -18,14 +18,15 @@ cmd/           # CLI 入口
   daemon/      # 守护进程
   deploy/      # 证书部署
 pkg/           # 可复用包
-  certops/     # 证书操作服务层（扫描/部署/续签）
-  webserver/   # Web 服务器抽象层
-  config/      # 配置管理（统一 config.json，返回深拷贝确保并发安全）
+  certops/     # 证书操作服务层（扫描/部署/续签），依赖 webserver 抽象层
+  webserver/   # Web 服务器抽象层（统一 Scanner/Deployer 接口）
+  config/      # 配置管理（统一 config.json，返回深拷贝确保并发安全，含 SSRF 防护）
+  errors/      # 错误类型定义（含结构化部署错误 StructuredDeployError）
   matcher/     # 域名匹配
   fetcher/     # API 客户端（含 SSRF 防护）
   backup/      # 备份管理（含原子性检查）
   service/     # 系统服务管理
-  logger/      # 日志（含敏感信息过滤）
+  logger/      # 日志（含敏感信息过滤、日志轮转）
 internal/      # 内部实现
   nginx/       # Nginx 扫描/部署
   apache/      # Apache 扫描/部署

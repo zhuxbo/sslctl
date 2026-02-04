@@ -7,12 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
-	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
+	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
 // DeployOne 部署指定证书
@@ -60,13 +59,14 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 	enabledCount := 0
 	successCount := 0
 	for i := range cert.Bindings {
-		binding := &cert.Bindings[i]
+		// 使用值拷贝而非指针，确保深拷贝保护有效
+		binding := cert.Bindings[i]
 		if !binding.Enabled {
 			continue
 		}
 		enabledCount++
 
-		err := s.deployToBinding(ctx, binding, certData, privateKey)
+		err := s.deployToBinding(ctx, &binding, certData, privateKey)
 		if err != nil {
 			s.log.Error("部署到 %s 失败: %v", binding.SiteName, err)
 			result.Success = false
@@ -138,31 +138,19 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		}
 	}
 
-	// 2. 部署
-	var deployErr error
-	switch binding.ServerType {
-	case config.ServerTypeNginx, config.ServerTypeDockerNginx:
-		d := nginxDeployer.NewNginxDeployer(
-			binding.Paths.Certificate,
-			binding.Paths.PrivateKey,
-			binding.Reload.TestCommand,
-			binding.Reload.ReloadCommand,
-		)
-		deployErr = d.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
-
-	case config.ServerTypeApache, config.ServerTypeDockerApache:
-		d := apacheDeployer.NewApacheDeployer(
-			binding.Paths.Certificate,
-			binding.Paths.PrivateKey,
-			binding.Paths.ChainFile,
-			binding.Reload.TestCommand,
-			binding.Reload.ReloadCommand,
-		)
-		deployErr = d.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
-
-	default:
-		return fmt.Errorf("不支持的服务器类型: %s", binding.ServerType)
+	// 2. 部署（使用 webserver 抽象层）
+	deployer, err := webserver.NewDeployer(
+		webserver.ServerType(binding.ServerType),
+		binding.Paths.Certificate,
+		binding.Paths.PrivateKey,
+		binding.Paths.ChainFile,
+		binding.Reload.TestCommand,
+		binding.Reload.ReloadCommand,
+	)
+	if err != nil {
+		return fmt.Errorf("创建部署器失败: %w", err)
 	}
+	deployErr := deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
 
 	// 3. 部署失败时回滚
 	if deployErr != nil && backupPath != "" {
@@ -199,29 +187,19 @@ func (s *Service) rollbackFromBackup(binding *config.SiteBinding, backupPath str
 		}
 	}
 
-	// 重载服务
-	switch binding.ServerType {
-	case config.ServerTypeNginx, config.ServerTypeDockerNginx:
-		d := nginxDeployer.NewNginxDeployer(
-			binding.Paths.Certificate,
-			binding.Paths.PrivateKey,
-			binding.Reload.TestCommand,
-			binding.Reload.ReloadCommand,
-		)
-		return d.Reload()
-
-	case config.ServerTypeApache, config.ServerTypeDockerApache:
-		d := apacheDeployer.NewApacheDeployer(
-			binding.Paths.Certificate,
-			binding.Paths.PrivateKey,
-			binding.Paths.ChainFile,
-			binding.Reload.TestCommand,
-			binding.Reload.ReloadCommand,
-		)
-		return d.Reload()
+	// 重载服务（使用 webserver 抽象层）
+	deployer, err := webserver.NewDeployer(
+		webserver.ServerType(binding.ServerType),
+		binding.Paths.Certificate,
+		binding.Paths.PrivateKey,
+		binding.Paths.ChainFile,
+		binding.Reload.TestCommand,
+		binding.Reload.ReloadCommand,
+	)
+	if err != nil {
+		return fmt.Errorf("创建部署器失败: %w", err)
 	}
-
-	return nil
+	return deployer.Reload()
 }
 
 // pickKeyPath 选择一个可用的私钥路径（优先启用的绑定）

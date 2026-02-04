@@ -9,7 +9,11 @@ import (
 
 // AllowedCommands 允许的命令白名单（支持多发行版和 Windows）
 var AllowedCommands = map[string]bool{
-	// ========== Nginx 命令 ==========
+	// ========== Nginx 扫描命令 ==========
+	"nginx -V":                true, // 获取版本信息
+	"nginx -T":                true, // 获取合并配置
+
+	// ========== Nginx 部署命令 ==========
 	// Linux - 通用
 	"nginx -t":                true,
 	"nginx -s reload":         true,
@@ -65,6 +69,25 @@ var AllowedCommands = map[string]bool{
 	"C:\\Apache24\\bin\\httpd.exe -k restart": true,
 	"net stop Apache2.4":                      true,
 	"net start Apache2.4":                     true,
+
+	// ========== 系统扫描命令（只读） ==========
+	"ps -C nginx -o pid=": true, // 查找 nginx 进程
+	"ss -tlnp":            true, // 查看监听端口
+	"netstat -tlnp":       true, // 查看监听端口（备用）
+}
+
+// AllowedScanExecutables 扫描器允许的可执行文件（用于动态路径）
+var AllowedScanExecutables = map[string]bool{
+	"nginx":          true,
+	"nginx.exe":      true,
+	"/usr/sbin/nginx": true,
+}
+
+// AllowedScanArgs 扫描器允许的参数组合
+var AllowedScanArgs = map[string]bool{
+	"-t": true, // 测试配置
+	"-T": true, // 获取合并配置
+	"-V": true, // 获取版本信息
 }
 
 // ParseCommand 解析命令字符串为可执行文件和参数
@@ -96,4 +119,46 @@ func Run(cmdStr string) error {
 // IsAllowed 检查命令是否在白名单中
 func IsAllowed(cmdStr string) bool {
 	return AllowedCommands[cmdStr]
+}
+
+// RunOutput 执行命令并返回输出（直接执行，不通过 shell）
+// 使用白名单机制防止命令注入
+func RunOutput(cmdStr string) ([]byte, error) {
+	if !AllowedCommands[cmdStr] {
+		return nil, fmt.Errorf("command not in whitelist: %s", cmdStr)
+	}
+
+	executable, args := ParseCommand(cmdStr)
+	cmd := exec.Command(executable, args...)
+	return cmd.CombinedOutput()
+}
+
+// RunScan 执行扫描命令（用于动态路径的可执行文件）
+// 只允许预定义的可执行文件和参数组合
+// executable: 可执行文件路径（如 nginx 或 /usr/sbin/nginx）
+// args: 参数（如 -T）
+func RunScan(executable string, args ...string) ([]byte, error) {
+	// 检查可执行文件名（提取 basename）
+	basename := executable
+	if idx := strings.LastIndex(executable, "/"); idx >= 0 {
+		basename = executable[idx+1:]
+	}
+	if idx := strings.LastIndex(basename, "\\"); idx >= 0 {
+		basename = basename[idx+1:]
+	}
+
+	// 检查是否为允许的可执行文件
+	if !AllowedScanExecutables[basename] && !AllowedScanExecutables[executable] {
+		return nil, fmt.Errorf("executable not in scan whitelist: %s", executable)
+	}
+
+	// 检查参数是否允许
+	for _, arg := range args {
+		if !AllowedScanArgs[arg] {
+			return nil, fmt.Errorf("argument not in scan whitelist: %s", arg)
+		}
+	}
+
+	cmd := exec.Command(executable, args...)
+	return cmd.CombinedOutput()
 }

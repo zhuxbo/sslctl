@@ -38,7 +38,8 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 	var results []*RenewResult
 
 	for i := range cfg.Certificates {
-		cert := &cfg.Certificates[i]
+		// 使用值拷贝而非指针，确保深拷贝保护有效
+		cert := cfg.Certificates[i]
 		if !cert.Enabled {
 			continue
 		}
@@ -63,9 +64,9 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		)
 
 		if mode == config.RenewModeLocal {
-			certData, privateKey, err = s.prepareLocalRenew(ctx, cert, cfg.API)
+			certData, privateKey, err = s.prepareLocalRenew(ctx, &cert, cfg.API)
 		} else {
-			certData, privateKey, err = s.preparePullRenew(ctx, cert, cfg.API)
+			certData, privateKey, err = s.preparePullRenew(ctx, &cert, cfg.API)
 		}
 
 		if err != nil {
@@ -83,7 +84,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		}
 
 		// 部署证书
-		deployCount, deployErr := s.deployCertToBindings(ctx, cert, certData, privateKey)
+		deployCount, deployErr := s.deployCertToBindings(ctx, &cert, certData, privateKey)
 		if deployErr != nil {
 			result.Status = "failed"
 			result.Error = deployErr
@@ -94,7 +95,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 		// 更新配置
 		if result.Status == "success" {
-			if err := s.cfgManager.UpdateCert(cert); err != nil {
+			if err := s.cfgManager.UpdateCert(&cert); err != nil {
 				s.log.Warn("更新证书元数据失败: %v", err)
 			}
 		}
@@ -280,12 +281,13 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 	deployCount := 0
 	var lastErr error
 	for j := range cert.Bindings {
-		binding := &cert.Bindings[j]
+		// 使用值拷贝而非指针，确保深拷贝保护有效
+		binding := cert.Bindings[j]
 		if !binding.Enabled {
 			continue
 		}
 
-		if err := s.deployToBinding(ctx, binding, certData, privateKey); err != nil {
+		if err := s.deployToBinding(ctx, &binding, certData, privateKey); err != nil {
 			s.log.Error("部署到 %s 失败: %v", binding.SiteName, err)
 			lastErr = err
 			continue
@@ -335,6 +337,7 @@ func readPendingKey(workDir, certName string) (string, error) {
 }
 
 // commitPendingKey 签发成功后将待确认私钥移动到正式位置
+// 失败时错误信息包含 pending 私钥位置，便于手动恢复
 func commitPendingKey(workDir, certName, targetPath string) error {
 	pendingPath := getPendingKeyPath(workDir, certName)
 	if _, err := os.Stat(pendingPath); os.IsNotExist(err) {
@@ -343,7 +346,7 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 	// 确保目标目录存在
 	targetDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(targetDir, 0700); err != nil {
-		return err
+		return fmt.Errorf("创建目标目录失败: %w (pending 私钥保留在: %s，请手动恢复)", err, pendingPath)
 	}
 	// 移动文件
 	if err := os.Rename(pendingPath, targetPath); err != nil {
@@ -351,19 +354,19 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 		data, readErr := os.ReadFile(pendingPath)
 		if readErr != nil {
 			// 读取失败，保留 pending 私钥以便手动恢复
-			return fmt.Errorf("读取待确认私钥失败: %w", readErr)
+			return fmt.Errorf("读取待确认私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", readErr, pendingPath)
 		}
 		// 原子写入：先写到目标目录的临时文件，再重命名
 		tmpPath := targetPath + ".tmp"
 		if writeErr := os.WriteFile(tmpPath, data, 0600); writeErr != nil {
 			// 写入失败，保留 pending 私钥以便手动恢复
 			_ = os.Remove(tmpPath) // 清理可能的部分写入
-			return fmt.Errorf("写入目标私钥失败: %w", writeErr)
+			return fmt.Errorf("写入目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", writeErr, pendingPath)
 		}
 		if renameErr := os.Rename(tmpPath, targetPath); renameErr != nil {
 			// 重命名失败，保留 pending 私钥以便手动恢复
 			_ = os.Remove(tmpPath) // 清理临时文件
-			return fmt.Errorf("重命名目标私钥失败: %w", renameErr)
+			return fmt.Errorf("重命名目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", renameErr, pendingPath)
 		}
 		// 成功后才清理 pending 私钥
 		_ = os.Remove(pendingPath)

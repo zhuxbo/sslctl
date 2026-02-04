@@ -38,39 +38,48 @@ func NewApacheDeployer(certPath, keyPath, chainPath, testCmd, reloadCmd string) 
 func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 	// 1. 确保目录存在
 	if err := os.MkdirAll(filepath.Dir(d.certPath), 0755); err != nil {
-		return errors.NewDeployError("failed to create certificate directory", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteCert,
+			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
+		)
 	}
 	if err := os.MkdirAll(filepath.Dir(d.keyPath), 0700); err != nil {
-		return errors.NewDeployError("failed to create key directory", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteKey,
+			fmt.Sprintf("failed to create key directory: %s", filepath.Dir(d.keyPath)), err,
+		)
 	}
 	if d.chainPath != "" {
 		if err := os.MkdirAll(filepath.Dir(d.chainPath), 0755); err != nil {
-			return errors.NewDeployError("failed to create chain directory", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorPermission, errors.PhaseWriteChain,
+				fmt.Sprintf("failed to create chain directory: %s", filepath.Dir(d.chainPath)), err,
+			)
 		}
 	}
 
 	// 2. 原子写入服务器证书
 	if err := util.AtomicWrite(d.certPath, []byte(cert), 0644); err != nil {
-		return errors.NewDeployError(
-			fmt.Sprintf("failed to write certificate file: %s", d.certPath),
-			err,
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteCert,
+			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
 		)
 	}
 
 	// 3. 原子写入私钥文件（0600）
 	if err := util.AtomicWrite(d.keyPath, []byte(key), 0600); err != nil {
-		return errors.NewDeployError(
-			fmt.Sprintf("failed to write private key file: %s", d.keyPath),
-			err,
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteKey,
+			fmt.Sprintf("failed to write private key file: %s", d.keyPath), err,
 		)
 	}
 
 	// 4. 原子写入中间证书链（Apache 需要分离的 chain 文件）
 	if d.chainPath != "" && intermediate != "" {
 		if err := util.AtomicWrite(d.chainPath, []byte(intermediate), 0644); err != nil {
-			return errors.NewDeployError(
-				fmt.Sprintf("failed to write chain file: %s", d.chainPath),
-				err,
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorPermission, errors.PhaseWriteChain,
+				fmt.Sprintf("failed to write chain file: %s", d.chainPath), err,
 			)
 		}
 	}
@@ -78,9 +87,9 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 	// 5. 测试配置
 	if d.testCommand != "" {
 		if err := d.runCommand(d.testCommand); err != nil {
-			return errors.NewDeployError(
-				fmt.Sprintf("config test failed: %s", d.testCommand),
-				err,
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorConfig, errors.PhaseTest,
+				fmt.Sprintf("config test failed: %s", d.testCommand), err,
 			)
 		}
 	}
@@ -88,9 +97,9 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 	// 6. 重载服务
 	if d.reloadCommand != "" {
 		if err := d.runCommand(d.reloadCommand); err != nil {
-			return errors.NewDeployError(
-				fmt.Sprintf("reload failed: %s", d.reloadCommand),
-				err,
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorReload, errors.PhaseReload,
+				fmt.Sprintf("reload failed: %s", d.reloadCommand), err,
 			)
 		}
 	}
@@ -123,30 +132,45 @@ func (d *ApacheDeployer) Test() error {
 func (d *ApacheDeployer) Rollback(backupCertPath, backupKeyPath, backupChainPath string) error {
 	// 1. 复制备份文件
 	if err := util.CopyFile(backupCertPath, d.certPath); err != nil {
-		return errors.NewDeployError("failed to restore certificate", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseRollback,
+			"failed to restore certificate", err,
+		)
 	}
 
 	if err := util.CopyFile(backupKeyPath, d.keyPath); err != nil {
-		return errors.NewDeployError("failed to restore private key", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseRollback,
+			"failed to restore private key", err,
+		)
 	}
 
 	if d.chainPath != "" && backupChainPath != "" {
 		if err := util.CopyFile(backupChainPath, d.chainPath); err != nil {
-			return errors.NewDeployError("failed to restore chain file", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorPermission, errors.PhaseRollback,
+				"failed to restore chain file", err,
+			)
 		}
 	}
 
 	// 2. 测试配置
 	if d.testCommand != "" {
 		if err := d.runCommand(d.testCommand); err != nil {
-			return errors.NewDeployError("config test failed after rollback", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorConfig, errors.PhaseRollback,
+				"config test failed after rollback", err,
+			)
 		}
 	}
 
 	// 3. 重载服务
 	if d.reloadCommand != "" {
 		if err := d.runCommand(d.reloadCommand); err != nil {
-			return errors.NewDeployError("reload failed after rollback", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorReload, errors.PhaseRollback,
+				"reload failed after rollback", err,
+			)
 		}
 	}
 

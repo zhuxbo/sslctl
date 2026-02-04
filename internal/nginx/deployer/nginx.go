@@ -39,34 +39,40 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 
 	// 2. 确保证书与私钥目录存在
 	if err := os.MkdirAll(filepath.Dir(d.certPath), 0755); err != nil {
-		return errors.NewDeployError("failed to create certificate directory", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteCert,
+			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
+		)
 	}
 	if err := os.MkdirAll(filepath.Dir(d.keyPath), 0700); err != nil {
-		return errors.NewDeployError("failed to create key directory", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteKey,
+			fmt.Sprintf("failed to create key directory: %s", filepath.Dir(d.keyPath)), err,
+		)
 	}
 
 	// 3. 原子写入证书文件
 	if err := util.AtomicWrite(d.certPath, []byte(fullchain), 0644); err != nil {
-		return errors.NewDeployError(
-			fmt.Sprintf("failed to write certificate file: %s", d.certPath),
-			err,
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteCert,
+			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
 		)
 	}
 
 	// 4. 原子写入私钥文件（0600）
 	if err := util.AtomicWrite(d.keyPath, []byte(key), 0600); err != nil {
-		return errors.NewDeployError(
-			fmt.Sprintf("failed to write private key file: %s", d.keyPath),
-			err,
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseWriteKey,
+			fmt.Sprintf("failed to write private key file: %s", d.keyPath), err,
 		)
 	}
 
 	// 5. 测试配置
 	if d.testCommand != "" {
 		if err := d.runCommand(d.testCommand); err != nil {
-			return errors.NewDeployError(
-				fmt.Sprintf("config test failed: %s", d.testCommand),
-				err,
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorConfig, errors.PhaseTest,
+				fmt.Sprintf("config test failed: %s", d.testCommand), err,
 			)
 		}
 	}
@@ -74,9 +80,9 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 	// 6. 重载服务
 	if d.reloadCommand != "" {
 		if err := d.runCommand(d.reloadCommand); err != nil {
-			return errors.NewDeployError(
-				fmt.Sprintf("reload failed: %s", d.reloadCommand),
-				err,
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorReload, errors.PhaseReload,
+				fmt.Sprintf("reload failed: %s", d.reloadCommand), err,
 			)
 		}
 	}
@@ -109,24 +115,36 @@ func (d *NginxDeployer) Test() error {
 func (d *NginxDeployer) Rollback(backupCertPath, backupKeyPath string) error {
 	// 1. 复制备份文件
 	if err := util.CopyFile(backupCertPath, d.certPath); err != nil {
-		return errors.NewDeployError("failed to restore certificate", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseRollback,
+			"failed to restore certificate", err,
+		)
 	}
 
 	if err := util.CopyFile(backupKeyPath, d.keyPath); err != nil {
-		return errors.NewDeployError("failed to restore private key", err)
+		return errors.NewStructuredDeployError(
+			errors.DeployErrorPermission, errors.PhaseRollback,
+			"failed to restore private key", err,
+		)
 	}
 
 	// 2. 测试配置
 	if d.testCommand != "" {
 		if err := d.runCommand(d.testCommand); err != nil {
-			return errors.NewDeployError("config test failed after rollback", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorConfig, errors.PhaseRollback,
+				"config test failed after rollback", err,
+			)
 		}
 	}
 
 	// 3. 重载服务
 	if d.reloadCommand != "" {
 		if err := d.runCommand(d.reloadCommand); err != nil {
-			return errors.NewDeployError("reload failed after rollback", err)
+			return errors.NewStructuredDeployError(
+				errors.DeployErrorReload, errors.PhaseRollback,
+				"reload failed after rollback", err,
+			)
 		}
 	}
 

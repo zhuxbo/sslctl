@@ -163,11 +163,19 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	if l.file != nil {
 		currentFilename := filepath.Base(l.file.Name())
 		if currentFilename != expectedFilename {
-			_ = l.file.Close()
-			_ = l.openLogFile()
+			oldFile := l.file
+			l.file = nil
+			_ = oldFile.Close()
+			if err := l.openLogFile(); err != nil {
+				// 打开新文件失败，尝试恢复旧文件或在控制台输出警告
+				fmt.Printf("[WARN] 切换日志文件失败: %v，后续日志仅输出到控制台\n", err)
+			}
 			// 日期切换时清理旧日志
 			l.cleanOldLogs()
 		}
+	} else if l.logDir != "" {
+		// 如果文件为空但日志目录存在，尝试重新打开
+		_ = l.openLogFile()
 	}
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
