@@ -4,8 +4,14 @@ package upgrade
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+)
+
+// 版本信息配置常量
+const (
+	maxReleaseInfoSize = 1 * 1024 * 1024 // 最大版本信息大小 1MB
 )
 
 // ReleaseURL 发布信息 URL
@@ -25,14 +31,25 @@ type ReleaseInfo struct {
 
 // FetchReleaseInfo 获取远程版本信息
 func FetchReleaseInfo() (*ReleaseInfo, error) {
-	resp, err := http.Get(ReleaseURL + "/releases.json")
+	return fetchReleaseInfoFrom(ReleaseURL+"/releases.json", secureHTTPClient())
+}
+
+// fetchReleaseInfoFrom 内部实现，接受 URL 和 client 参数（便于测试）
+func fetchReleaseInfoFrom(url string, client *http.Client) (*ReleaseInfo, error) {
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("获取版本信息失败: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取版本信息失败: HTTP %d", resp.StatusCode)
+	}
+
+	// 限制响应体大小，防止恶意服务器返回超大 JSON
+	limitReader := io.LimitReader(resp.Body, maxReleaseInfoSize)
 	var info ReleaseInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	if err := json.NewDecoder(limitReader).Decode(&info); err != nil {
 		return nil, fmt.Errorf("解析版本信息失败: %w", err)
 	}
 

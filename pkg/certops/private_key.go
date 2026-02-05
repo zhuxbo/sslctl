@@ -68,8 +68,10 @@ func GetPrivateKeyFromBindings(bindings []config.SiteBinding, apiPrivateKey stri
 // 优先选择已启用绑定的私钥路径
 func pickKeyPathFromBindings(bindings []config.SiteBinding) string {
 	for i := range bindings {
-		if bindings[i].Enabled && bindings[i].Paths.PrivateKey != "" {
-			return bindings[i].Paths.PrivateKey
+		// 使用值拷贝而非指针，与 DeployOne 保持一致
+		binding := bindings[i]
+		if binding.Enabled && binding.Paths.PrivateKey != "" {
+			return binding.Paths.PrivateKey
 		}
 	}
 	if len(bindings) > 0 {

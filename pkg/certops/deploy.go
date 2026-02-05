@@ -188,8 +188,10 @@ func (s *Service) rollbackFromBackup(binding *config.SiteBinding, backupPath str
 // pickKeyPath 选择一个可用的私钥路径（优先启用的绑定）
 func pickKeyPath(cert *config.CertConfig) string {
 	for i := range cert.Bindings {
-		if cert.Bindings[i].Enabled && cert.Bindings[i].Paths.PrivateKey != "" {
-			return cert.Bindings[i].Paths.PrivateKey
+		// 使用值拷贝而非指针，与 DeployOne 保持一致
+		binding := cert.Bindings[i]
+		if binding.Enabled && binding.Paths.PrivateKey != "" {
+			return binding.Paths.PrivateKey
 		}
 	}
 	if len(cert.Bindings) > 0 {

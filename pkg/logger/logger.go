@@ -167,7 +167,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 			if err := l.openLogFile(); err != nil {
 				// 打开新文件失败，保留旧文件继续使用（比丢失日志更好）
 				l.file = oldFile
-				fmt.Printf("[WARN] 切换日志文件失败: %v，继续使用旧文件 %s\n", err, currentFilename)
+				fmt.Fprintf(os.Stderr, "[WARN] 切换日志文件失败: %v，继续使用旧文件 %s\n", err, currentFilename)
 			} else {
 				// 成功打开新文件，关闭旧文件
 				_ = oldFile.Close()

@@ -278,6 +278,16 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 			}
 			if currentSite.ServerName == "" && len(names) > 0 {
 				currentSite.ServerName = names[0]
+				// 如果 ServerName 是从 alias 提升的，需要从 alias 中移除避免重复
+				if len(currentSite.ServerAlias) > 0 {
+					filtered := currentSite.ServerAlias[:0]
+					for _, a := range currentSite.ServerAlias {
+						if a != currentSite.ServerName {
+							filtered = append(filtered, a)
+						}
+					}
+					currentSite.ServerAlias = filtered
+				}
 			}
 		}
 

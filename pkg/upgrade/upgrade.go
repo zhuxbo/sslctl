@@ -3,6 +3,7 @@ package upgrade
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/zhuxbo/sslctl/pkg/service"
 )
@@ -28,13 +29,18 @@ type Result struct {
 // Execute 执行升级
 // 返回升级结果和日志回调（用于输出进度信息）
 func Execute(opts Options, logFunc func(format string, args ...interface{})) (*Result, error) {
+	return executeWithClient(opts, logFunc, ReleaseURL+"/releases.json", secureHTTPClient())
+}
+
+// executeWithClient 内部实现，接受 URL 和 client 参数（便于测试）
+func executeWithClient(opts Options, logFunc func(format string, args ...interface{}), releaseURL string, client *http.Client) (*Result, error) {
 	if logFunc == nil {
 		logFunc = func(format string, args ...interface{}) {}
 	}
 
 	// 1. 获取远程版本信息
 	logFunc("检查更新...")
-	info, err := FetchReleaseInfo()
+	info, err := fetchReleaseInfoFrom(releaseURL, client)
 	if err != nil {
 		return nil, err
 	}

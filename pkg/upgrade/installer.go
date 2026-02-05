@@ -45,12 +45,16 @@ func secureHTTPClient() *http.Client {
 // - 下载超时（防止资源耗尽）
 // - 大小限制（防止内存耗尽）
 func DownloadBinary(url string) ([]byte, error) {
+	return downloadBinaryWithClient(url, secureHTTPClient())
+}
+
+// downloadBinaryWithClient 内部实现，接受 client 参数（便于测试）
+func downloadBinaryWithClient(url string, client *http.Client) ([]byte, error) {
 	// 安全校验：强制 HTTPS
 	if !strings.HasPrefix(url, "https://") {
 		return nil, fmt.Errorf("下载失败: 仅允许 HTTPS 协议")
 	}
 
-	client := secureHTTPClient()
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("下载失败: %w", err)
@@ -94,6 +98,11 @@ func VerifyChecksum(data []byte, expected string) error {
 // gzData: gzip 压缩的二进制数据
 // 返回安装路径
 func Install(gzData []byte) (string, error) {
+	return installTo(gzData, GetBinaryPath())
+}
+
+// installTo 内部实现，接受目标路径参数（便于测试）
+func installTo(gzData []byte, binPath string) (string, error) {
 	// 解压 gzip
 	gzReader, err := gzip.NewReader(bytes.NewReader(gzData))
 	if err != nil {
@@ -120,9 +129,6 @@ func Install(gzData []byte) (string, error) {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("设置权限失败: %w", err)
 	}
-
-	// 确定目标路径
-	binPath := GetBinaryPath()
 
 	// 确保目录存在
 	if err := os.MkdirAll(filepath.Dir(binPath), 0755); err != nil {

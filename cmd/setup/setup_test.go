@@ -2,7 +2,6 @@
 package setup
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,7 +196,7 @@ func TestDeployCert_Nginx(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err = deployToSiteBinding(t.Context(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}
@@ -239,7 +238,7 @@ func TestDeployCert_Apache(t *testing.T) {
 		IntermediateCert: intermediateCert.CertPEM,
 	}
 
-	err := deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err := deployToSiteBinding(t.Context(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}
@@ -275,7 +274,7 @@ func TestDeployCert_CreateDirectory(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployToSiteBinding(context.TODO(), binding, certData, testCert.KeyPEM, nil)
+	err := deployToSiteBinding(t.Context(), binding, certData, testCert.KeyPEM, nil)
 	if err != nil {
 		t.Fatalf("deployCert() error = %v", err)
 	}

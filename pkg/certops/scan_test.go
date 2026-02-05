@@ -2,7 +2,6 @@
 package certops
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -293,7 +292,7 @@ func TestScanSites_Basic(t *testing.T) {
 	svc := NewService(cm, log)
 
 	// 执行扫描
-	result, err := svc.ScanSites(context.TODO(), ScanOptions{})
+	result, err := svc.ScanSites(t.Context(), ScanOptions{})
 	if err != nil {
 		t.Errorf("扫描不应报错: %v", err)
 	}
@@ -324,7 +323,7 @@ func TestScanSites_SSLOnly(t *testing.T) {
 	svc := NewService(cm, log)
 
 	// 使用 SSLOnly 选项扫描
-	result, err := svc.ScanSites(context.TODO(), ScanOptions{SSLOnly: true})
+	result, err := svc.ScanSites(t.Context(), ScanOptions{SSLOnly: true})
 	if err != nil {
 		t.Errorf("SSL 扫描不应报错: %v", err)
 	}
@@ -354,7 +353,7 @@ func TestScanSites_WithServerType(t *testing.T) {
 	svc := NewService(cm, log)
 
 	// 测试指定 nginx 类型
-	result, err := svc.ScanSites(context.TODO(), ScanOptions{ServerType: "nginx"})
+	result, err := svc.ScanSites(t.Context(), ScanOptions{ServerType: "nginx"})
 	if err != nil {
 		t.Errorf("Nginx 扫描不应报错: %v", err)
 	}

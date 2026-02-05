@@ -118,6 +118,142 @@ func TestValidateExecCommand_LsGlobRegression(t *testing.T) {
 	}
 }
 
+func TestFindMountForPath(t *testing.T) {
+	client := NewClient("abc123")
+	mounts := []MountInfo{
+		{Type: "bind", Source: "/host/nginx", Destination: "/etc/nginx", RW: true},
+		{Type: "bind", Source: "/host/ssl", Destination: "/etc/nginx/ssl", RW: true},
+		{Type: "bind", Source: "/host/www", Destination: "/var/www", RW: true},
+		{Type: "volume", Source: "data-vol", Destination: "/data", RW: true},       // volume 类型，应忽略
+		{Type: "bind", Source: "/host/ro", Destination: "/readonly", RW: false},     // 只读，应忽略
+	}
+
+	tests := []struct {
+		name          string
+		containerPath string
+		wantSource    string
+		wantNil       bool
+	}{
+		{"最长路径匹配", "/etc/nginx/ssl/cert.pem", "/host/ssl", false},
+		{"次长路径匹配", "/etc/nginx/conf.d/site.conf", "/host/nginx", false},
+		{"www 路径", "/var/www/html/index.html", "/host/www", false},
+		{"无匹配", "/opt/app/file", "", true},
+		{"volume 类型忽略", "/data/file", "", true},
+		{"只读挂载忽略", "/readonly/file", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mount := client.FindMountForPath(mounts, tt.containerPath)
+			if tt.wantNil {
+				if mount != nil {
+					t.Errorf("expected nil, got mount with source %q", mount.Source)
+				}
+				return
+			}
+			if mount == nil {
+				t.Fatal("expected non-nil mount")
+			}
+			if mount.Source != tt.wantSource {
+				t.Errorf("mount.Source = %q, want %q", mount.Source, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestResolveHostPath(t *testing.T) {
+	client := NewClient("abc123")
+
+	tests := []struct {
+		name          string
+		containerPath string
+		mount         *MountInfo
+		want          string
+	}{
+		{
+			name:          "简单路径转换",
+			containerPath: "/etc/nginx/ssl/cert.pem",
+			mount:         &MountInfo{Source: "/host/ssl", Destination: "/etc/nginx/ssl"},
+			want:          "/host/ssl/cert.pem",
+		},
+		{
+			name:          "深层路径",
+			containerPath: "/var/www/html/sites/example.com/index.html",
+			mount:         &MountInfo{Source: "/host/www", Destination: "/var/www"},
+			want:          "/host/www/html/sites/example.com/index.html",
+		},
+		{
+			name:          "完全匹配",
+			containerPath: "/etc/nginx",
+			mount:         &MountInfo{Source: "/host/nginx", Destination: "/etc/nginx"},
+			want:          "/host/nginx",
+		},
+		{
+			name:          "nil mount",
+			containerPath: "/etc/nginx/cert.pem",
+			mount:         nil,
+			want:          "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := client.ResolveHostPath(tt.containerPath, tt.mount)
+			if got != tt.want {
+				t.Errorf("ResolveHostPath(%q) = %q, want %q", tt.containerPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewClient(t *testing.T) {
+	client := NewClient("test-container-id")
+	if client.GetContainerID() != "test-container-id" {
+		t.Errorf("GetContainerID() = %q", client.GetContainerID())
+	}
+	if client.IsComposeMode() {
+		t.Error("expected IsComposeMode() = false")
+	}
+}
+
+func TestNewComposeClient(t *testing.T) {
+	client := NewComposeClient("/path/docker-compose.yml", "nginx")
+	if !client.IsComposeMode() {
+		t.Error("expected IsComposeMode() = true")
+	}
+}
+
+func TestSetContainer(t *testing.T) {
+	client := NewClient("")
+	client.SetContainer("new-id")
+	if client.GetContainerID() != "new-id" {
+		t.Errorf("GetContainerID() = %q after SetContainer", client.GetContainerID())
+	}
+}
+
+func TestIsNumeric(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"123", true},
+		{"644", true},
+		{"0", true},
+		{"", false},
+		{"abc", false},
+		{"12a", false},
+		{"-1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := isNumeric(tt.input); got != tt.want {
+				t.Errorf("isNumeric(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsValidContainerPath(t *testing.T) {
 	tests := []struct {
 		name string
