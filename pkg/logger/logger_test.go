@@ -251,3 +251,89 @@ func TestLogger_LevelFiltering(t *testing.T) {
 	// 这个应该输出
 	logger.Error("should appear")
 }
+
+// TestSanitize_PrivateKey 测试私钥过滤
+func TestSanitize_PrivateKey(t *testing.T) {
+	input := `key is -----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA
+-----END RSA PRIVATE KEY-----`
+	result := sanitize(input)
+	if result != "key is ***REDACTED PRIVATE KEY***" {
+		t.Errorf("sanitize() 未正确过滤私钥: %s", result)
+	}
+}
+
+// TestSanitize_BearerToken 测试 Bearer token 过滤
+func TestSanitize_BearerToken(t *testing.T) {
+	input := "Authorization: Bearer abc123-def.456_789"
+	result := sanitize(input)
+	if result != "Authorization: Bearer ***REDACTED***" {
+		t.Errorf("sanitize() 未正确过滤 Bearer token: %s", result)
+	}
+}
+
+// TestSanitize_JSONToken 测试 JSON token 过滤
+func TestSanitize_JSONToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			"token字段",
+			`{"token": "secret123", "name": "test"}`,
+			`{"token": "***REDACTED***", "name": "test"}`,
+		},
+		{
+			"password字段",
+			`{"password": "mypass", "user": "admin"}`,
+			`{"password": "***REDACTED***", "user": "admin"}`,
+		},
+		{
+			"api_key字段",
+			`{"api_key": "key-value-123"}`,
+			`{"api_key": "***REDACTED***"}`,
+		},
+		{
+			"private_key字段",
+			`{"private_key": "some-key-data"}`,
+			`{"private_key": "***REDACTED***"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitize(tt.input)
+			if result != tt.want {
+				t.Errorf("sanitize() = %s, want %s", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestSanitize_BasicAuth 测试 Basic Auth 过滤
+func TestSanitize_BasicAuth(t *testing.T) {
+	input := "Authorization: Basic dXNlcjpwYXNz"
+	result := sanitize(input)
+	if result != "Authorization: Basic ***REDACTED***" {
+		t.Errorf("sanitize() 未正确过滤 Basic Auth: %s", result)
+	}
+}
+
+// TestSanitize_TokenParam 测试 token 参数过滤
+func TestSanitize_TokenParam(t *testing.T) {
+	input := "url?token=abc123&name=test"
+	result := sanitize(input)
+	if result != "url?token=***REDACTED***&name=test" {
+		t.Errorf("sanitize() 未正确过滤 token 参数: %s", result)
+	}
+}
+
+// TestSanitize_NoSensitiveData 测试无敏感数据时不修改
+func TestSanitize_NoSensitiveData(t *testing.T) {
+	input := "normal log message without sensitive data"
+	result := sanitize(input)
+	if result != input {
+		t.Errorf("sanitize() 不应修改无敏感数据的消息: %s", result)
+	}
+}

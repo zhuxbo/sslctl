@@ -2,10 +2,15 @@
 package executor
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// DefaultTimeout 命令执行默认超时时间
+const DefaultTimeout = 30 * time.Second
 
 // AllowedCommands 允许的命令白名单（支持多发行版和 Windows）
 var AllowedCommands = map[string]bool{
@@ -129,14 +134,22 @@ func ParseCommand(cmdStr string) (string, []string) {
 }
 
 // Run 执行命令（直接执行，不通过 shell）
-// 使用白名单机制防止命令注入
+// 使用白名单机制防止命令注入，默认超时 30 秒
 func Run(cmdStr string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+	return RunContext(ctx, cmdStr)
+}
+
+// RunContext 执行命令（带 context 超时控制）
+// 使用白名单机制防止命令注入
+func RunContext(ctx context.Context, cmdStr string) error {
 	if !AllowedCommands[cmdStr] {
 		return fmt.Errorf("command not in whitelist: %s", cmdStr)
 	}
 
 	executable, args := ParseCommand(cmdStr)
-	cmd := exec.Command(executable, args...)
+	cmd := exec.CommandContext(ctx, executable, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, string(output))
@@ -151,22 +164,38 @@ func IsAllowed(cmdStr string) bool {
 }
 
 // RunOutput 执行命令并返回输出（直接执行，不通过 shell）
-// 使用白名单机制防止命令注入
+// 使用白名单机制防止命令注入，默认超时 30 秒
 func RunOutput(cmdStr string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+	return RunOutputContext(ctx, cmdStr)
+}
+
+// RunOutputContext 执行命令并返回输出（带 context 超时控制）
+// 使用白名单机制防止命令注入
+func RunOutputContext(ctx context.Context, cmdStr string) ([]byte, error) {
 	if !AllowedCommands[cmdStr] {
 		return nil, fmt.Errorf("command not in whitelist: %s", cmdStr)
 	}
 
 	executable, args := ParseCommand(cmdStr)
-	cmd := exec.Command(executable, args...)
+	cmd := exec.CommandContext(ctx, executable, args...)
 	return cmd.CombinedOutput()
 }
 
 // RunScan 执行扫描命令（用于动态路径的可执行文件）
+// 只允许预定义的可执行文件和参数组合，默认超时 30 秒
+func RunScan(executable string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+	return RunScanContext(ctx, executable, args...)
+}
+
+// RunScanContext 执行扫描命令（带 context 超时控制）
 // 只允许预定义的可执行文件和参数组合
 // executable: 可执行文件路径（如 nginx 或 /usr/sbin/nginx）
 // args: 参数（如 -T）
-func RunScan(executable string, args ...string) ([]byte, error) {
+func RunScanContext(ctx context.Context, executable string, args ...string) ([]byte, error) {
 	// 检查可执行文件名（提取 basename）
 	basename := executable
 	if idx := strings.LastIndex(executable, "/"); idx >= 0 {
@@ -188,6 +217,6 @@ func RunScan(executable string, args ...string) ([]byte, error) {
 		}
 	}
 
-	cmd := exec.Command(executable, args...)
+	cmd := exec.CommandContext(ctx, executable, args...)
 	return cmd.CombinedOutput()
 }

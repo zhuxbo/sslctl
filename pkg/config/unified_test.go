@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1657,5 +1658,97 @@ func TestDeepCopyCompleteness(t *testing.T) {
 	if cfg2.Certificates[0].Bindings[1].Docker.ContainerName != "original-container" {
 		t.Errorf("Docker.ContainerName = %s, 期望 original-container",
 			cfg2.Certificates[0].Bindings[1].Docker.ContainerName)
+	}
+}
+
+// TestSaveLocked_SymlinkTarget 测试配置保存时检测目标路径为符号链接
+func TestSaveLocked_SymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+
+	// 先正常保存一次
+	cfg := &Config{
+		Version:      "2.0",
+		Certificates: []CertConfig{},
+	}
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("初次保存失败: %v", err)
+	}
+
+	// 将配置文件替换为符号链接
+	configPath := cm.GetConfigPath()
+	targetFile := filepath.Join(dir, "target.json")
+	_ = os.WriteFile(targetFile, []byte("{}"), 0600)
+	_ = os.Remove(configPath)
+	if err := os.Symlink(targetFile, configPath); err != nil {
+		t.Skip("无法创建符号链接:", err)
+	}
+
+	// 清除缓存强制重新保存
+	cm.mu.Lock()
+	cm.config = nil
+	cm.mu.Unlock()
+
+	// 保存应该被拒绝
+	err = cm.Save(cfg)
+	if err == nil {
+		t.Error("当配置路径为符号链接时，Save() 应该返回错误")
+	}
+	if err != nil && !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("错误信息应包含 'symlink': %v", err)
+	}
+}
+
+// TestConfigManager_MtimeReload 测试配置文件被外部修改后自动重新加载
+func TestConfigManager_MtimeReload(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+
+	// 初始保存
+	cfg := &Config{
+		Version:      "2.0",
+		API:          APIConfig{URL: "https://example.com/api", Token: strings.Repeat("a", 32)},
+		Certificates: []CertConfig{},
+	}
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// 第一次加载（缓存）
+	cfg1, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg1.API.URL != "https://example.com/api" {
+		t.Fatalf("初始 URL 不正确: %s", cfg1.API.URL)
+	}
+
+	// 等待确保 mtime 不同
+	time.Sleep(100 * time.Millisecond)
+
+	// 外部修改配置文件
+	newCfg := &Config{
+		Version:      "2.0",
+		API:          APIConfig{URL: "https://modified.com/api", Token: strings.Repeat("b", 32)},
+		Certificates: []CertConfig{},
+	}
+	data, _ := json.MarshalIndent(newCfg, "", "  ")
+	if err := os.WriteFile(cm.GetConfigPath(), data, 0600); err != nil {
+		t.Fatalf("外部写入失败: %v", err)
+	}
+
+	// 再次加载，应该检测到 mtime 变化并重新加载
+	cfg2, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() after external modification error = %v", err)
+	}
+	if cfg2.API.URL != "https://modified.com/api" {
+		t.Errorf("外部修改后 URL = %s, 期望 https://modified.com/api", cfg2.API.URL)
 	}
 }

@@ -352,6 +352,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 	braceCount := 0
 	inLocation := false       // 是否在 location 块内
 	locationBraceCount := 0   // location 块的大括号计数
+	pendingLocation := false  // 是否有待处理的 location 关键字（分行写法）
 	pendingServer := false    // 是否有待处理的 server 关键字
 
 	// 正则表达式
@@ -381,6 +382,7 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &SSLSite{
 				ConfigFile: filePath,
@@ -416,9 +418,18 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号
@@ -621,6 +632,7 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 	hasSSL := false
 	inLocation := false       // 是否在 location 块内
 	locationBraceCount := 0   // location 块的大括号计数
+	pendingLocation := false  // 是否有待处理的 location 关键字（分行写法）
 	pendingServer := false    // 是否有待处理的 server 关键字
 
 	// 正则表达式
@@ -650,6 +662,7 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			hasSSL = false
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &HTTPSite{
 				ConfigFile: filePath,
@@ -686,9 +699,18 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号
@@ -1010,6 +1032,7 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 	braceCount := 0
 	inLocation := false
 	locationBraceCount := 0
+	pendingLocation := false
 	pendingServer := false
 
 	// 正则表达式
@@ -1043,6 +1066,7 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &Site{
 				ConfigFile: currentFile,
@@ -1062,6 +1086,7 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &Site{
 				ConfigFile: currentFile,
@@ -1078,9 +1103,18 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号
@@ -1238,6 +1272,7 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 	braceCount := 0
 	inLocation := false
 	locationBraceCount := 0
+	pendingLocation := false
 	pendingServer := false // 是否有待处理的 server 关键字（用于 server\n{ 格式）
 
 	// 正则表达式
@@ -1267,6 +1302,7 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &Site{
 				ConfigFile: filePath,
@@ -1286,6 +1322,7 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			pendingServer = false
 			currentSite = &Site{
 				ConfigFile: filePath,
@@ -1303,9 +1340,18 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号

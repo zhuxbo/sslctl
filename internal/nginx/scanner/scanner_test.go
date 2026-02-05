@@ -404,6 +404,49 @@ server {
 	}
 }
 
+// TestParseConfigFile_LocationBlockSplitLine 测试 location 块分行写法（location 和 { 不在同一行）
+func TestParseConfigFile_LocationBlockSplitLine(t *testing.T) {
+	content := `
+server {
+    listen 443 ssl;
+    server_name example.com;
+    root /var/www/main;
+    ssl_certificate /etc/ssl/cert.crt;
+    ssl_certificate_key /etc/ssl/cert.key;
+
+    location /static
+    {
+        root /var/www/static;
+    }
+
+    location /images
+    {
+        root /var/www/images;
+    }
+}`
+	tmpFile, err := os.CreateTemp("", "nginx-test-*.conf")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
+
+	s := NewWithConfig(tmpFile.Name())
+	sites, err := s.ScanFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("期望 1 个站点，实际 %d", len(sites))
+	}
+
+	// 关键验证：分行 location 不应影响 server 级别 root 的解析
+	if sites[0].Webroot != "/var/www/main" {
+		t.Errorf("Webroot 期望 /var/www/main，实际 %q（分行 location 导致 brace 计数错误）", sites[0].Webroot)
+	}
+}
+
 // TestParseConfigFile_ListenPorts 测试多端口监听
 func TestParseConfigFile_ListenPorts(t *testing.T) {
 	content := `

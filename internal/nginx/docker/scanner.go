@@ -91,7 +91,7 @@ func (s *Scanner) DetectNginxConfig(ctx context.Context) (string, error) {
 	}
 
 	for _, p := range commonPaths {
-		_, err := s.client.Exec(ctx, fmt.Sprintf("test -f %s && echo ok", p))
+		_, err := s.client.Exec(ctx, fmt.Sprintf("test -f %s && echo ok", util.ShellQuote(p)))
 		if err == nil {
 			return p, nil
 		}
@@ -195,6 +195,7 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 	braceCount := 0
 	inLocation := false
 	locationBraceCount := 0
+	pendingLocation := false
 
 	// 正则表达式
 	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
@@ -219,6 +220,7 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			currentSite = &SSLSite{
 				ContainerID:   info.ID,
 				ContainerName: info.Name,
@@ -232,9 +234,18 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号

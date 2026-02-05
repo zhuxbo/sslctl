@@ -203,7 +203,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			} else {
 				// 将待确认私钥提交为正式私钥
 				if err := commitPendingKey(workDir, cert.CertName, keyPath); err != nil {
-					s.log.Warn("提交待确认私钥失败: %v", err)
+					return nil, "", fmt.Errorf("提交待确认私钥失败: %w", err)
 				}
 			}
 
@@ -274,7 +274,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 
 	// 签发成功，将待确认私钥提交为正式私钥
 	if err := commitPendingKey(workDir, cert.CertName, keyPath); err != nil {
-		s.log.Warn("提交待确认私钥失败: %v", err)
+		return nil, "", fmt.Errorf("提交待确认私钥失败: %w", err)
 	}
 
 	if certData.IntermediateCert == "" {

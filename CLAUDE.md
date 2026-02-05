@@ -123,13 +123,15 @@ docker/test/
 
 详见 `skills/go-dev/SKILL.md` 安全开发规范章节：
 
-- 命令执行白名单（`internal/executor`），`util.RunCommand` 已删除，所有命令执行统一通过 executor
+- 命令执行白名单 + 超时控制（`internal/executor`，默认 30 秒超时，支持 Context 取消）
 - SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
 - 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
 - 文件操作安全（符号链接防护、TOCTOU 保护）
-- 配置并发安全（深拷贝 + 双重锁）
-- 日志敏感信息过滤
+- 配置并发安全（深拷贝 + 双重锁 + mtime 检测外部修改）
+- 配置保存符号链接防护（saveLocked 拒绝写入符号链接目标）
+- 日志敏感信息过滤（私钥、Bearer Token、Basic Auth、JSON 敏感字段、URL 参数）
 - 升级模块 TLS 安全（HTTPS + TLS 1.2+）
+- **待办**: 升级模块需增加 Ed25519 签名验证
 
 ## 开发规范
 

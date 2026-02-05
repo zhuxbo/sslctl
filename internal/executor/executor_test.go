@@ -250,6 +250,49 @@ func TestAllowedScanArgs_Coverage(t *testing.T) {
 	}
 }
 
+// TestRunContext_NotAllowed 测试 RunContext 白名单机制
+func TestRunContext_NotAllowed(t *testing.T) {
+	ctx := t.Context()
+	err := RunContext(ctx, "rm -rf /")
+	if err == nil {
+		t.Error("RunContext() 不在白名单的命令应返回错误")
+	}
+	if err != nil && !contains(err.Error(), "not in whitelist") {
+		t.Errorf("RunContext() 错误应包含 'not in whitelist': %v", err)
+	}
+}
+
+// TestRunOutputContext_NotAllowed 测试 RunOutputContext 白名单机制
+func TestRunOutputContext_NotAllowed(t *testing.T) {
+	ctx := t.Context()
+	_, err := RunOutputContext(ctx, "echo hello")
+	if err == nil {
+		t.Error("RunOutputContext() 不在白名单的命令应返回错误")
+	}
+}
+
+// TestRunScanContext_NotAllowed 测试 RunScanContext 白名单机制
+func TestRunScanContext_NotAllowed(t *testing.T) {
+	ctx := t.Context()
+	_, err := RunScanContext(ctx, "bash", "-c", "echo")
+	if err == nil {
+		t.Error("RunScanContext() 不在白名单的可执行文件应返回错误")
+	}
+	if err != nil && !contains(err.Error(), "not in scan whitelist") {
+		t.Errorf("RunScanContext() 错误应包含 'not in scan whitelist': %v", err)
+	}
+}
+
+// TestDefaultTimeout 测试默认超时常量
+func TestDefaultTimeout(t *testing.T) {
+	if DefaultTimeout <= 0 {
+		t.Error("DefaultTimeout 应大于 0")
+	}
+	if DefaultTimeout.Seconds() != 30 {
+		t.Errorf("DefaultTimeout = %v, 期望 30s", DefaultTimeout)
+	}
+}
+
 // contains 检查字符串是否包含子串
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

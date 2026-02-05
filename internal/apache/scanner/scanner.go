@@ -355,11 +355,15 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			continue
 		}
 
-		// 检测嵌套标签
-		if strings.Contains(line, "<") && !strings.Contains(line, "</") {
+		// 检测嵌套标签（剥离行尾注释避免误判）
+		lineForTag := trimmed
+		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
+			lineForTag = lineForTag[:idx]
+		}
+		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
 			depth++
 		}
-		if strings.Contains(line, "</") {
+		if strings.Contains(lineForTag, "</") {
 			depth--
 		}
 
@@ -575,11 +579,15 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			continue
 		}
 
-		// 检测嵌套标签
-		if strings.Contains(line, "<") && !strings.Contains(line, "</") {
+		// 检测嵌套标签（剥离行尾注释避免误判）
+		lineForTag := trimmed
+		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
+			lineForTag = lineForTag[:idx]
+		}
+		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
 			depth++
 		}
-		if strings.Contains(line, "</") {
+		if strings.Contains(lineForTag, "</") {
 			depth--
 		}
 
@@ -1127,11 +1135,15 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 			continue
 		}
 
-		// 检测嵌套标签
-		if strings.Contains(line, "<") && !strings.Contains(line, "</") {
+		// 检测嵌套标签（剥离行尾注释避免误判）
+		lineForTag := trimmed
+		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
+			lineForTag = lineForTag[:idx]
+		}
+		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
 			depth++
 		}
-		if strings.Contains(line, "</") {
+		if strings.Contains(lineForTag, "</") {
 			depth--
 		}
 

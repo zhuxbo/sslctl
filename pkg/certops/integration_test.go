@@ -14,28 +14,19 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
-// 测试 API 配置（可通过环境变量覆盖）
-const (
-	testAPIURL   = "https://manager.test.pzo.cn/api/deploy"
-	testAPIToken = "sfZOLvxc0rIKyV7XMP0XGEP9D2AVrd6zUnKuXAE00Ql3E5eh602CCB0kovJHXX6H"
-)
-
-// getTestAPIConfig 获取测试 API 配置
-func getTestAPIConfig() (string, string) {
+// getTestAPIConfig 获取测试 API 配置（必须通过环境变量设置）
+func getTestAPIConfig(t *testing.T) (string, string) {
 	url := os.Getenv("TEST_API_URL")
-	if url == "" {
-		url = testAPIURL
-	}
 	token := os.Getenv("TEST_API_TOKEN")
-	if token == "" {
-		token = testAPIToken
+	if url == "" || token == "" {
+		t.Skip("跳过集成测试: 未设置 TEST_API_URL 或 TEST_API_TOKEN 环境变量")
 	}
 	return url, token
 }
 
 // TestIntegration_FetcherInfo 测试 Fetcher.Info 获取证书信息
 func TestIntegration_FetcherInfo(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -61,7 +52,7 @@ func TestIntegration_FetcherInfo(t *testing.T) {
 
 // TestIntegration_QueryOrder 测试按订单 ID 查询
 func TestIntegration_QueryOrder(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -100,7 +91,7 @@ func TestIntegration_QueryOrder(t *testing.T) {
 
 // TestIntegration_DeployToLocal 测试部署证书到本地目录
 func TestIntegration_DeployToLocal(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -197,7 +188,7 @@ func TestIntegration_DeployToLocal(t *testing.T) {
 
 // TestIntegration_FullDeployWorkflow 测试完整部署工作流
 func TestIntegration_FullDeployWorkflow(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	// 创建临时目录
 	tmpDir := t.TempDir()
@@ -317,7 +308,7 @@ func TestIntegration_ScanAndDeploy(t *testing.T) {
 
 // TestIntegration_APIResponseParsing 测试 API 响应解析
 func TestIntegration_APIResponseParsing(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -368,7 +359,7 @@ func TestIntegration_APIResponseParsing(t *testing.T) {
 
 // TestIntegration_DeployWithBackup 测试带备份的部署
 func TestIntegration_DeployWithBackup(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -431,7 +422,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 
 // TestIntegration_PreparePullRenew 测试拉取模式续签
 func TestIntegration_PreparePullRenew(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	tmpDir := t.TempDir()
 	cm, err := config.NewConfigManagerWithDir(tmpDir)
@@ -502,7 +493,7 @@ func TestIntegration_PreparePullRenew(t *testing.T) {
 
 // TestIntegration_CheckAndRenewAll 测试完整续签流程
 func TestIntegration_CheckAndRenewAll(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	tmpDir := t.TempDir()
 	cm, err := config.NewConfigManagerWithDir(tmpDir)
@@ -573,7 +564,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 
 // TestIntegration_RenewWithLocalKey 测试本地私钥续签
 func TestIntegration_RenewWithLocalKey(t *testing.T) {
-	apiURL, token := getTestAPIConfig()
+	apiURL, token := getTestAPIConfig(t)
 
 	tmpDir := t.TempDir()
 	cm, err := config.NewConfigManagerWithDir(tmpDir)

@@ -27,6 +27,7 @@ type ConfigManager struct {
 	backupDir  string
 	mu         sync.RWMutex
 	config     *Config
+	cachedAt   time.Time // 缓存加载时间，用于 mtime 检测
 }
 
 // NewConfigManager 创建统一配置管理器
@@ -85,9 +86,30 @@ func (cm *ConfigManager) ensureDirs() error {
 func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.RLock()
 	if cm.config != nil {
-		cfg := cm.copyConfig(cm.config)
+		// 检查文件是否被外部修改（mtime 比缓存时间新则重新加载）
+		needReload := false
+		if !cm.cachedAt.IsZero() {
+			if info, err := os.Stat(cm.configPath); err == nil && info.ModTime().After(cm.cachedAt) {
+				needReload = true
+			}
+		}
+		if !needReload {
+			cfg := cm.copyConfig(cm.config)
+			cm.mu.RUnlock()
+			return cfg, nil
+		}
 		cm.mu.RUnlock()
-		return cfg, nil
+		// 需要重新加载，升级到写锁
+		cm.mu.Lock()
+		cm.config = nil
+		cfg, err := cm.loadLocked()
+		if err != nil {
+			cm.mu.Unlock()
+			return nil, err
+		}
+		result := cm.copyConfig(cfg)
+		cm.mu.Unlock()
+		return result, nil
 	}
 	cm.mu.RUnlock()
 
@@ -159,6 +181,7 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 				Schedule:     defaultSchedule(),
 				Certificates: []CertConfig{},
 			}
+			cm.cachedAt = time.Now()
 			return cm.config, nil
 		}
 		return nil, fmt.Errorf("failed to read config: %w", err)
@@ -170,6 +193,7 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 	}
 
 	cm.config = &cfg
+	cm.cachedAt = time.Now()
 
 	// 环境变量优先级高于配置文件（带完整校验）
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
@@ -270,6 +294,12 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 		return fmt.Errorf("TOCTOU attack detected: temp file is a symlink")
 	}
 
+	// 验证目标配置路径不是符号链接（防止通过符号链接覆盖任意文件）
+	if info, err := os.Lstat(cm.configPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("security: config path is a symlink, refusing to write")
+	}
+
 	if err := os.Rename(tmpPath, cm.configPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename file: %w", err)
@@ -277,6 +307,7 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 
 	// 5. 只有在所有操作成功后才更新内存缓存
 	cm.config = cfgCopy
+	cm.cachedAt = time.Now()
 	return nil
 }
 

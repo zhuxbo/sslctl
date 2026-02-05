@@ -19,6 +19,10 @@ var (
 	bearerTokenRegex = regexp.MustCompile(`Bearer\s+[A-Za-z0-9\-_\.]+`)
 	// 匹配常见的 token/secret 参数
 	tokenParamRegex = regexp.MustCompile(`(token|secret|password|api_key|apikey)=["']?[^"'\s&]+["']?`)
+	// 匹配 JSON 中的敏感字段
+	jsonTokenRegex = regexp.MustCompile(`"(token|secret|password|api_key|apikey|private_key)"\s*:\s*"[^"]*"`)
+	// 匹配 HTTP Basic Auth
+	basicAuthRegex = regexp.MustCompile(`Basic\s+[A-Za-z0-9+/=]+`)
 )
 
 // sanitize 过滤敏感信息
@@ -27,6 +31,10 @@ func sanitize(msg string) string {
 	msg = privateKeyRegex.ReplaceAllString(msg, "***REDACTED PRIVATE KEY***")
 	// 过滤 Bearer token
 	msg = bearerTokenRegex.ReplaceAllString(msg, "Bearer ***REDACTED***")
+	// 过滤 Basic Auth
+	msg = basicAuthRegex.ReplaceAllString(msg, "Basic ***REDACTED***")
+	// 过滤 JSON 中的敏感字段
+	msg = jsonTokenRegex.ReplaceAllString(msg, `"$1": "***REDACTED***"`)
 	// 过滤 token/secret 参数
 	msg = tokenParamRegex.ReplaceAllStringFunc(msg, func(match string) string {
 		// 保留参数名，只隐藏值

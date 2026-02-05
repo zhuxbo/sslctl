@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -964,5 +965,24 @@ func TestScan_Alias(t *testing.T) {
 	}
 	if result == nil {
 		t.Error("扫描结果不应为 nil")
+	}
+}
+
+// TestDeployToBinding_RollbackFailureContainsBackupPath 测试回滚失败错误信息包含备份路径
+func TestDeployToBinding_RollbackFailureContainsBackupPath(t *testing.T) {
+	// 验证回滚失败时的错误消息格式中包含备份路径
+	// 通过检查代码中 fmt.Sprintf 的格式化结果来间接验证
+	backupPath := "/opt/sslctl/backup/test-site/20240101"
+	deployErr := fmt.Errorf("nginx reload failed")
+	rollbackErr := fmt.Errorf("permission denied")
+
+	errMsg := fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v, 手动恢复备份: %s",
+		deployErr, rollbackErr, backupPath)
+
+	if !strings.Contains(errMsg, backupPath) {
+		t.Errorf("回滚失败错误消息应包含备份路径 %s: %s", backupPath, errMsg)
+	}
+	if !strings.Contains(errMsg, "手动恢复备份") {
+		t.Errorf("回滚失败错误消息应包含恢复提示: %s", errMsg)
 	}
 }

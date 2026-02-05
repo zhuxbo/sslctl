@@ -850,3 +850,70 @@ func TestDeployCertToBindings_PartialSuccess(t *testing.T) {
 		t.Error("部分失败应返回错误")
 	}
 }
+
+// TestCommitPendingKey_TargetDirNotExist 测试 commitPendingKey 目标目录不存在时的行为
+func TestCommitPendingKey_TargetDirNotExist(t *testing.T) {
+	workDir := t.TempDir()
+	certName := "commit-test"
+	keyPEM := "-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"
+
+	// 先保存一个待确认私钥
+	if err := savePendingKey(workDir, certName, keyPEM); err != nil {
+		t.Fatalf("savePendingKey() error = %v", err)
+	}
+
+	// 目标路径指向一个存在的目录
+	targetDir := t.TempDir()
+	targetPath := filepath.Join(targetDir, "key.pem")
+
+	// 提交应该成功
+	err := commitPendingKey(workDir, certName, targetPath)
+	if err != nil {
+		t.Fatalf("commitPendingKey() 应成功: %v", err)
+	}
+
+	// 验证目标文件已创建
+	data, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("读取目标文件失败: %v", err)
+	}
+	if string(data) != keyPEM {
+		t.Error("目标文件内容不正确")
+	}
+}
+
+// TestCommitPendingKey_NoPendingKey 测试 commitPendingKey 不存在待确认私钥时的行为
+func TestCommitPendingKey_NoPendingKey(t *testing.T) {
+	workDir := t.TempDir()
+	// 不存在待确认私钥时应返回 nil（跳过）
+	err := commitPendingKey(workDir, "nonexistent", "/tmp/key.pem")
+	if err != nil {
+		t.Errorf("commitPendingKey() 不存在时应返回 nil: %v", err)
+	}
+}
+
+// TestCommitPendingKey_ReadOnlyTargetDir 测试 commitPendingKey 目标目录不可写时的行为
+func TestCommitPendingKey_ReadOnlyTargetDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root 用户跳过权限测试")
+	}
+
+	workDir := t.TempDir()
+	certName := "readonly-test"
+	keyPEM := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+
+	if err := savePendingKey(workDir, certName, keyPEM); err != nil {
+		t.Fatalf("savePendingKey() error = %v", err)
+	}
+
+	// 创建只读目标目录
+	readOnlyDir := filepath.Join(t.TempDir(), "readonly")
+	_ = os.MkdirAll(readOnlyDir, 0500)
+	targetPath := filepath.Join(readOnlyDir, "subdir", "key.pem")
+
+	// 提交应该失败
+	err := commitPendingKey(workDir, certName, targetPath)
+	if err == nil {
+		t.Error("commitPendingKey() 目标不可写时应返回错误")
+	}
+}

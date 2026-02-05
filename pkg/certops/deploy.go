@@ -157,7 +157,7 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 			s.log.Error("回滚失败: %v", rollbackErr)
 			// 返回复合错误，让调用方知道回滚也失败了（这是更严重的情况）
 			return errors.NewStructuredDeployError(errors.DeployErrorUnknown, errors.PhaseRollback,
-				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v", deployErr, rollbackErr), nil)
+				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v, 手动恢复备份: %s", deployErr, rollbackErr, backupPath), nil)
 		}
 		s.log.Info("已回滚到备份: %s", backupPath)
 		return errors.NewStructuredDeployError(errors.DeployErrorReload, errors.PhaseReload, "部署失败（已回滚）", deployErr)
