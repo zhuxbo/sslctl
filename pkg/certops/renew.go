@@ -104,9 +104,10 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		results = append(results, result)
 	}
 
-	// 更新检查时间
-	cfg.Metadata.LastCheckAt = time.Now()
-	_ = s.cfgManager.Save(cfg)
+	// 更新检查时间（使用原子更新避免覆盖其他并发修改）
+	_ = s.cfgManager.UpdateMetadata(func(m *config.ConfigMetadata) {
+		m.LastCheckAt = time.Now()
+	})
 
 	return results, nil
 }
@@ -129,6 +130,10 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	if certData.Status != "active" || certData.Cert == "" {
 		s.log.Debug("证书 %s 状态: %s，跳过", cert.CertName, certData.Status)
 		return nil, "", nil
+	}
+
+	if certData.IntermediateCert == "" {
+		return nil, "", fmt.Errorf("中间证书为空，等待下一周期重试")
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取
@@ -201,6 +206,10 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 					s.log.Warn("提交待确认私钥失败: %v", err)
 				}
 			}
+
+			if certData.IntermediateCert == "" {
+				return nil, "", fmt.Errorf("中间证书为空，等待下一周期重试")
+			}
 			return certData, privateKey, nil
 		}
 	}
@@ -266,6 +275,10 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	// 签发成功，将待确认私钥提交为正式私钥
 	if err := commitPendingKey(workDir, cert.CertName, keyPath); err != nil {
 		s.log.Warn("提交待确认私钥失败: %v", err)
+	}
+
+	if certData.IntermediateCert == "" {
+		return nil, "", fmt.Errorf("中间证书为空，等待下一周期重试")
 	}
 
 	return certData, privateKey, nil

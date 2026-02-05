@@ -203,6 +203,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
+	// 验证中间证书
+	if certData.IntermediateCert == "" {
+		fmt.Fprintln(os.Stderr, "中间证书为空，无法部署")
+		os.Exit(1)
+	}
+
 	// 部署到每个绑定
 	for i := range bindings {
 		binding := &bindings[i]

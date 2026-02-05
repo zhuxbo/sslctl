@@ -280,6 +280,19 @@ func (cm *ConfigManager) saveLocked(cfg *Config) error {
 	return nil
 }
 
+// UpdateMetadata 原子更新配置元数据（重新加载最新配置，避免覆盖其他更新）
+func (cm *ConfigManager) UpdateMetadata(fn func(*ConfigMetadata)) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return err
+	}
+	fn(&cfg.Metadata)
+	return cm.saveLocked(cfg)
+}
+
 // Reload 重新加载配置
 // 注意：在持有锁时完成重新加载，避免竞态条件
 func (cm *ConfigManager) Reload() (*Config, error) {

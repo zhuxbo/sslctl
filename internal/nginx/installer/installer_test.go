@@ -38,9 +38,9 @@ func TestNewNginxInstaller(t *testing.T) {
 		t.Errorf("serverName = %s, 期望 test.example.com", installer.serverName)
 	}
 
-	// 默认测试命令
-	if installer.testCommand != "nginx -t" {
-		t.Errorf("testCommand = %s, 期望 nginx -t", installer.testCommand)
+	// 空命令时不设默认值（由调用方决定）
+	if installer.testCommand != "" {
+		t.Errorf("testCommand = %s, 期望空字符串", installer.testCommand)
 	}
 }
 

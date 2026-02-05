@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
+	"github.com/zhuxbo/sslctl/pkg/matcher"
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
@@ -518,28 +519,13 @@ func (s *Scanner) FindByDomain(domain string) (*SSLSite, error) {
 
 	for _, site := range sites {
 		// 检查主域名
-		if site.ServerName == domain {
+		if matcher.MatchDomain(strings.ToLower(site.ServerName), strings.ToLower(domain)) {
 			return site, nil
 		}
 
 		// 检查别名
 		for _, alias := range site.ServerAlias {
-			if alias == domain {
-				return site, nil
-			}
-			// 支持通配符匹配
-			if strings.HasPrefix(alias, "*.") {
-				suffix := alias[1:] // 去掉 *
-				if strings.HasSuffix(domain, suffix) {
-					return site, nil
-				}
-			}
-		}
-
-		// 支持主域名通配符匹配
-		if strings.HasPrefix(site.ServerName, "*.") {
-			suffix := site.ServerName[1:] // 去掉 *
-			if strings.HasSuffix(domain, suffix) {
+			if matcher.MatchDomain(strings.ToLower(alias), strings.ToLower(domain)) {
 				return site, nil
 			}
 		}
@@ -1422,28 +1408,13 @@ func (s *Scanner) FindAllByDomain(domain string) (*Site, error) {
 
 	for _, site := range sites {
 		// 检查主域名
-		if site.ServerName == domain {
+		if matcher.MatchDomain(strings.ToLower(site.ServerName), strings.ToLower(domain)) {
 			return site, nil
 		}
 
 		// 检查别名
 		for _, alias := range site.ServerAlias {
-			if alias == domain {
-				return site, nil
-			}
-			// 支持通配符匹配
-			if strings.HasPrefix(alias, "*.") {
-				suffix := alias[1:] // 去掉 *
-				if strings.HasSuffix(domain, suffix) {
-					return site, nil
-				}
-			}
-		}
-
-		// 支持主域名通配符匹配
-		if strings.HasPrefix(site.ServerName, "*.") {
-			suffix := site.ServerName[1:] // 去掉 *
-			if strings.HasSuffix(domain, suffix) {
+			if matcher.MatchDomain(strings.ToLower(alias), strings.ToLower(domain)) {
 				return site, nil
 			}
 		}

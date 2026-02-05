@@ -222,6 +222,8 @@ cmd := exec.Command("sh", "-c", userInput)
 
 白名单命令定义在 `executor.AllowedCommands`，新增命令需要审核。
 
+**注意**：`util.RunCommand` 已删除，所有命令执行必须通过 executor。
+
 ### 配置并发安全
 
 `ConfigManager.Load()` 返回深拷贝，修改不影响内部缓存：
@@ -296,6 +298,10 @@ safePath, err := util.JoinUnderDir(baseDir, userInput)
 - TLS 1.2+ 最低版本
 - 5 分钟超时 + 100MB 大小限制
 - SHA256 校验和验证
+
+### 域名匹配
+
+`matcher.MatchDomain` 是域名匹配的唯一正确实现（支持精确匹配和通配符单级子域名匹配），scanner 等模块应复用此函数，不要自行实现通配符逻辑。
 
 ### Token 安全
 

@@ -145,6 +145,11 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 		return fmt.Errorf("私钥与证书不匹配: %w", err)
 	}
 
+	// 验证中间证书
+	if certData.IntermediateCert == "" {
+		return fmt.Errorf("中间证书为空，无法部署")
+	}
+
 	// 部署到所有绑定
 	for i := range cert.Bindings {
 		binding := &cert.Bindings[i]

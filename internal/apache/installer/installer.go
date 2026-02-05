@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/sslctl/pkg/util"
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // ApacheInstaller Apache HTTPS 安装器
@@ -25,9 +25,6 @@ type ApacheInstaller struct {
 
 // NewApacheInstaller 创建 Apache 安装器
 func NewApacheInstaller(configPath, certPath, keyPath, chainPath, serverName, testCommand string) *ApacheInstaller {
-	if testCommand == "" {
-		testCommand = "apache2ctl -t"
-	}
 	return &ApacheInstaller{
 		configPath:  configPath,
 		certPath:    certPath,
@@ -292,7 +289,10 @@ func (i *ApacheInstaller) getIndent(line string) string {
 
 // testConfig 测试 Apache 配置
 func (i *ApacheInstaller) testConfig() error {
-	return util.RunCommand(i.testCommand)
+	if i.testCommand == "" {
+		return nil
+	}
+	return executor.Run(i.testCommand)
 }
 
 // Rollback 回滚到备份

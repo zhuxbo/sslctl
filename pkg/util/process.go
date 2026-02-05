@@ -4,9 +4,10 @@ package util
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // IsContainerProcess 检查进程是否运行在容器内
@@ -41,10 +42,10 @@ func IsContainerProcess(pid string) bool {
 // 会自动跳过容器内的进程
 func FindBinaryFromPort(processName string) string {
 	// 尝试 ss 命令
-	output, err := exec.Command("ss", "-tlnp").Output()
+	output, err := executor.RunOutput("ss -tlnp")
 	if err != nil {
 		// 尝试 netstat
-		output, err = exec.Command("netstat", "-tlnp").Output()
+		output, err = executor.RunOutput("netstat -tlnp")
 		if err != nil {
 			return ""
 		}

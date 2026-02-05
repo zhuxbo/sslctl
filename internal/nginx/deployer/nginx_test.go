@@ -328,16 +328,14 @@ func TestNginxDeployer_Deploy_NoIntermediate(t *testing.T) {
 		t.Fatalf("Deploy() error = %v", err)
 	}
 
-	// 验证证书文件内容
+	// 验证证书文件内容（空 intermediate 时不应追加换行）
 	certData, err := os.ReadFile(certPath)
 	if err != nil {
 		t.Fatalf("读取证书文件失败: %v", err)
 	}
 
-	// 证书 + 换行 + 空字符串
-	expectedCert := cert + "\n"
-	if string(certData) != expectedCert {
-		t.Errorf("证书内容不正确: got %q, want %q", string(certData), expectedCert)
+	if string(certData) != cert {
+		t.Errorf("证书内容不正确: got %q, want %q", string(certData), cert)
 	}
 }
 

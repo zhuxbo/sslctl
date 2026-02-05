@@ -15,6 +15,8 @@ import (
 )
 
 // DeployOne 部署指定证书
+// 注意：部分绑定失败时返回 nil error，调用方必须检查 result.Success 和 result.Error。
+// 仅当所有启用的绑定均部署失败时，才同时返回非 nil error。
 func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult, error) {
 	cert, err := s.cfgManager.GetCert(certName)
 	if err != nil {
@@ -34,6 +36,10 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 
 	if certData.Status != "active" || certData.Cert == "" {
 		return nil, fmt.Errorf("证书未就绪 (status=%s)", certData.Status)
+	}
+
+	if certData.IntermediateCert == "" {
+		return nil, fmt.Errorf("中间证书为空，等待下一周期重试")
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取

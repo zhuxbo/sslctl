@@ -8,7 +8,7 @@ import (
 )
 
 func TestHasSSLConfig_NoSSL(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -19,7 +19,7 @@ func TestHasSSLConfig_NoSSL(t *testing.T) {
 }
 
 func TestHasSSLConfig_HasSSL(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:443>
     ServerName example.com
     SSLEngine on
@@ -30,7 +30,7 @@ func TestHasSSLConfig_HasSSL(t *testing.T) {
 }
 
 func TestHasSSLConfig_DifferentDomain(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:443>
     ServerName other.com
     SSLEngine on
@@ -41,7 +41,7 @@ func TestHasSSLConfig_DifferentDomain(t *testing.T) {
 }
 
 func TestHasSSLConfig_CaseInsensitive(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<virtualhost *:443>
     serverName example.com
     SSLEngine on
@@ -52,7 +52,7 @@ func TestHasSSLConfig_CaseInsensitive(t *testing.T) {
 }
 
 func TestHasSSLConfig_WithAlias(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "www.example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "www.example.com", "")
 	content := `<VirtualHost *:443>
     ServerName example.com
     ServerAlias www.example.com
@@ -64,7 +64,7 @@ func TestHasSSLConfig_WithAlias(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_Simple(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -83,7 +83,7 @@ func TestExtractVirtualHost80_Simple(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_Port8080(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:8080>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -99,7 +99,7 @@ func TestExtractVirtualHost80_Port8080(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_Port180(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:180>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -115,7 +115,7 @@ func TestExtractVirtualHost80_Port180(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_WildcardHost(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "example.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "example.com", "")
 	content := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -131,7 +131,7 @@ func TestExtractVirtualHost80_WildcardHost(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_MultipleVHosts(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "target.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "target.com", "")
 	content := `<VirtualHost *:80>
     ServerName other.com
     DocumentRoot /var/www/other
@@ -160,7 +160,7 @@ func TestExtractVirtualHost80_MultipleVHosts(t *testing.T) {
 }
 
 func TestExtractVirtualHost80_NotFound(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "notfound.com", "true")
+	inst := NewApacheInstaller("", "", "", "", "notfound.com", "")
 	content := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -176,7 +176,7 @@ func TestExtractVirtualHost80_NotFound(t *testing.T) {
 }
 
 func TestGenerateSSLVirtualHost_Basic(t *testing.T) {
-	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "true")
+	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "")
 	vhost80 := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -213,7 +213,7 @@ func TestGenerateSSLVirtualHost_Basic(t *testing.T) {
 }
 
 func TestGenerateSSLVirtualHost_WithChain(t *testing.T) {
-	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "/ssl/chain.pem", "example.com", "true")
+	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "/ssl/chain.pem", "example.com", "")
 	vhost80 := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -227,7 +227,7 @@ func TestGenerateSSLVirtualHost_WithChain(t *testing.T) {
 }
 
 func TestGenerateSSLVirtualHost_NoChain(t *testing.T) {
-	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "true")
+	inst := NewApacheInstaller("", "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "")
 	vhost80 := `<VirtualHost *:80>
     ServerName example.com
     DocumentRoot /var/www/html
@@ -253,7 +253,7 @@ func TestInstall_NewHTTPS(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	inst := NewApacheInstaller(configPath, "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "true")
+	inst := NewApacheInstaller(configPath, "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "")
 	result, err := inst.Install()
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -301,7 +301,7 @@ func TestInstall_AlreadyHasSSL(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	inst := NewApacheInstaller(configPath, "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "true")
+	inst := NewApacheInstaller(configPath, "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "")
 	result, err := inst.Install()
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -327,7 +327,7 @@ func TestRollback_Success(t *testing.T) {
 		t.Fatalf("write backup: %v", err)
 	}
 
-	inst := NewApacheInstaller(configPath, "", "", "", "", "true")
+	inst := NewApacheInstaller(configPath, "", "", "", "", "")
 	if err := inst.Rollback(backupPath); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestRollback_BackupNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "site.conf")
 
-	inst := NewApacheInstaller(configPath, "", "", "", "", "true")
+	inst := NewApacheInstaller(configPath, "", "", "", "", "")
 	err := inst.Rollback(filepath.Join(tmpDir, "nonexistent.bak"))
 	if err == nil {
 		t.Error("expected error for nonexistent backup")
@@ -432,8 +432,8 @@ func TestFindHTTPVirtualHost_NotFound(t *testing.T) {
 
 func TestNewApacheInstaller_DefaultCommand(t *testing.T) {
 	inst := NewApacheInstaller("/etc/apache2/sites-available/site.conf", "/ssl/cert.pem", "/ssl/key.pem", "", "example.com", "")
-	if inst.testCommand != "apache2ctl -t" {
-		t.Errorf("testCommand = %q, want 'apache2ctl -t'", inst.testCommand)
+	if inst.testCommand != "" {
+		t.Errorf("testCommand = %q, want empty", inst.testCommand)
 	}
 }
 
@@ -445,7 +445,7 @@ func TestNewApacheInstaller_CustomCommand(t *testing.T) {
 }
 
 func TestGetIndent(t *testing.T) {
-	inst := NewApacheInstaller("", "", "", "", "", "true")
+	inst := NewApacheInstaller("", "", "", "", "", "")
 
 	tests := []struct {
 		line string

@@ -31,7 +31,10 @@ func NewNginxDeployer(cfg baseDeployer.Config) *NginxDeployer {
 
 // Deploy 部署证书（cert=服务器证书, intermediate=中间证书, key=私钥）
 func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
-	fullchain := cert + "\n" + intermediate
+	fullchain := cert
+	if intermediate != "" {
+		fullchain = cert + "\n" + intermediate
+	}
 
 	if err := util.EnsureDir(filepath.Dir(d.certPath), 0700); err != nil {
 		return errors.NewStructuredDeployError(

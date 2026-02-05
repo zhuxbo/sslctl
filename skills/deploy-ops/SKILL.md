@@ -203,6 +203,9 @@ sudo journalctl -u sslctl -f
 }
 ```
 
+**重要**：API 返回的 `ca_certificate` 字段为必需项（空则报错，等待下一周期重试）。`deploy local` 命令的 `--ca` 参数仍然可选。
+```
+
 ### 证书状态
 
 | 状态 | 说明 | sslctl 处理 |

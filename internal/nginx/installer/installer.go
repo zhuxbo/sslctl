@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/sslctl/pkg/util"
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // NginxInstaller Nginx HTTPS 安装器
@@ -24,9 +24,6 @@ type NginxInstaller struct {
 
 // NewNginxInstaller 创建 Nginx 安装器
 func NewNginxInstaller(configPath, certPath, keyPath, serverName, testCommand string) *NginxInstaller {
-	if testCommand == "" {
-		testCommand = "nginx -t"
-	}
 	return &NginxInstaller{
 		configPath:  configPath,
 		certPath:    certPath,
@@ -263,7 +260,10 @@ func (i *NginxInstaller) getIndent(line string) string {
 
 // testConfig 测试 Nginx 配置
 func (i *NginxInstaller) testConfig() error {
-	return util.RunCommand(i.testCommand)
+	if i.testCommand == "" {
+		return nil
+	}
+	return executor.Run(i.testCommand)
 }
 
 // Rollback 回滚到备份

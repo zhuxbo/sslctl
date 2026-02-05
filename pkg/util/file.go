@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -194,24 +193,3 @@ func JoinUnderDir(baseDir, path string) (string, error) {
 	return full, nil
 }
 
-// RunCommand 执行命令（仅用于内部固定命令）
-func RunCommand(command string) error {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty command")
-	}
-
-	// 安全检查：拒绝包含危险字符的命令
-	for _, p := range parts {
-		if strings.ContainsAny(p, ";|&$`\\") {
-			return fmt.Errorf("invalid characters in command")
-		}
-	}
-
-	cmd := exec.Command(parts[0], parts[1:]...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("command failed: %s\noutput: %s", err, string(output))
-	}
-	return nil
-}

@@ -39,9 +39,9 @@ func TestMatchDomain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := matchDomain(tt.certDomain, tt.target)
+			got := MatchDomain(tt.certDomain, tt.target)
 			if got != tt.want {
-				t.Errorf("matchDomain(%q, %q) = %v, want %v", tt.certDomain, tt.target, got, tt.want)
+				t.Errorf("MatchDomain(%q, %q) = %v, want %v", tt.certDomain, tt.target, got, tt.want)
 			}
 		})
 	}

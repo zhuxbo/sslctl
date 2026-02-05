@@ -167,6 +167,10 @@ chown root:root /opt/sslctl/certs/
 
 解决：确保 `fullchain.pem` 包含中间证书
 
+**Nginx fullchain 拼接逻辑**：仅当 intermediate 非空时拼接（`cert + "\n" + intermediate`），防止空中间证书导致尾部多余换行。
+
+**通配符匹配**：统一使用 `pkg/matcher.MatchDomain`（支持精确匹配和单级子域名通配符匹配，如 `*.example.com` 匹配 `www.example.com` 但不匹配 `a.b.example.com`）。
+
 ### 权限问题
 
 症状：Nginx/Apache 无法读取证书

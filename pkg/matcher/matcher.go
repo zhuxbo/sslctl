@@ -14,7 +14,11 @@ type Matcher struct {
 
 // New 创建匹配器
 func New(certDomains []string) *Matcher {
-	return &Matcher{certDomains: certDomains}
+	lower := make([]string, len(certDomains))
+	for i, d := range certDomains {
+		lower[i] = strings.ToLower(d)
+	}
+	return &Matcher{certDomains: lower}
 }
 
 // Match 匹配站点域名
@@ -66,18 +70,17 @@ func (m *Matcher) Match(siteDomains []string) *config.MatchResult {
 func (m *Matcher) matchesDomain(domain string) bool {
 	domain = strings.ToLower(domain)
 	for _, certDomain := range m.certDomains {
-		certDomain = strings.ToLower(certDomain)
-		if matchDomain(certDomain, domain) {
+		if MatchDomain(certDomain, domain) {
 			return true
 		}
 	}
 	return false
 }
 
-// matchDomain 匹配单个域名
-// certDomain: 证书域名，可能是通配符（如 *.example.com）
+// MatchDomain 匹配单个域名
+// certDomain: 证书域名（或站点域名），可能是通配符（如 *.example.com）
 // targetDomain: 目标域名（如 www.example.com）
-func matchDomain(certDomain, targetDomain string) bool {
+func MatchDomain(certDomain, targetDomain string) bool {
 	// 精确匹配
 	if certDomain == targetDomain {
 		return true
@@ -202,5 +205,5 @@ func ContainsDomain(domains []string, target string) bool {
 // MatchesDomain 检查 serverName 是否匹配目标域名（支持通配符）
 // 这是一个便捷函数，用于单次匹配
 func MatchesDomain(serverName, domain string) bool {
-	return matchDomain(strings.ToLower(serverName), strings.ToLower(domain))
+	return MatchDomain(strings.ToLower(serverName), strings.ToLower(domain))
 }

@@ -123,8 +123,9 @@ docker/test/
 
 详见 `skills/go-dev/SKILL.md` 安全开发规范章节：
 
-- 命令执行白名单（`internal/executor`）
+- 命令执行白名单（`internal/executor`），`util.RunCommand` 已删除，所有命令执行统一通过 executor
 - SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
+- 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
 - 文件操作安全（符号链接防护、TOCTOU 保护）
 - 配置并发安全（深拷贝 + 双重锁）
 - 日志敏感信息过滤

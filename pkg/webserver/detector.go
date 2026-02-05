@@ -43,6 +43,11 @@ func DetectWebServerType() string {
 // 注意：此函数使用 exec.Command 而非 executor，因为 docker exec 命令需要动态容器 ID，
 // 无法放入静态白名单。安全性由 exec.Command 直接执行（非 shell）保证，避免命令注入。
 func DetectDockerServer(containerID string) ServerType {
+	// 长度限制：Docker ID 最长 64 字符，容器名最长 128 字符
+	if len(containerID) == 0 || len(containerID) > 128 {
+		return TypeUnknown
+	}
+
 	// 验证容器 ID 格式（仅允许字母数字和部分特殊字符）
 	for _, c := range containerID {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
