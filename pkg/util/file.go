@@ -10,13 +10,41 @@ import (
 	"syscall"
 )
 
-// AtomicWrite 原子写入文件
+// AtomicWrite 原子写入文件（带符号链接防护）
+// 参考 config/unified.go saveLocked 的成熟模式
 func AtomicWrite(path string, content []byte, perm os.FileMode) error {
 	tmpPath := path + ".tmp"
 
-	// 写入临时文件
-	if err := os.WriteFile(tmpPath, content, perm); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
+	// 先清理遗留临时文件（可能是上次失败遗留的）
+	_ = os.Remove(tmpPath)
+
+	// O_CREATE|O_WRONLY|O_EXCL: 创建新文件，如果已存在则失败（O_EXCL 不跟随符号链接）
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, perm)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	_, writeErr := tmpFile.Write(content)
+	closeErr := tmpFile.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to write temp file: %w", writeErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+
+	// 验证临时文件不是符号链接（防止 TOCTOU）
+	if info, err := os.Lstat(tmpPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("security: temp file is a symlink")
+	}
+
+	// 验证目标路径不是符号链接（防止通过符号链接覆盖任意文件）
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("security: target path is a symlink, refusing to write")
 	}
 
 	// 原子替换(rename 是原子操作)

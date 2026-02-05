@@ -80,6 +80,8 @@ func downloadBinaryWithClient(url string, client *http.Client) ([]byte, error) {
 	return data, nil
 }
 
+// TODO: 增加 Ed25519 签名验证，在校验和验证之前验证发布签名，防止供应链攻击
+
 // VerifyChecksum 验证文件校验和
 // expected 格式: "sha256:hexstring"
 func VerifyChecksum(data []byte, expected string) error {

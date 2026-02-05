@@ -146,6 +146,17 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 
 // prepareLocalRenew 本地私钥模式：生成 CSR 并通过 API 触发续签
 func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
+	// 自动重置过期的重试计数（CSR 提交超过 7 天则重置）
+	if cert.Metadata.IssueRetryCount > 0 && !cert.Metadata.CSRSubmittedAt.IsZero() &&
+		time.Since(cert.Metadata.CSRSubmittedAt) > 7*24*time.Hour {
+		s.log.Info("证书 %s 重试计数已过期（超过 7 天），重置为 0", cert.CertName)
+		cert.Metadata.IssueRetryCount = 0
+		cert.Metadata.LastIssueState = ""
+		if err := s.cfgManager.UpdateCert(cert); err != nil {
+			s.log.Warn("重置重试计数失败: %v", err)
+		}
+	}
+
 	// 检查重试次数是否超限
 	if cert.Metadata.IssueRetryCount >= MaxIssueRetryCount {
 		s.log.Error("证书 %s 重试次数已达上限 (%d)，跳过", cert.CertName, MaxIssueRetryCount)
@@ -342,7 +353,7 @@ func savePendingKey(workDir, certName, keyPEM string) error {
 	if err := util.EnsureDir(pendingDir, 0700); err != nil {
 		return err
 	}
-	return os.WriteFile(pendingPath, []byte(keyPEM), 0600)
+	return util.AtomicWrite(pendingPath, []byte(keyPEM), 0600)
 }
 
 // readPendingKey 读取待确认私钥
@@ -379,17 +390,9 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 			// 读取失败，保留 pending 私钥以便手动恢复
 			return fmt.Errorf("读取待确认私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", readErr, pendingRelPath)
 		}
-		// 原子写入：先写到目标目录的临时文件，再重命名
-		tmpPath := targetPath + ".tmp"
-		if writeErr := os.WriteFile(tmpPath, data, 0600); writeErr != nil {
-			// 写入失败，保留 pending 私钥以便手动恢复
-			_ = os.Remove(tmpPath) // 清理可能的部分写入
+		// 使用 AtomicWrite 安全写入（带符号链接防护）
+		if writeErr := util.AtomicWrite(targetPath, data, 0600); writeErr != nil {
 			return fmt.Errorf("写入目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", writeErr, pendingRelPath)
-		}
-		if renameErr := os.Rename(tmpPath, targetPath); renameErr != nil {
-			// 重命名失败，保留 pending 私钥以便手动恢复
-			_ = os.Remove(tmpPath) // 清理临时文件
-			return fmt.Errorf("重命名目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", renameErr, pendingRelPath)
 		}
 		// 成功后才清理 pending 私钥
 		_ = os.Remove(pendingPath)

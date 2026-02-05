@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
+	"golang.org/x/net/idna"
 )
 
 // Matcher 域名匹配器
@@ -16,9 +17,26 @@ type Matcher struct {
 func New(certDomains []string) *Matcher {
 	lower := make([]string, len(certDomains))
 	for i, d := range certDomains {
-		lower[i] = strings.ToLower(d)
+		lower[i] = toASCIILower(d)
 	}
 	return &Matcher{certDomains: lower}
+}
+
+// toASCIILower 将域名转为小写 ASCII（Punycode），转换失败时保留原始字符串
+func toASCIILower(domain string) string {
+	lower := strings.ToLower(domain)
+	// 通配符域名：对 baseDomain 部分做 IDN 转换
+	if strings.HasPrefix(lower, "*.") {
+		base := lower[2:]
+		if ascii, err := idna.Lookup.ToASCII(base); err == nil {
+			return "*." + ascii
+		}
+		return lower
+	}
+	if ascii, err := idna.Lookup.ToASCII(lower); err == nil {
+		return ascii
+	}
+	return lower
 }
 
 // Match 匹配站点域名
@@ -68,7 +86,7 @@ func (m *Matcher) Match(siteDomains []string) *config.MatchResult {
 
 // matchesDomain 检查证书是否覆盖指定域名
 func (m *Matcher) matchesDomain(domain string) bool {
-	domain = strings.ToLower(domain)
+	domain = toASCIILower(domain)
 	for _, certDomain := range m.certDomains {
 		if MatchDomain(certDomain, domain) {
 			return true
@@ -90,6 +108,11 @@ func MatchDomain(certDomain, targetDomain string) bool {
 	if strings.HasPrefix(certDomain, "*.") {
 		// 获取通配符的基础域名部分
 		baseDomain := certDomain[2:] // 去掉 "*."
+
+		// 边界检查：baseDomain 非空且至少包含一个 "."
+		if baseDomain == "" || !strings.Contains(baseDomain, ".") {
+			return false
+		}
 
 		// 目标域名必须以基础域名结尾
 		if !strings.HasSuffix(targetDomain, baseDomain) {

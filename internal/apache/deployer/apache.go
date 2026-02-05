@@ -79,6 +79,13 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 		}
 	}
 
+	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过）
+	_ = util.RestoreFileContext(d.certPath)
+	_ = util.RestoreFileContext(d.keyPath)
+	if d.chainPath != "" {
+		_ = util.RestoreFileContext(d.chainPath)
+	}
+
 	return d.TestAndReload()
 }
 

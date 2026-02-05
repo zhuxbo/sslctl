@@ -4,6 +4,7 @@ package upgrade
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/service"
 )
@@ -109,7 +110,8 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	return result, nil
 }
 
-// tryRestartService 尝试重启服务（如果运行中）
+// tryRestartService 尝试优雅重启服务（如果运行中）
+// 使用 Stop + 等待 + Start 代替 Restart，确保守护进程完成优雅退出
 func tryRestartService(logFunc func(format string, args ...interface{})) bool {
 	svcMgr, err := service.New(nil)
 	if err != nil {
@@ -121,9 +123,25 @@ func tryRestartService(logFunc func(format string, args ...interface{})) bool {
 		return false
 	}
 
-	logFunc("重启服务...")
-	if err := svcMgr.Restart(); err != nil {
-		logFunc("重启服务失败: %v", err)
+	logFunc("停止服务...")
+	if err := svcMgr.Stop(); err != nil {
+		logFunc("停止服务失败: %v", err)
+		return false
+	}
+
+	// 等待服务完全停止（最多 30 秒）
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := svcMgr.Status()
+		if st == nil || !st.Running {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	logFunc("启动服务...")
+	if err := svcMgr.Start(); err != nil {
+		logFunc("启动服务失败: %v", err)
 		return false
 	}
 

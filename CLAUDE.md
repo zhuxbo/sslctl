@@ -126,11 +126,17 @@ docker/test/
 - 命令执行白名单 + 超时控制（`internal/executor`，默认 30 秒超时，支持 Context 取消）
 - SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
 - 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
-- 文件操作安全（符号链接防护、TOCTOU 保护）
+- 文件操作安全（符号链接防护、TOCTOU 保护、AtomicWrite O_EXCL 防护）
+- 备份源文件符号链接检查（`pkg/backup` computeFileHash 拒绝符号链接）
 - 配置并发安全（深拷贝 + 双重锁 + mtime 检测外部修改）
 - 配置保存符号链接防护（saveLocked 拒绝写入符号链接目标）
 - 日志敏感信息过滤（私钥、Bearer Token、Basic Auth、JSON 敏感字段、URL 参数）
 - 升级模块 TLS 安全（HTTPS + TLS 1.2+）
+- 升级优雅重启（Stop + 等待停止 + Start）
+- SELinux 兼容（部署后自动恢复文件安全上下文）
+- IDN/Punycode 域名支持（`pkg/matcher`）
+- 证书过期告警（守护进程周期检查，7 天/14 天阈值）
+- 重试计数自动重置（CSR 提交超 7 天后重置计数）
 - **待办**: 升级模块需增加 Ed25519 签名验证
 
 ## 开发规范

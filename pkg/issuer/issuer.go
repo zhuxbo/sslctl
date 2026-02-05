@@ -334,7 +334,7 @@ func (i *Issuer) submitNewCSR(ctx context.Context, site *config.SiteConfig, keyP
 	if err := os.MkdirAll(keyDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建私钥目录失败: %w", err)
 	}
-	if err := os.WriteFile(keyPath, []byte(privateKey), 0600); err != nil {
+	if err := util.AtomicWrite(keyPath, []byte(privateKey), 0600); err != nil {
 		return nil, fmt.Errorf("保存私钥失败: %w", err)
 	}
 	i.log("私钥已保存: %s", keyPath)

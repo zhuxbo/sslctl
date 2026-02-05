@@ -846,6 +846,42 @@ func TestParseConfigFile_NestedDirectoryBlocks(t *testing.T) {
 	}
 }
 
+// TestParseConfigFile_QuotedAngleBracket 测试引号内 < 不会被误判为嵌套标签
+func TestParseConfigFile_QuotedAngleBracket(t *testing.T) {
+	content := `
+<VirtualHost *:443>
+    ServerName example.com
+    SSLCertificateFile /etc/ssl/example.crt
+    SSLCertificateKeyFile /etc/ssl/example.key
+    ErrorDocument 404 "<html><body>Not Found</body></html>"
+    <Directory /var/www/example>
+        Options Indexes
+    </Directory>
+</VirtualHost>
+`
+	tmpFile, err := os.CreateTemp("", "apache-test-*.conf")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(content)
+	_ = tmpFile.Close()
+
+	s := NewWithConfig(tmpFile.Name())
+	sites, err := s.ScanFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+
+	if len(sites) != 1 {
+		t.Fatalf("期望 1 个站点，实际 %d", len(sites))
+	}
+
+	if sites[0].ServerName != "example.com" {
+		t.Errorf("ServerName 期望 example.com，实际 %s", sites[0].ServerName)
+	}
+}
+
 // TestGetConfigPath 测试获取配置路径
 func TestGetConfigPath(t *testing.T) {
 	s := NewWithConfig("/etc/apache2/httpd.conf")

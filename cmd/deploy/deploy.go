@@ -344,6 +344,34 @@ func runLocal(args []string, debug bool) {
 		os.Exit(1)
 	}
 
+	// 部署成功后记录到配置文件
+	localCertName := fmt.Sprintf("local-%s", *siteName)
+	localCertConfig := &config.CertConfig{
+		CertName:  localCertName,
+		RenewMode: config.RenewModeLocal,
+		Enabled:   true,
+		Bindings:  []config.SiteBinding{*binding},
+	}
+
+	// 从证书中提取域名和过期时间
+	if parsedCert, parseErr := v.ValidateCert(certPEM); parseErr == nil {
+		localCertConfig.Metadata.CertExpiresAt = parsedCert.NotAfter
+		localCertConfig.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
+		// 补齐 Domains：优先 DNSNames，回退 CN（避免续签时因缺少域名无法生成 CSR）
+		if len(parsedCert.DNSNames) > 0 {
+			localCertConfig.Domains = parsedCert.DNSNames
+		} else if parsedCert.Subject.CommonName != "" {
+			localCertConfig.Domains = []string{parsedCert.Subject.CommonName}
+		}
+	}
+	localCertConfig.Metadata.LastDeployAt = time.Now()
+
+	if err := cfgManager.AddCert(localCertConfig); err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 保存配置失败: %v\n", err)
+	} else {
+		fmt.Printf("配置已保存: %s (证书名: %s)\n", cfgManager.GetConfigPath(), localCertName)
+	}
+
 	fmt.Println("部署成功")
 }
 

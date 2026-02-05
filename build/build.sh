@@ -24,7 +24,12 @@ BUILD_TIME=$(date -u +%Y-%m-%d)
 if [ -n "$1" ]; then
     VERSION="$1"
 elif [ -f "${PROJECT_DIR}/version.json" ]; then
-    VERSION=$(cat "${PROJECT_DIR}/version.json" | grep '"version"' | sed 's/.*: "\(.*\)".*/\1/')
+    if command -v jq &>/dev/null; then
+        VERSION=$(jq -r '.version' "${PROJECT_DIR}/version.json")
+    else
+        VERSION=$(grep '"version"' "${PROJECT_DIR}/version.json" | sed 's/.*: "\(.*\)".*/\1/')
+    fi
+    [ -z "$VERSION" ] && VERSION="dev"
 else
     # 从 git tag 获取最新版本，或使用默认值
     VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0-dev")

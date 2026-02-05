@@ -155,9 +155,17 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		s.log.Warn("部署失败，尝试回滚: %v", deployErr)
 		if rollbackErr := s.rollbackFromBackup(binding, backupPath); rollbackErr != nil {
 			s.log.Error("回滚失败: %v", rollbackErr)
-			// 返回复合错误，让调用方知道回滚也失败了（这是更严重的情况）
+			// 构造手动恢复指引
+			recoveryCmd := fmt.Sprintf("cp %s/cert.pem %s && cp %s/key.pem %s",
+				backupPath, binding.Paths.Certificate, backupPath, binding.Paths.PrivateKey)
+			if binding.Reload.TestCommand != "" {
+				recoveryCmd += " && " + binding.Reload.TestCommand
+			}
+			if binding.Reload.ReloadCommand != "" {
+				recoveryCmd += " && " + binding.Reload.ReloadCommand
+			}
 			return errors.NewStructuredDeployError(errors.DeployErrorUnknown, errors.PhaseRollback,
-				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v, 手动恢复备份: %s", deployErr, rollbackErr, backupPath), nil)
+				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v\n手动恢复: %s", deployErr, rollbackErr, recoveryCmd), nil)
 		}
 		s.log.Info("已回滚到备份: %s", backupPath)
 		return errors.NewStructuredDeployError(errors.DeployErrorReload, errors.PhaseReload, "部署失败（已回滚）", deployErr)

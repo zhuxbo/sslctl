@@ -35,6 +35,10 @@ func TestMatchDomain(t *testing.T) {
 		// 非通配符不匹配子域名
 		{"非通配符不匹配子域名", "example.com", "www.example.com", false},
 		{"子域名不匹配父域名", "www.example.com", "example.com", false},
+
+		// 通配符边界检查
+		{"通配符 baseDomain 无点", "*.com", "test.com", false},
+		{"通配符空 baseDomain", "*.", "test", false},
 	}
 
 	for _, tt := range tests {
@@ -312,6 +316,34 @@ func TestNew(t *testing.T) {
 
 	if len(m.certDomains) != 2 {
 		t.Errorf("New() certDomains length = %d, want 2", len(m.certDomains))
+	}
+}
+
+// TestMatcherIDN 测试 IDN/Punycode 域名匹配
+func TestMatcherIDN(t *testing.T) {
+	// 证书域名使用中文
+	m := New([]string{"例え.jp", "*.例え.jp"})
+
+	tests := []struct {
+		name   string
+		domain string
+		want   bool
+	}{
+		{"Unicode 精确匹配", "例え.jp", true},
+		{"Punycode 精确匹配", "xn--r8jz45g.jp", true},
+		{"Unicode 通配符匹配", "www.例え.jp", true},
+		{"Punycode 通配符匹配", "www.xn--r8jz45g.jp", true},
+		{"不匹配", "other.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.Match([]string{tt.domain})
+			matched := result.Type == "full"
+			if matched != tt.want {
+				t.Errorf("Match(%q) type=%v, wantMatch=%v", tt.domain, result.Type, tt.want)
+			}
+		})
 	}
 }
 

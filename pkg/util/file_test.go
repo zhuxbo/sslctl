@@ -99,6 +99,76 @@ func TestAtomicWrite_InvalidPath(t *testing.T) {
 	}
 }
 
+// TestAtomicWrite_SymlinkTarget 测试目标路径为符号链接时拒绝写入
+func TestAtomicWrite_SymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建一个真实文件
+	realFile := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(realFile, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 创建指向真实文件的符号链接
+	symlinkPath := filepath.Join(dir, "symlink.txt")
+	if err := os.Symlink(realFile, symlinkPath); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	// 尝试通过符号链接写入，应该被拒绝
+	err := AtomicWrite(symlinkPath, []byte("malicious"), 0644)
+	if err == nil {
+		t.Error("AtomicWrite() should reject symlink target")
+	}
+	if err != nil && !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error should mention symlink, got: %v", err)
+	}
+
+	// 验证原始文件内容未被修改
+	data, _ := os.ReadFile(realFile)
+	if string(data) != "original" {
+		t.Errorf("original file was modified through symlink")
+	}
+}
+
+// TestAtomicWrite_SymlinkTmpFile 测试临时文件路径为符号链接时拒绝写入
+func TestAtomicWrite_SymlinkTmpFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target.txt")
+	tmpPath := path + ".tmp"
+
+	// 创建一个真实文件作为符号链接目标
+	realTmp := filepath.Join(dir, "real_tmp.txt")
+	if err := os.WriteFile(realTmp, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 注意: os.Remove(tmpPath) 会先被调用清理遗留，然后 O_EXCL 创建新文件
+	// 所以即使预先创建了符号链接，Remove 也会删除它，O_EXCL 会创建新的真实文件
+	// 这个测试验证整个流程是安全的
+	if err := os.Symlink(realTmp, tmpPath); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	// AtomicWrite 会先 Remove(tmpPath) 删除符号链接，然后 O_EXCL 创建新文件
+	err := AtomicWrite(path, []byte("safe content"), 0644)
+	if err != nil {
+		t.Fatalf("AtomicWrite() unexpected error: %v", err)
+	}
+
+	// 验证目标文件内容正确
+	data, _ := os.ReadFile(path)
+	if string(data) != "safe content" {
+		t.Errorf("file content = %q, want %q", data, "safe content")
+	}
+
+	// 验证原始文件未被修改
+	data, _ = os.ReadFile(realTmp)
+	if string(data) != "original" {
+		t.Error("real_tmp.txt was unexpectedly modified")
+	}
+}
+
 // TestCopyFile 测试文件复制
 func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()

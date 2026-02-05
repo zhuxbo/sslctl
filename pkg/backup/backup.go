@@ -16,7 +16,17 @@ import (
 )
 
 // computeFileHash 计算文件 SHA256 哈希（用于 TOCTOU 保护）
+// 拒绝符号链接源文件，防止路径劫持
 func computeFileHash(path string) (string, error) {
+	// 符号链接检查：拒绝符号链接源文件
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("symbolic link not allowed for backup source: %s", path)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err

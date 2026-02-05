@@ -153,4 +153,7 @@ func checkAndDeploy(parentCtx context.Context, svc *certops.Service, log *logger
 	} else {
 		log.Info("检查完成: 无需续签的证书")
 	}
+
+	// 检查证书过期告警
+	svc.CheckExpiry()
 }

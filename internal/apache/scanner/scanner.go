@@ -15,6 +15,15 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
+// Apache 标签检测正则（比 strings.Contains 更精确，避免引号内 < 误判）
+var (
+	apacheOpenTagRe  = regexp.MustCompile(`^\s*<[A-Za-z]`)
+	apacheCloseTagRe = regexp.MustCompile(`^\s*</[A-Za-z]`)
+)
+
+// maxTagDepth Apache 标签嵌套深度上限，防止异常输入
+const maxTagDepth = 32
+
 // SSLSite 扫描到的 SSL 站点信息
 type SSLSite struct {
 	ConfigFile      string   // 配置文件路径
@@ -355,16 +364,15 @@ func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
 			continue
 		}
 
-		// 检测嵌套标签（剥离行尾注释避免误判）
+		// 检测嵌套标签（使用正则匹配 Apache 标签格式，避免引号内 < 误判）
 		lineForTag := trimmed
 		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
 			lineForTag = lineForTag[:idx]
 		}
-		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
-			depth++
-		}
-		if strings.Contains(lineForTag, "</") {
+		if apacheCloseTagRe.MatchString(lineForTag) {
 			depth--
+		} else if apacheOpenTagRe.MatchString(lineForTag) && depth < maxTagDepth {
+			depth++
 		}
 
 		// VirtualHost 结束
@@ -579,16 +587,15 @@ func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
 			continue
 		}
 
-		// 检测嵌套标签（剥离行尾注释避免误判）
+		// 检测嵌套标签（使用正则匹配 Apache 标签格式，避免引号内 < 误判）
 		lineForTag := trimmed
 		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
 			lineForTag = lineForTag[:idx]
 		}
-		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
-			depth++
-		}
-		if strings.Contains(lineForTag, "</") {
+		if apacheCloseTagRe.MatchString(lineForTag) {
 			depth--
+		} else if apacheOpenTagRe.MatchString(lineForTag) && depth < maxTagDepth {
+			depth++
 		}
 
 		// VirtualHost 结束
@@ -1135,16 +1142,15 @@ func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
 			continue
 		}
 
-		// 检测嵌套标签（剥离行尾注释避免误判）
+		// 检测嵌套标签（使用正则匹配 Apache 标签格式，避免引号内 < 误判）
 		lineForTag := trimmed
 		if idx := strings.Index(lineForTag, "#"); idx >= 0 {
 			lineForTag = lineForTag[:idx]
 		}
-		if strings.Contains(lineForTag, "<") && !strings.Contains(lineForTag, "</") {
-			depth++
-		}
-		if strings.Contains(lineForTag, "</") {
+		if apacheCloseTagRe.MatchString(lineForTag) {
 			depth--
+		} else if apacheOpenTagRe.MatchString(lineForTag) && depth < maxTagDepth {
+			depth++
 		}
 
 		// VirtualHost 结束

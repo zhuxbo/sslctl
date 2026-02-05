@@ -401,9 +401,11 @@ func runUninstall(args []string) {
 
 	fmt.Println("开始卸载 sslctl...")
 
-	// 1. 卸载服务
+	// 1. 停止并卸载服务
 	svcMgr, err := service.New(nil)
 	if err == nil {
+		fmt.Println("停止服务...")
+		_ = svcMgr.Stop()
 		fmt.Println("卸载服务...")
 		_ = svcMgr.Uninstall()
 	}

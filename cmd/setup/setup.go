@@ -58,6 +58,11 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
+	// 检查是否已有配置（重复运行时保留 Schedule 等用户自定义设置）
+	if existingCfg, loadErr := cfgManager.Load(); loadErr == nil && existingCfg.API.URL != "" {
+		fmt.Println("检测到已有配置，将更新 API 和证书配置（保留 Schedule 等设置）")
+	}
+
 	// 初始化日志
 	logDir := cfgManager.GetLogsDir()
 	if debug {
@@ -210,15 +215,26 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	// 部署到每个绑定
+	var successCount, failCount int
+	var failedSites []string
 	for i := range bindings {
 		binding := &bindings[i]
 		fmt.Printf("  部署到: %s\n", binding.SiteName)
 
 		if err := deployToSiteBinding(ctx, binding, certData, privateKey, log); err != nil {
 			fmt.Fprintf(os.Stderr, "    部署失败: %v\n", err)
+			failCount++
+			failedSites = append(failedSites, binding.SiteName)
 			continue
 		}
 		fmt.Printf("    ✓ 部署成功\n")
+		successCount++
+	}
+
+	// 全部失败时退出
+	if successCount == 0 && failCount > 0 {
+		fmt.Fprintln(os.Stderr, "\n一键部署失败! 所有站点部署均失败")
+		os.Exit(1)
 	}
 
 	// 保存配置
@@ -266,7 +282,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	fmt.Println("\n========================================")
-	fmt.Println("一键部署完成!")
+	if failCount > 0 {
+		fmt.Printf("一键部署部分完成! 成功 %d 个，失败 %d 个\n", successCount, failCount)
+		fmt.Printf("失败站点: %s\n", strings.Join(failedSites, ", "))
+	} else {
+		fmt.Printf("一键部署完成! 共 %d 个站点\n", successCount)
+	}
 	fmt.Println("========================================")
 	fmt.Printf("\n配置文件: %s\n", cfgManager.GetConfigPath())
 	fmt.Printf("证书目录: %s\n", cfgManager.GetCertsDir())
