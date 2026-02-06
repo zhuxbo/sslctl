@@ -112,19 +112,24 @@ func installTo(gzData []byte, binPath string) (string, error) {
 	}
 	defer func() { _ = gzReader.Close() }()
 
-	// 写入临时文件
+	// 写入临时文件（限制解压大小，防止 gzip 炸弹）
 	tmpFile, err := os.CreateTemp("", "sslctl-*")
 	if err != nil {
 		return "", fmt.Errorf("创建临时文件失败: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 
-	if _, err := io.Copy(tmpFile, gzReader); err != nil {
+	written, err := io.Copy(tmpFile, io.LimitReader(gzReader, maxDownloadSize+1))
+	if err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("写入文件失败: %w", err)
 	}
 	_ = tmpFile.Close()
+	if written > maxDownloadSize {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("解压后文件大小超过限制 (%d bytes)", maxDownloadSize)
+	}
 
 	// 设置执行权限
 	if err := os.Chmod(tmpPath, 0755); err != nil {

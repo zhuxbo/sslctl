@@ -72,6 +72,9 @@ type BackupResult struct {
 
 // NewManager 创建备份管理器
 func NewManager(backupDir string, keepVersions int) *Manager {
+	if keepVersions < 1 {
+		keepVersions = 5
+	}
 	return &Manager{
 		backupDir:    backupDir,
 		keepVersions: keepVersions,

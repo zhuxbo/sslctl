@@ -51,6 +51,9 @@ type Site struct {
 // maxScanDepth 最大扫描深度，防止符号链接环导致死循环
 const maxScanDepth = 100
 
+// maxScanFiles 最大扫描文件数，防止 glob 展开大量文件导致性能问题
+const maxScanFiles = 1000
+
 // Scanner Nginx 配置扫描器
 type Scanner struct {
 	mainConfigPath string            // 主配置文件路径
@@ -246,6 +249,11 @@ func (s *Scanner) scanConfigFile(configPath string, depth int) ([]*SSLSite, erro
 		return nil, err
 	}
 	if s.scannedFiles[absPath] {
+		return nil, nil
+	}
+	// 检查文件总数限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
 		return nil, nil
 	}
 	s.scannedFiles[absPath] = true
@@ -583,6 +591,11 @@ func (s *Scanner) scanHTTPConfigFile(configPath string, depth int) ([]*HTTPSite,
 		return nil, err
 	}
 	if s.scannedFiles[absPath] {
+		return nil, nil
+	}
+	// 检查文件总数限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
 		return nil, nil
 	}
 	s.scannedFiles[absPath] = true
@@ -1217,6 +1230,11 @@ func (s *Scanner) scanAllConfigFile(configPath string, depth int) ([]*Site, erro
 		return nil, err
 	}
 	if s.scannedFiles[absPath] {
+		return nil, nil
+	}
+	// 检查文件总数限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
 		return nil, nil
 	}
 	s.scannedFiles[absPath] = true

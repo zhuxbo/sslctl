@@ -225,6 +225,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			fmt.Fprintf(os.Stderr, "    部署失败: %v\n", err)
 			failCount++
 			failedSites = append(failedSites, binding.SiteName)
+			binding.Enabled = false // 标记失败绑定为禁用，避免守护进程持续重试
 			continue
 		}
 		fmt.Printf("    ✓ 部署成功\n")

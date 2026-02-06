@@ -348,11 +348,14 @@ func (c *Client) FindMountForPath(mounts []MountInfo, containerPath string) *Mou
 		}
 
 		// 检查容器路径是否在挂载目录下
-		if strings.HasPrefix(containerPath, m.Destination) {
+		// 精确匹配：路径必须完全等于挂载点，或以挂载点+"/"为前缀
+		// 特殊处理根挂载点 "/"：任何绝对路径都匹配
+		dest := m.Destination
+		if containerPath == dest || (dest == "/" && strings.HasPrefix(containerPath, "/")) || strings.HasPrefix(containerPath, dest+"/") {
 			// 选择最长匹配
-			if len(m.Destination) > bestLen {
+			if len(dest) > bestLen {
 				bestMatch = m
-				bestLen = len(m.Destination)
+				bestLen = len(dest)
 			}
 		}
 	}

@@ -24,6 +24,12 @@ var (
 // maxTagDepth Apache 标签嵌套深度上限，防止异常输入
 const maxTagDepth = 32
 
+// maxScanFiles 扫描文件数上限，防止恶意 Include 导致资源耗尽
+const maxScanFiles = 1000
+
+// maxConfigFileSize 配置文件大小上限（10MB）
+const maxConfigFileSize = 10 * 1024 * 1024
+
 // SSLSite 扫描到的 SSL 站点信息
 type SSLSite struct {
 	ConfigFile      string   // 配置文件路径
@@ -213,6 +219,12 @@ func (s *Scanner) ScanFile(filePath string) ([]*SSLSite, error) {
 
 // scanConfigFile 扫描配置文件（递归处理 Include）
 func (s *Scanner) scanConfigFile(configPath string) ([]*SSLSite, error) {
+	// 文件数量限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -318,6 +330,16 @@ func (s *Scanner) findIncludes(configPath string) ([]string, error) {
 
 // parseConfigFile 解析单个配置文件
 func (s *Scanner) parseConfigFile(filePath string) ([]*SSLSite, error) {
+	// 检查文件大小
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if fileInfo.Size() > maxConfigFileSize {
+		s.logDebug("配置文件过大，跳过: %s (%d bytes)", filePath, fileInfo.Size())
+		return nil, nil
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -494,6 +516,12 @@ func (s *Scanner) ScanHTTPSites() ([]*HTTPSite, error) {
 
 // scanHTTPConfigFile 扫描配置文件中的 HTTP 站点（递归处理 Include）
 func (s *Scanner) scanHTTPConfigFile(configPath string) ([]*HTTPSite, error) {
+	// 文件数量限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -536,6 +564,16 @@ func (s *Scanner) scanHTTPConfigFile(configPath string) ([]*HTTPSite, error) {
 
 // parseHTTPConfigFile 解析单个配置文件中的 HTTP 站点
 func (s *Scanner) parseHTTPConfigFile(filePath string) ([]*HTTPSite, error) {
+	// 检查文件大小
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if fileInfo.Size() > maxConfigFileSize {
+		s.logDebug("配置文件过大，跳过: %s (%d bytes)", filePath, fileInfo.Size())
+		return nil, nil
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -1041,6 +1079,12 @@ func (s *Scanner) enrichSiteFromConfig(site *Site) {
 
 // scanAllConfigFile 扫描配置文件中的所有站点（递归处理 Include）
 func (s *Scanner) scanAllConfigFile(configPath string) ([]*Site, error) {
+	// 文件数量限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		s.logDebug("扫描文件数超过限制 (%d)，跳过: %s", maxScanFiles, configPath)
+		return nil, nil
+	}
+
 	// 避免重复扫描
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -1090,6 +1134,16 @@ func (s *Scanner) scanAllConfigFile(configPath string) ([]*Site, error) {
 
 // parseAllConfigFile 解析单个配置文件中的所有站点
 func (s *Scanner) parseAllConfigFile(filePath string) ([]*Site, error) {
+	// 检查文件大小
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if fileInfo.Size() > maxConfigFileSize {
+		s.logDebug("配置文件过大，跳过: %s (%d bytes)", filePath, fileInfo.Size())
+		return nil, nil
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err

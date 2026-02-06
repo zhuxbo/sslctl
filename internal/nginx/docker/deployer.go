@@ -367,21 +367,10 @@ func getDir(path string) string {
 }
 
 // validateContainerPath 验证容器内路径是否安全
-// 拒绝包含命令注入字符的路径
+// 委托给 isValidContainerPath（client.go），保持验证逻辑统一
 func validateContainerPath(path string) error {
-	if path == "" {
-		return fmt.Errorf("path cannot be empty")
-	}
-	// 检查危险字符
-	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
-	for _, char := range dangerousChars {
-		if strings.Contains(path, char) {
-			return fmt.Errorf("path contains dangerous character: %s", char)
-		}
-	}
-	// 路径必须是绝对路径
-	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("path must be absolute")
+	if !isValidContainerPath(path) {
+		return fmt.Errorf("invalid container path: empty, non-absolute, too long, contains path traversal or dangerous characters")
 	}
 	return nil
 }

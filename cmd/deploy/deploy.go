@@ -151,6 +151,7 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	}
 
 	// 部署到所有绑定
+	successCount := 0
 	for i := range cert.Bindings {
 		binding := &cert.Bindings[i]
 		if !binding.Enabled {
@@ -164,12 +165,15 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 			continue
 		}
 		fmt.Printf("    成功\n")
+		successCount++
 	}
 
-	// 更新元数据
-	cert.Metadata.LastDeployAt = time.Now()
-	cert.Metadata.CertExpiresAt = parsedCert.NotAfter
-	cert.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
+	// 仅在至少有一个绑定部署成功时才更新元数据
+	if successCount > 0 {
+		cert.Metadata.LastDeployAt = time.Now()
+		cert.Metadata.CertExpiresAt = parsedCert.NotAfter
+		cert.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
+	}
 
 	return cfgManager.UpdateCert(cert)
 }
@@ -475,7 +479,8 @@ func detectServerType(site *config.ScannedSite) string {
 
 	// 1. 通过配置文件内容特征判断（如果可读）
 	if site.ConfigFile != "" {
-		if content, err := os.ReadFile(site.ConfigFile); err == nil {
+		const maxConfigSize int64 = 10 << 20 // 10MB
+		if content, err := util.SafeReadFile(site.ConfigFile, maxConfigSize); err == nil {
 			contentStr := string(content)
 			// Apache 特征指令
 			if strings.Contains(contentStr, "<VirtualHost") ||

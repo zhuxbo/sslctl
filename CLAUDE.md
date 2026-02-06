@@ -137,7 +137,15 @@ docker/test/
 - IDN/Punycode 域名支持（`pkg/matcher`）
 - 证书过期告警（守护进程周期检查，7 天/14 天阈值）
 - 重试计数自动重置（CSR 提交超 7 天后重置计数）
+- 配置扫描防护（Nginx/Apache 扫描器文件数量限制 1000 + 文件大小限制 10MB）
+- Docker 挂载路径精确匹配（防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`）
+- 升级解压防护（gzip 解压大小限制，防止 gzip 炸弹攻击）
 - **待办**: 升级模块需增加 Ed25519 签名验证
+
+## CSR 生成
+
+- CSR 只需要 Common Name（CN），**不需要** SAN（Subject Alternative Name）
+- 默认密钥类型：RSA 2048，支持 ECDSA
 
 ## 开发规范
 

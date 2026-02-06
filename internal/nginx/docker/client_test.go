@@ -140,6 +140,7 @@ func TestFindMountForPath(t *testing.T) {
 		{"无匹配", "/opt/app/file", "", true},
 		{"volume 类型忽略", "/data/file", "", true},
 		{"只读挂载忽略", "/readonly/file", "", true},
+		{"类似前缀不误匹配", "/etc/nginx-backup/conf", "", true}, // /etc/nginx 不应匹配 /etc/nginx-backup
 	}
 
 	for _, tt := range tests {
@@ -151,6 +152,37 @@ func TestFindMountForPath(t *testing.T) {
 				}
 				return
 			}
+			if mount == nil {
+				t.Fatal("expected non-nil mount")
+			}
+			if mount.Source != tt.wantSource {
+				t.Errorf("mount.Source = %q, want %q", mount.Source, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestFindMountForPath_RootMount(t *testing.T) {
+	client := NewClient("abc123")
+	// 根挂载场景：容器整个文件系统挂载到宿主机目录
+	mounts := []MountInfo{
+		{Type: "bind", Source: "/host/container-root", Destination: "/", RW: true},
+		{Type: "bind", Source: "/host/nginx", Destination: "/etc/nginx", RW: true}, // 更精确的挂载
+	}
+
+	tests := []struct {
+		name          string
+		containerPath string
+		wantSource    string
+	}{
+		{"根挂载匹配任意绝对路径", "/opt/app/config", "/host/container-root"},
+		{"更精确挂载优先", "/etc/nginx/nginx.conf", "/host/nginx"},
+		{"根挂载匹配深层路径", "/var/log/app.log", "/host/container-root"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mount := client.FindMountForPath(mounts, tt.containerPath)
 			if mount == nil {
 				t.Fatal("expected non-nil mount")
 			}
