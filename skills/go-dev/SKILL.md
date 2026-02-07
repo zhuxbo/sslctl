@@ -149,13 +149,19 @@ go tool cover -html=coverage.out         # 生成 HTML 报告
 
 | 包             | 覆盖率 |
 |----------------|--------|
-| pkg/matcher    | 96.8%  |
+| pkg/errors     | 100.0% |
+| pkg/matcher    | 94.7%  |
 | pkg/csr        | 93.5%  |
-| pkg/backup     | 87.2%  |
-| pkg/util       | 84.1%  |
-| pkg/fetcher    | 80.2%  |
-| pkg/validator  | 69.7%  |
-| pkg/config     | 33.8%  |
+| pkg/upgrade    | 79.0%  |
+| pkg/config     | 76.1%  |
+| pkg/validator  | 75.5%  |
+| pkg/backup     | 75.3%  |
+| pkg/fetcher    | 73.9%  |
+| pkg/logger     | 72.1%  |
+| pkg/webserver  | 63.5%  |
+| pkg/certops    | 46.1%  |
+| pkg/util       | 37.5%  |
+| **总计**       | **48.2%** |
 
 ### 测试目录结构
 
@@ -189,16 +195,39 @@ testdata/
 ```bash
 # Linux
 GOOS=linux GOARCH=amd64 go build -o sslctl ./cmd
+GOOS=linux GOARCH=arm64 go build -o sslctl ./cmd
 
 # Windows
 GOOS=windows GOARCH=amd64 go build -o sslctl.exe ./cmd
 ```
+
+平台相关代码使用 Build Tag 隔离，确保交叉编译通过：
+- `pkg/util/inode_unix.go` / `inode_windows.go` — inode 比较（Unix 用 `syscall.Stat_t`，Windows 回退 Size/ModTime）
+- `pkg/util/selinux_linux.go` — SELinux 上下文恢复（仅 Linux）
+- `pkg/config/flock_unix.go` / `flock_windows.go` — 文件锁
+- `pkg/upgrade/exec_unix.go` / `exec_windows.go` — 进程替换
+- `pkg/service/windows.go` / `windows_stub.go` — Windows 服务管理
 
 ### 静态编译
 
 ```bash
 CGO_ENABLED=0 go build -ldflags="-s -w" -o sslctl ./cmd
 ```
+
+---
+
+## CI 与代码检查
+
+### golangci-lint
+
+配置文件 `.golangci.yml`，启用 errcheck、govet、staticcheck、gosec、unused、ineffassign。
+
+排除的 gosec 规则（项目级别合理误报）：
+- **G101**：环境变量名常量（如 `SSLCTL_API_TOKEN`）被误报为硬编码凭据
+- **G204**：`exec.Command` 使用受控路径（项目有 `internal/executor` 白名单机制，回退路径也是固定前缀）
+- **G306**：服务脚本需要 0755（可执行）、systemd/nginx/apache 配置需要 0644（可读）
+
+测试文件已排除 gosec 和 errcheck 检查。
 
 ---
 

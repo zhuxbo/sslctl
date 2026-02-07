@@ -126,10 +126,13 @@ docker/test/
 
 ## 代码质量
 
+- CI 全绿（Test + Lint + Build），支持 linux/amd64、linux/arm64、windows/amd64 交叉编译
+- golangci-lint 配置：errcheck、govet、staticcheck、gosec、unused、ineffassign（排除 G101/G204/G306 误报）
 - 接口参数命名统一（`Deployer.Deploy` 接口参数名与 Nginx/Apache 实现一致使用 `intermediate`）
 - Windows 服务管理错误处理完善（`Control`/`UpdateConfig` 返回值均已检查）
 - 测试覆盖率 48%+，核心包 `pkg/errors` 100%，`pkg/config` 76%，`pkg/backup` 75%
 - 结构化部署错误（`StructuredDeployError`）支持类型分类、阶段定位和可重试判断
+- 平台相关代码使用 Build Tag 隔离（`inode_unix.go`/`inode_windows.go`、`selinux_linux.go`）
 
 ## 安全机制
 

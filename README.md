@@ -97,6 +97,8 @@ sslctl uninstall --purge                 # 卸载并清理配置
 | Linux (SysVinit) | ✅ | ✅ | SysVinit |
 | Windows | ✅ | ✅ | Windows Service |
 
+CI 覆盖 linux/amd64、linux/arm64、windows/amd64 三平台交叉编译验证。
+
 支持 Docker 容器 Nginx（挂载卷/docker cp 双模式），自动检测本地或容器环境。
 
 ## Debug 模式
