@@ -70,14 +70,14 @@ func (i *ApacheInstaller) Install() (*InstallResult, error) {
 	}
 
 	// 5. 写入新配置
-	if err := os.WriteFile(i.configPath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(i.configPath, []byte(newContent), 0600); err != nil {
 		return nil, fmt.Errorf("写入配置失败: %w", err)
 	}
 
 	// 6. 测试配置
 	if err := i.testConfig(); err != nil {
 		// 回滚
-		if rollbackErr := os.WriteFile(i.configPath, []byte(originalContent), 0644); rollbackErr != nil {
+		if rollbackErr := os.WriteFile(i.configPath, []byte(originalContent), 0600); rollbackErr != nil {
 			return nil, fmt.Errorf("配置测试失败且回滚失败: test=%v, rollback=%v", err, rollbackErr)
 		}
 		return nil, fmt.Errorf("配置测试失败，已回滚: %w", err)
@@ -152,7 +152,7 @@ func (i *ApacheInstaller) backup(content string) (string, error) {
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("%s.%s.bak", filepath.Base(i.configPath), timestamp))
 
-	if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(backupPath, []byte(content), 0600); err != nil {
 		return "", err
 	}
 

@@ -172,7 +172,7 @@ func (m *SysVinitManager) Stop() error {
 	if executor.Run("service "+m.cfg.Name+" stop") == nil {
 		return nil
 	}
-	_ = exec.Command(m.servicePath(), "stop").Run()
+	_ = exec.Command(m.servicePath(), "stop").Run() // #nosec G204 -- servicePath() 为受控路径
 	return nil
 }
 
@@ -182,7 +182,7 @@ func (m *SysVinitManager) Restart() error {
 	if err := executor.Run("service " + m.cfg.Name + " restart"); err == nil {
 		return nil
 	}
-	cmd := exec.Command(m.servicePath(), "restart")
+	cmd := exec.Command(m.servicePath(), "restart") // #nosec G204 -- servicePath() 为受控路径
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("重启服务失败: %w\n%s", err, output)
 	}
@@ -196,7 +196,7 @@ func (m *SysVinitManager) Status() (*Status, error) {
 	// 检查是否运行中（优先使用 service 命令）
 	if executor.Run("service "+m.cfg.Name+" status") == nil {
 		status.Running = true
-	} else if exec.Command(m.servicePath(), "status").Run() == nil {
+	} else if exec.Command(m.servicePath(), "status").Run() == nil { // #nosec G204 -- servicePath() 为受控路径
 		status.Running = true
 	}
 
