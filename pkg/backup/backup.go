@@ -85,6 +85,16 @@ func NewManager(backupDir string, keepVersions int) *Manager {
 // chainPath 可选，用于 Apache 备份证书链文件
 // 使用文件内容哈希进行 TOCTOU 保护，比时间戳更可靠
 func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo, chainPath ...string) (*BackupResult, error) {
+	return m.backupInternal(siteName, certPath, keyPath, certInfo, true, chainPath...)
+}
+
+// backupWithoutCleanup 备份但不清理旧版本（Restore 内部使用，防止清理掉正在恢复的目标备份）
+func (m *Manager) backupWithoutCleanup(siteName, certPath, keyPath string, certInfo *CertInfo, chainPath ...string) (*BackupResult, error) {
+	return m.backupInternal(siteName, certPath, keyPath, certInfo, false, chainPath...)
+}
+
+// backupInternal 备份核心实现
+func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *CertInfo, doCleanup bool, chainPath ...string) (*BackupResult, error) {
 	// 0. 计算源文件哈希（用于检测并发修改，比时间戳更可靠）
 	certHash, err := computeFileHash(certPath)
 	if err != nil {
@@ -189,9 +199,11 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 		BackupPath: backupPath,
 	}
 
-	// 6. 清理老版本
-	if err := m.cleanup(siteName); err != nil {
-		result.CleanupError = err
+	// 6. 清理老版本（Restore 调用时跳过，防止清理掉正在恢复的目标备份）
+	if doCleanup {
+		if err := m.cleanup(siteName); err != nil {
+			result.CleanupError = err
+		}
 	}
 
 	return result, nil
@@ -298,6 +310,90 @@ func (m *Manager) saveMetadata(path string, metadata *Metadata) error {
 	}
 
 	return os.WriteFile(path, data, 0600)
+}
+
+// Restore 从备份恢复证书文件
+// timestamp 可选，为空时恢复最新备份
+// 恢复前自动备份当前文件
+func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, error) {
+	var backupPath string
+	var err error
+
+	if len(timestamp) > 0 && timestamp[0] != "" {
+		backupPath = filepath.Join(m.backupDir, siteName, timestamp[0])
+		if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+			return nil, fmt.Errorf("备份不存在: %s/%s", siteName, timestamp[0])
+		}
+	} else {
+		backupPath, err = m.GetLatestBackup(siteName)
+		if err != nil {
+			return nil, fmt.Errorf("获取最新备份失败: %w", err)
+		}
+	}
+
+	// 加载备份元数据
+	metadata, err := m.LoadMetadata(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("加载备份元数据失败: %w", err)
+	}
+
+	// 获取备份文件路径
+	certSrc, keySrc, chainSrc := m.GetBackupPathsWithChain(backupPath)
+
+	// 验证备份文件存在
+	if _, err := os.Stat(certSrc); os.IsNotExist(err) {
+		return nil, fmt.Errorf("备份证书文件不存在: cert.pem")
+	}
+	if _, err := os.Stat(keySrc); os.IsNotExist(err) {
+		return nil, fmt.Errorf("备份私钥文件不存在: key.pem")
+	}
+
+	// 验证必要路径非空
+	if metadata.CertPath == "" || metadata.KeyPath == "" {
+		return nil, fmt.Errorf("备份元数据中 CertPath 或 KeyPath 为空")
+	}
+
+	// 安全检查：目标路径不能是符号链接
+	for _, target := range []string{metadata.CertPath, metadata.KeyPath, metadata.ChainPath} {
+		if target == "" {
+			continue
+		}
+		info, lstatErr := os.Lstat(target)
+		if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("目标路径是符号链接，拒绝恢复: %s", target)
+		}
+	}
+
+	// 恢复前备份当前文件（防止误操作）
+	// 使用 backupWithoutCleanup 避免清理掉正在恢复的目标备份
+	if util.FileExists(metadata.CertPath) && util.FileExists(metadata.KeyPath) {
+		_, backupErr := m.backupWithoutCleanup(siteName, metadata.CertPath, metadata.KeyPath, nil, metadata.ChainPath)
+		if backupErr != nil {
+			return nil, fmt.Errorf("恢复前备份当前文件失败: %w", backupErr)
+		}
+	}
+
+	// 恢复证书文件
+	if err := util.CopyFile(certSrc, metadata.CertPath); err != nil {
+		return nil, fmt.Errorf("恢复证书失败: %w", err)
+	}
+
+	// 恢复私钥文件
+	if err := util.CopyFile(keySrc, metadata.KeyPath); err != nil {
+		return nil, fmt.Errorf("恢复私钥失败: %w", err)
+	}
+
+	// 恢复证书链文件（如果有）
+	if metadata.ChainPath != "" {
+		if _, err := os.Stat(chainSrc); err == nil {
+			if copyErr := util.CopyFile(chainSrc, metadata.ChainPath); copyErr != nil {
+				// chain 文件恢复失败非致命
+				fmt.Fprintf(os.Stderr, "[RESTORE WARN] 恢复证书链文件失败: %v\n", copyErr)
+			}
+		}
+	}
+
+	return metadata, nil
 }
 
 // DeleteBackup 删除指定备份

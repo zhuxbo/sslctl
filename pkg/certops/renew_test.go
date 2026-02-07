@@ -323,7 +323,7 @@ func TestRenewResult_Status(t *testing.T) {
 	}{
 		{"成功", "success"},
 		{"待处理", "pending"},
-		{"失败", "failed"},
+		{"失败", "failure"},
 	}
 
 	for _, tt := range tests {
@@ -344,7 +344,7 @@ func TestRenewResult_WithError(t *testing.T) {
 	testErr := os.ErrNotExist
 	result := RenewResult{
 		CertName: "test-cert",
-		Status:   "failed",
+		Status:   "failure",
 		Error:    testErr,
 	}
 

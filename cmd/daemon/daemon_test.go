@@ -94,7 +94,7 @@ func TestRenewResultStats(t *testing.T) {
 	results := []certops.RenewResult{
 		{CertName: "cert1", Status: "success", DeployCount: 2},
 		{CertName: "cert2", Status: "success", DeployCount: 1},
-		{CertName: "cert3", Status: "failed", Error: fmt.Errorf("API error")},
+		{CertName: "cert3", Status: "failure", Error: fmt.Errorf("API error")},
 		{CertName: "cert4", Status: "pending"},
 		{CertName: "cert5", Status: "pending"},
 	}
@@ -104,7 +104,7 @@ func TestRenewResultStats(t *testing.T) {
 		switch r.Status {
 		case "success":
 			successCount++
-		case "failed":
+		case "failure":
 			failedCount++
 		case "pending":
 			pendingCount++

@@ -23,20 +23,18 @@ func TestNewService(t *testing.T) {
 		t.Fatal("NewService 返回 nil")
 	}
 
-	if svc.GetConfigManager() != cm {
-		t.Error("GetConfigManager 返回值不正确")
+	// 验证内部组件已正确初始化
+	if svc.cfgManager != cm {
+		t.Error("cfgManager 未正确初始化")
 	}
-
-	if svc.GetFetcher() == nil {
-		t.Error("GetFetcher 返回 nil")
+	if svc.fetcher == nil {
+		t.Error("fetcher 未正确初始化")
 	}
-
-	if svc.GetBackupManager() == nil {
-		t.Error("GetBackupManager 返回 nil")
+	if svc.backupMgr == nil {
+		t.Error("backupMgr 未正确初始化")
 	}
-
-	if svc.GetLogger() != log {
-		t.Error("GetLogger 返回值不正确")
+	if svc.log != log {
+		t.Error("log 未正确初始化")
 	}
 }
 

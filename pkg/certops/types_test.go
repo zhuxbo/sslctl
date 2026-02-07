@@ -180,7 +180,7 @@ func TestRenewResult(t *testing.T) {
 			result: RenewResult{
 				CertName: "order-789",
 				Mode:     "pull",
-				Status:   "failed",
+				Status:   "failure",
 				Error:    nil, // 实际应有错误
 			},
 		},

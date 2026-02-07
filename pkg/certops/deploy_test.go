@@ -378,39 +378,6 @@ func TestBackupManagerIntegration(t *testing.T) {
 	}
 }
 
-// TestService_GettersAndSetters 测试服务 getter 方法
-func TestService_GettersAndSetters(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
-	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
-	}
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	// 测试 GetConfigManager
-	if svc.GetConfigManager() != cm {
-		t.Error("GetConfigManager 返回不正确")
-	}
-
-	// 测试 GetFetcher
-	if svc.GetFetcher() == nil {
-		t.Error("GetFetcher 返回 nil")
-	}
-
-	// 测试 GetBackupManager
-	if svc.GetBackupManager() == nil {
-		t.Error("GetBackupManager 返回 nil")
-	}
-
-	// 测试 GetLogger
-	if svc.GetLogger() != log {
-		t.Error("GetLogger 返回不正确")
-	}
-}
-
 // TestCertChainDeployment 测试带证书链的部署场景
 func TestCertChainDeployment(t *testing.T) {
 	// 生成证书链
@@ -906,67 +873,6 @@ func TestNewService_Fields(t *testing.T) {
 	}
 }
 
-// TestDeploy_Alias 测试 Deploy 别名方法
-func TestDeploy_Alias(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
-	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
-	}
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	// 测试不存在的证书
-	_, err = svc.Deploy(t.Context(), "nonexistent-cert")
-	if err == nil {
-		t.Error("部署不存在的证书应返回错误")
-	}
-}
-
-// TestDeployAll_Alias 测试 DeployAll 别名方法
-func TestDeployAll_Alias(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
-	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
-	}
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	// 空配置应返回空结果
-	results, err := svc.DeployAll(t.Context())
-	if err != nil {
-		t.Errorf("空配置部署不应报错: %v", err)
-	}
-	if len(results) != 0 {
-		t.Error("空配置应返回空结果")
-	}
-}
-
-// TestScan_Alias 测试 Scan 别名方法
-func TestScan_Alias(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
-	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
-	}
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	result, err := svc.Scan(t.Context(), ScanOptions{})
-	if err != nil {
-		t.Errorf("扫描不应报错: %v", err)
-	}
-	if result == nil {
-		t.Error("扫描结果不应为 nil")
-	}
-}
 
 // TestDeployToBinding_RollbackFailureContainsBackupPath 测试回滚失败错误信息包含备份路径
 func TestDeployToBinding_RollbackFailureContainsBackupPath(t *testing.T) {

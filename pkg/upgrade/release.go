@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -19,14 +20,17 @@ const ReleaseURL = "https://sslctl.cnssl.com"
 
 // VersionInfo 版本详细信息
 type VersionInfo struct {
-	Checksums map[string]string `json:"checksums"` // 文件名 -> sha256:hash
+	Checksums  map[string]string `json:"checksums"`            // 文件名 -> sha256:hash
+	Signatures map[string]string `json:"signatures,omitempty"` // 文件名 -> ed25519:<base64_signature>
 }
 
 // ReleaseInfo 发布信息
 type ReleaseInfo struct {
-	LatestStable string                 `json:"latest_stable"`
-	LatestDev    string                 `json:"latest_dev"`
-	Versions     map[string]VersionInfo `json:"versions,omitempty"`
+	LatestStable     string                 `json:"latest_stable"`
+	LatestDev        string                 `json:"latest_dev"`
+	MinClientVersion string                 `json:"min_client_version,omitempty"` // 最低客户端版本，低于此版本需重新安装
+	UpgradePath      []string               `json:"upgrade_path,omitempty"`       // 链式升级路径（过渡版本列表）
+	Versions         map[string]VersionInfo `json:"versions,omitempty"`
 }
 
 // FetchReleaseInfo 获取远程版本信息
@@ -100,6 +104,37 @@ func NormalizeVersion(ver string) string {
 	return ver
 }
 
+// CompareVersions 比较两个语义化版本号
+// 返回: -1 (a < b), 0 (a == b), 1 (a > b)
+// 仅比较主版本号部分（忽略 -beta/-dev 等预发布标识）
+func CompareVersions(a, b string) int {
+	parseVer := func(v string) [3]int {
+		v = strings.TrimPrefix(v, "v")
+		// 截取 - 之前的部分
+		if idx := strings.Index(v, "-"); idx >= 0 {
+			v = v[:idx]
+		}
+		parts := strings.Split(v, ".")
+		var result [3]int
+		for i := 0; i < 3 && i < len(parts); i++ {
+			n, _ := strconv.Atoi(parts[i])
+			result[i] = n
+		}
+		return result
+	}
+
+	va, vb := parseVer(a), parseVer(b)
+	for i := 0; i < 3; i++ {
+		if va[i] < vb[i] {
+			return -1
+		}
+		if va[i] > vb[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
 // GetChecksum 获取指定版本文件的校验和
 func (info *ReleaseInfo) GetChecksum(version, filename string) string {
 	if info.Versions == nil {
@@ -107,6 +142,17 @@ func (info *ReleaseInfo) GetChecksum(version, filename string) string {
 	}
 	if verInfo, ok := info.Versions[version]; ok {
 		return verInfo.Checksums[filename]
+	}
+	return ""
+}
+
+// GetSignature 获取指定版本文件的签名
+func (info *ReleaseInfo) GetSignature(version, filename string) string {
+	if info.Versions == nil {
+		return ""
+	}
+	if verInfo, ok := info.Versions[version]; ok {
+		return verInfo.Signatures[filename]
 	}
 	return ""
 }

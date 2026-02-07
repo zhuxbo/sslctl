@@ -66,6 +66,58 @@ get_channel() {
 }
 
 # ========================================
+# 计算校验和并更新 versions 字段
+# ========================================
+update_versions_checksums() {
+    local version="$1"
+    local channel="$2"
+    local releases_file="$RELEASE_DIR/releases.json"
+    local version_dir="$RELEASE_DIR/$channel/$version"
+
+    python3 << PYEOF
+import json
+import hashlib
+import os
+
+releases_file = '$releases_file'
+version = '$version'
+version_dir = '$version_dir'
+
+# 读取现有数据
+data = {}
+if os.path.exists(releases_file):
+    try:
+        with open(releases_file, 'r') as f:
+            data = json.load(f)
+    except:
+        pass
+
+if 'versions' not in data:
+    data['versions'] = {}
+
+checksums = {}
+for filename in os.listdir(version_dir):
+    if filename.endswith('.gz'):
+        filepath = os.path.join(version_dir, filename)
+        sha256 = hashlib.sha256()
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        checksums[filename] = f'sha256:{sha256.hexdigest()}'
+        print(f'  {filename}: {checksums[filename][:20]}...')
+
+if version not in data['versions']:
+    data['versions'][version] = {}
+data['versions'][version]['checksums'] = checksums
+
+with open(releases_file, 'w') as f:
+    json.dump(data, f, indent=2)
+
+print(f'已更新 {len(checksums)} 个文件的校验和')
+PYEOF
+}
+
+# ========================================
 # 更新 releases.json
 # ========================================
 update_releases_json() {
@@ -75,7 +127,7 @@ update_releases_json() {
     log_info "更新 releases.json..."
 
     local releases_file="$RELEASE_DIR/releases.json"
-    local version_dir="$channel/v$version"
+    local version_dir="$channel/$version"
 
     python3 << PYEOF
 import json
@@ -149,13 +201,13 @@ cleanup_old_versions() {
     if [ -d "$channel_dir" ]; then
         cd "$channel_dir"
         # 安全的目录清理：逐行处理避免文件名解析问题
-        local count=0
-        ls -dt v* 2>/dev/null | while IFS= read -r dir; do
-            count=$((count + 1))
-            if [ "$count" -gt "$KEEP_VERSIONS" ] && [ -d "$dir" ]; then
-                rm -rf "$dir"
-            fi
-        done
+        local removed
+        removed=$(ls -dt v* 2>/dev/null | tail -n +$((KEEP_VERSIONS + 1)))
+        if [ -n "$removed" ]; then
+            echo "$removed" | while IFS= read -r dir; do
+                [ -d "$dir" ] && rm -rf "$dir"
+            done
+        fi
         # 同步更新 releases.json
         sync_releases_json "$channel"
     fi
@@ -192,7 +244,7 @@ existing = set()
 if os.path.isdir(channel_dir):
     for d in os.listdir(channel_dir):
         if d.startswith('v'):
-            existing.add(d[1:])  # 去掉 v 前缀
+            existing.add(d)
 
 # 过滤掉已删除的版本
 versions = data['channels'][channel].get('versions', [])
@@ -219,7 +271,7 @@ update_symlinks() {
     local latest_dir="$RELEASE_DIR/latest"
     [ "$channel" = "dev" ] && latest_dir="$RELEASE_DIR/dev-latest"
 
-    local version_dir="$RELEASE_DIR/$channel/v$version"
+    local version_dir="$RELEASE_DIR/$channel/$version"
 
     mkdir -p "$latest_dir"
     cd "$latest_dir"
@@ -228,7 +280,7 @@ update_symlinks() {
         if [ -f "$pkg" ]; then
             filename=$(basename "$pkg")
             rm -f "$filename"
-            ln -s "../$channel/v$version/$filename" "$filename"
+            ln -s "../$channel/$version/$filename" "$filename"
         fi
     done
 }
@@ -242,7 +294,7 @@ deploy_local() {
 
     log_step "发布到本地目录..."
 
-    local version_dir="$RELEASE_DIR/$channel/v$version"
+    local version_dir="$RELEASE_DIR/$channel/$version"
 
     # 创建目录
     log_info "创建目录: $version_dir"
@@ -262,6 +314,10 @@ deploy_local() {
     # 复制 install.sh
     log_info "复制 install.sh..."
     cp "$PROJECT_ROOT/deploy/install.sh" "$RELEASE_DIR/"
+
+    # 计算校验和并更新 versions 字段
+    log_info "计算校验和..."
+    update_versions_checksums "$version" "$channel"
 
     # 更新 releases.json
     update_releases_json "$version" "$channel"
@@ -343,6 +399,11 @@ main() {
         fi
     fi
 
+    # 确保版本号带 v 前缀
+    if [[ "$version" != v* ]]; then
+        version="v$version"
+    fi
+
     # 确定通道
     local channel=$(get_channel "$version")
 
@@ -370,7 +431,7 @@ main() {
     echo ""
     log_success "发布完成！"
     echo ""
-    log_info "发布路径: $RELEASE_DIR/$channel/v$version"
+    log_info "发布路径: $RELEASE_DIR/$channel/$version"
     if [ -n "$RELEASE_URL" ]; then
         log_info "下载地址: $RELEASE_URL/releases.json"
     fi

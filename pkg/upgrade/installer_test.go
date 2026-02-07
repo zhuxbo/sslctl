@@ -3,8 +3,12 @@ package upgrade
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -344,4 +348,334 @@ func (z *zeroReader) Read(p []byte) (int, error) {
 		p[i] = 0
 	}
 	return len(p), nil
+}
+
+// generateTestKeyPair 生成用于测试的 Ed25519 密钥对
+func generateTestKeyPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	return pub, priv
+}
+
+// saveAndRestoreKeys 保存并在测试结束时恢复密钥环
+func saveAndRestoreKeys(t *testing.T) {
+	t.Helper()
+	oldKeys := releasePublicKeys
+	t.Cleanup(func() { releasePublicKeys = oldKeys })
+}
+
+// --- 旧格式兼容测试（ed25519:<base64>）---
+
+func TestVerifySignature_LegacyFormat_Valid(t *testing.T) {
+	pub, priv := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv, data)
+	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
+
+	if err := VerifySignature(data, sigStr); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifySignature_LegacyFormat_Invalid(t *testing.T) {
+	pub, priv := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv, data)
+	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
+
+	// 篡改数据
+	tamperedData := []byte("tampered binary data")
+	if err := VerifySignature(tamperedData, sigStr); err == nil {
+		t.Error("expected error for tampered data")
+	}
+}
+
+func TestVerifySignature_LegacyFormat_WrongKey(t *testing.T) {
+	pub1, _ := generateTestKeyPair(t)
+	_, priv2 := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub1})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv2, data) // 用错误的私钥签名
+	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
+
+	if err := VerifySignature(data, sigStr); err == nil {
+		t.Error("expected error for wrong key")
+	}
+}
+
+func TestVerifySignature_LegacyFormat_MultipleKeys(t *testing.T) {
+	pub1, _ := generateTestKeyPair(t)
+	pub2, priv2 := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{
+		"key-1": pub1,
+		"key-2": pub2,
+	})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv2, data) // 用 key-2 的私钥签名
+	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
+
+	// 旧格式遍历所有公钥，key-2 应该匹配
+	if err := VerifySignature(data, sigStr); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- 新格式测试（ed25519:<key_id>:<base64>）---
+
+func TestVerifySignature_NewFormat_Valid(t *testing.T) {
+	pub, priv := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv, data)
+	sigStr := "ed25519:key-1:" + base64.StdEncoding.EncodeToString(sig)
+
+	if err := VerifySignature(data, sigStr); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifySignature_NewFormat_KeyNotFound(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	_, priv2 := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv2, data)
+	sigStr := "ed25519:key-2:" + base64.StdEncoding.EncodeToString(sig)
+
+	err := VerifySignature(data, sigStr)
+	if err == nil {
+		t.Fatal("expected error for unknown key ID")
+	}
+
+	var keyNotFound *ErrKeyNotFound
+	if !errors.As(err, &keyNotFound) {
+		t.Errorf("expected ErrKeyNotFound, got: %T: %v", err, err)
+	}
+	if keyNotFound.KeyID != "key-2" {
+		t.Errorf("KeyID = %q, want %q", keyNotFound.KeyID, "key-2")
+	}
+}
+
+func TestVerifySignature_NewFormat_TamperedData(t *testing.T) {
+	pub, priv := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	data := []byte("test binary data")
+	sig := ed25519.Sign(priv, data)
+	sigStr := "ed25519:key-1:" + base64.StdEncoding.EncodeToString(sig)
+
+	// 验证篡改数据时返回"文件可能被篡改"而不是 ErrKeyNotFound
+	tamperedData := []byte("tampered binary data")
+	err := VerifySignature(tamperedData, sigStr)
+	if err == nil {
+		t.Fatal("expected error for tampered data")
+	}
+	if strings.Contains(err.Error(), "密钥环") {
+		t.Errorf("should not be ErrKeyNotFound for tampered data: %v", err)
+	}
+	if !strings.Contains(err.Error(), "篡改") {
+		t.Errorf("error should mention tamper: %v", err)
+	}
+}
+
+func TestVerifySignature_NewFormat_MultipleKeys(t *testing.T) {
+	pub1, priv1 := generateTestKeyPair(t)
+	pub2, priv2 := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{
+		"key-1": pub1,
+		"key-2": pub2,
+	})
+
+	data := []byte("test binary data")
+
+	// key-1 签名
+	sig1 := ed25519.Sign(priv1, data)
+	sigStr1 := "ed25519:key-1:" + base64.StdEncoding.EncodeToString(sig1)
+	if err := VerifySignature(data, sigStr1); err != nil {
+		t.Errorf("key-1 verification failed: %v", err)
+	}
+
+	// key-2 签名
+	sig2 := ed25519.Sign(priv2, data)
+	sigStr2 := "ed25519:key-2:" + base64.StdEncoding.EncodeToString(sig2)
+	if err := VerifySignature(data, sigStr2); err != nil {
+		t.Errorf("key-2 verification failed: %v", err)
+	}
+}
+
+// --- 通用测试 ---
+
+func TestVerifySignature_EmptySignature_NoKeys(t *testing.T) {
+	saveAndRestoreKeys(t)
+	releasePublicKeys = map[string]ed25519.PublicKey{}
+
+	// 空密钥环 + 空签名 → 兼容旧版本，跳过验证
+	if err := VerifySignature([]byte("data"), ""); err != nil {
+		t.Errorf("expected nil for empty signature with empty keyring, got: %v", err)
+	}
+}
+
+func TestVerifySignature_EmptySignature_WithKeys(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	// 已配置公钥 + 空签名 → 拒绝（防止降级攻击）
+	err := VerifySignature([]byte("data"), "")
+	if err == nil {
+		t.Error("expected error for empty signature with configured keys")
+	}
+	if !strings.Contains(err.Error(), "未提供数字签名") {
+		t.Errorf("error should mention missing signature, got: %v", err)
+	}
+}
+
+func TestVerifySignature_NoPublicKeys_EmptySignature(t *testing.T) {
+	saveAndRestoreKeys(t)
+	releasePublicKeys = map[string]ed25519.PublicKey{}
+
+	// 空密钥环 + 空签名 → 应通过（兼容旧版本）
+	if err := VerifySignature([]byte("data"), ""); err != nil {
+		t.Errorf("expected nil for empty signature with empty keyring, got: %v", err)
+	}
+}
+
+func TestVerifySignature_HasPublicKeys_EmptySignature(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	// 已配置公钥 + 空签名 → 拒绝安装（防止降级攻击）
+	err := VerifySignature([]byte("data"), "")
+	if err == nil {
+		t.Fatal("expected error for empty signature when keys are configured")
+	}
+	if !strings.Contains(err.Error(), "未提供数字签名") {
+		t.Errorf("error should mention missing signature, got: %v", err)
+	}
+}
+
+func TestVerifySignature_NoPublicKeys(t *testing.T) {
+	saveAndRestoreKeys(t)
+	releasePublicKeys = map[string]ed25519.PublicKey{}
+
+	// 密钥环为空但签名非空时应返回错误
+	err := VerifySignature([]byte("data"), "ed25519:AAAA")
+	if err == nil {
+		t.Error("expected error when no public keys but signature provided")
+	}
+	var noKeys *ErrNoPublicKeys
+	if !errors.As(err, &noKeys) {
+		t.Errorf("expected ErrNoPublicKeys, got: %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "公钥") {
+		t.Errorf("error should mention public keys, got: %v", err)
+	}
+}
+
+func TestVerifySignature_InvalidFormat(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	if err := VerifySignature([]byte("data"), "rsa:AAAA"); err == nil {
+		t.Error("expected error for unsupported format")
+	}
+}
+
+func TestVerifySignature_InvalidBase64(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	if err := VerifySignature([]byte("data"), "ed25519:not-valid-base64!!!"); err == nil {
+		t.Error("expected error for invalid base64")
+	}
+}
+
+func TestVerifySignature_WrongSignatureLength(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	// 签名长度不正确（旧格式）
+	shortSig := base64.StdEncoding.EncodeToString([]byte("too short"))
+	if err := VerifySignature([]byte("data"), "ed25519:"+shortSig); err == nil {
+		t.Error("expected error for wrong signature length")
+	}
+}
+
+func TestVerifySignature_NewFormat_InvalidBase64(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	if err := VerifySignature([]byte("data"), "ed25519:key-1:not-valid!!!"); err == nil {
+		t.Error("expected error for invalid base64 in new format")
+	}
+}
+
+func TestVerifySignature_NewFormat_WrongSignatureLength(t *testing.T) {
+	pub, _ := generateTestKeyPair(t)
+	saveAndRestoreKeys(t)
+	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
+
+	shortSig := base64.StdEncoding.EncodeToString([]byte("short"))
+	if err := VerifySignature([]byte("data"), "ed25519:key-1:"+shortSig); err == nil {
+		t.Error("expected error for wrong signature length in new format")
+	}
+}
+
+// --- ErrKeyNotFound 测试 ---
+
+func TestErrKeyNotFound_Error(t *testing.T) {
+	err := &ErrKeyNotFound{KeyID: "key-99"}
+	msg := err.Error()
+	if !strings.Contains(msg, "key-99") {
+		t.Errorf("error message should contain key ID: %s", msg)
+	}
+	if !strings.Contains(msg, "密钥环") {
+		t.Errorf("error message should mention keyring: %s", msg)
+	}
+}
+
+func TestErrKeyNotFound_ErrorsAs(t *testing.T) {
+	err := fmt.Errorf("wrapped: %w", &ErrKeyNotFound{KeyID: "key-1"})
+	var keyNotFound *ErrKeyNotFound
+	if !errors.As(err, &keyNotFound) {
+		t.Error("errors.As should match ErrKeyNotFound")
+	}
+}
+
+// --- AddReleasePublicKey 测试 ---
+
+func TestAddReleasePublicKey(t *testing.T) {
+	saveAndRestoreKeys(t)
+	releasePublicKeys = map[string]ed25519.PublicKey{}
+
+	pub, _ := generateTestKeyPair(t)
+	AddReleasePublicKey("test-key", pub)
+
+	if _, ok := releasePublicKeys["test-key"]; !ok {
+		t.Error("key not added to keyring")
+	}
 }

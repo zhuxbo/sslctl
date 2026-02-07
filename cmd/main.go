@@ -16,6 +16,7 @@ import (
 	"github.com/zhuxbo/sslctl/cmd/setup"
 	// 空白导入以触发 webserver 工厂注册
 	_ "github.com/zhuxbo/sslctl/internal"
+	"github.com/zhuxbo/sslctl/pkg/backup"
 	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/logger"
@@ -82,6 +83,8 @@ func main() {
 		runUpgrade(subArgs)
 	case "service":
 		runService(subArgs)
+	case "rollback":
+		runRollback(subArgs)
 	case "setup":
 		setup.Run(subArgs, version, buildTime, debug)
 	case "uninstall":
@@ -106,6 +109,7 @@ func printUsage() {
 命令:
   scan            扫描站点（自动检测 Web 服务器）
   deploy          部署证书
+  rollback        回滚证书到备份版本
   status          显示服务状态
   upgrade         升级工具
   service         管理系统服务
@@ -122,6 +126,8 @@ func printUsage() {
   sslctl scan --ssl-only               仅扫描 SSL 站点
   sslctl deploy --cert <name>          部署指定证书
   sslctl deploy --all                  部署所有证书
+  sslctl rollback --site <name>        回滚证书到上一次备份
+  sslctl rollback --site <name> --list 查看备份列表
   sslctl status                        查看服务状态
   sslctl upgrade                       升级到最新版本
   sslctl upgrade --check               检查更新
@@ -190,7 +196,7 @@ func runScan(args []string, debug bool) {
 	svc := certops.NewService(cfgManager, log)
 
 	ctx := context.Background()
-	result, err := svc.Scan(ctx, certops.ScanOptions{
+	result, err := svc.ScanSites(ctx, certops.ScanOptions{
 		SSLOnly: *sslOnly,
 	})
 	if err != nil {
@@ -257,17 +263,87 @@ func runStatus() {
 		}
 	}
 
-	// 4. 证书统计
+	// 4. 证书详情
 	cfgManager, err := config.NewConfigManager()
-	if err == nil {
-		certs, _ := cfgManager.ListCerts()
-		enabledCount := 0
-		for _, cert := range certs {
-			if cert.Enabled {
-				enabledCount++
+	if err != nil {
+		return
+	}
+
+	cfg, err := cfgManager.Load()
+	if err != nil {
+		return
+	}
+
+	// 显示续签模式
+	renewMode := cfg.Schedule.RenewMode
+	if renewMode == "" {
+		renewMode = config.RenewModePull
+	}
+	fmt.Printf("\n续签模式: %s\n", renewMode)
+
+	// 显示上次检查时间
+	if !cfg.Metadata.LastCheckAt.IsZero() {
+		fmt.Printf("上次检查: %s\n", cfg.Metadata.LastCheckAt.Format("2006-01-02 15:04:05"))
+	}
+
+	certs := cfg.Certificates
+	enabledCount := 0
+	for _, cert := range certs {
+		if cert.Enabled {
+			enabledCount++
+		}
+	}
+	fmt.Printf("\n证书配置: %d 个 (%d 个已启用)\n", len(certs), enabledCount)
+
+	// 显示每个证书的过期时间和剩余天数
+	now := time.Now()
+	for _, cert := range certs {
+		if !cert.Enabled {
+			continue
+		}
+
+		status := "\033[32m有效\033[0m" // 绿色
+		daysStr := ""
+
+		if cert.Metadata.CertExpiresAt.IsZero() {
+			status = "未部署"
+		} else {
+			remaining := cert.Metadata.CertExpiresAt.Sub(now)
+
+			if remaining < 0 {
+				// 已过期
+				days := int((-remaining).Hours() / 24)
+				if days == 0 {
+					status = "\033[31m已过期\033[0m" // 红色
+					daysStr = " (今天过期)"
+				} else {
+					status = "\033[31m已过期\033[0m" // 红色
+					daysStr = fmt.Sprintf(" (已过期 %d 天)", days)
+				}
+			} else {
+				days := int(remaining.Hours() / 24)
+				if days == 0 {
+					status = "\033[31m即将过期\033[0m" // 红色
+					daysStr = " (今天过期)"
+				} else if days < 7 {
+					status = "\033[31m即将过期\033[0m" // 红色
+					daysStr = fmt.Sprintf(" (剩余 %d 天)", days)
+				} else if days < 14 {
+					status = "\033[33m即将过期\033[0m" // 黄色
+					daysStr = fmt.Sprintf(" (剩余 %d 天)", days)
+				} else {
+					daysStr = fmt.Sprintf(" (剩余 %d 天)", days)
+				}
 			}
 		}
-		fmt.Printf("\n证书配置: %d 个 (%d 个已启用)\n", len(certs), enabledCount)
+
+		fmt.Printf("  %-30s %s%s\n", cert.CertName, status, daysStr)
+		if !cert.Metadata.CertExpiresAt.IsZero() {
+			fmt.Printf("    过期时间: %s\n", cert.Metadata.CertExpiresAt.Format("2006-01-02 15:04:05"))
+		}
+		if !cert.Metadata.LastDeployAt.IsZero() {
+			fmt.Printf("    上次部署: %s\n", cert.Metadata.LastDeployAt.Format("2006-01-02 15:04:05"))
+		}
 	}
 }
 
@@ -377,6 +453,121 @@ func runUpgrade(args []string) {
 	if _, err := upgrade.Execute(opts, logFunc); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
+	}
+}
+
+// runRollback 回滚命令
+func runRollback(args []string) {
+	fs := flag.NewFlagSet("rollback", flag.ExitOnError)
+	siteName := fs.String("site", "", "站点名称")
+	listOnly := fs.Bool("list", false, "列出备份版本")
+	versionTS := fs.String("version", "", "指定备份版本（时间戳）")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "用法: sslctl rollback --site <name> [选项]\n\n选项:\n")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if *siteName == "" {
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	if err := util.CheckRootPrivilege(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	cfgManager, err := config.NewConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), 5)
+
+	// 列出备份
+	if *listOnly {
+		backups, err := backupMgr.ListBackups(*siteName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "获取备份列表失败: %v\n", err)
+			os.Exit(1)
+		}
+		if len(backups) == 0 {
+			fmt.Printf("站点 %s 没有备份记录\n", *siteName)
+			return
+		}
+		fmt.Printf("站点 %s 的备份列表（共 %d 个）:\n\n", *siteName, len(backups))
+		for i, ts := range backups {
+			backupPath := cfgManager.GetBackupDir() + "/" + *siteName + "/" + ts
+			meta, metaErr := backupMgr.LoadMetadata(backupPath)
+			if metaErr != nil {
+				fmt.Printf("  [%d] %s\n", i+1, ts)
+			} else {
+				fmt.Printf("  [%d] %s  备份时间: %s\n", i+1, ts, meta.BackupAt.Format("2006-01-02 15:04:05"))
+				if meta.CertInfo.Subject != "" {
+					fmt.Printf("      证书: %s  过期: %s\n", meta.CertInfo.Subject, meta.CertInfo.NotAfter.Format("2006-01-02"))
+				}
+			}
+		}
+		return
+	}
+
+	// 执行回滚
+	fmt.Printf("正在回滚站点 %s...\n", *siteName)
+
+	var metadata *backup.Metadata
+	if *versionTS != "" {
+		metadata, err = backupMgr.Restore(*siteName, *versionTS)
+	} else {
+		metadata, err = backupMgr.Restore(*siteName)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "回滚失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 更新配置中的证书元数据（非关键路径，失败仅提示）
+	parsedCert, parseErr := parseRollbackCert(metadata.CertPath)
+	if parseErr != nil {
+		fmt.Fprintf(os.Stderr, "警告: %v\n", parseErr)
+	}
+	cfg, cfgErr := cfgManager.Load()
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "警告: 加载配置失败，无法更新元数据: %v\n", cfgErr)
+	} else {
+		updated := applyRollbackMetadata(cfg, *siteName, parsedCert, metadata, time.Now())
+		if len(updated) == 0 {
+			fmt.Fprintf(os.Stderr, "警告: 未找到站点 %s 对应的证书配置，未更新元数据\n", *siteName)
+		}
+		for _, cert := range updated {
+			if err := cfgManager.UpdateCert(cert); err != nil {
+				fmt.Fprintf(os.Stderr, "警告: 更新证书元数据失败(%s): %v\n", cert.CertName, err)
+			}
+		}
+	}
+
+	fmt.Println("文件恢复完成")
+	fmt.Printf("  证书: %s\n", metadata.CertPath)
+	fmt.Printf("  私钥: %s\n", metadata.KeyPath)
+	if metadata.ChainPath != "" {
+		fmt.Printf("  证书链: %s\n", metadata.ChainPath)
+	}
+
+	// 提示用户重载 Web 服务器
+	serverType := webserver.DetectWebServerType()
+	if serverType == "nginx" {
+		fmt.Println("\n请重载 Nginx 使证书生效:")
+		fmt.Println("  nginx -t && systemctl reload nginx")
+	} else if serverType == "apache" {
+		fmt.Println("\n请重载 Apache 使证书生效:")
+		fmt.Println("  apachectl -t && systemctl reload apache2")
+	} else {
+		fmt.Println("\n请手动重载 Web 服务器使证书生效")
 	}
 }
 

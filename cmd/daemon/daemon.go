@@ -139,7 +139,7 @@ func checkAndDeploy(parentCtx context.Context, svc *certops.Service, log *logger
 		case "success":
 			successCount++
 			log.Info("证书 %s 续签成功，部署到 %d 个站点", r.CertName, r.DeployCount)
-		case "failed":
+		case "failure":
 			failedCount++
 			log.Warn("证书 %s 续签失败: %v", r.CertName, r.Error)
 		case "pending":

@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/errors"
@@ -75,6 +77,9 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		}
 	}
 
+	// 发送部署回调（非关键路径，失败仅记录日志）
+	s.sendDeployCallback(ctx, cert, result, cfg)
+
 	// 如果所有绑定都部署失败，返回错误
 	if enabledCount > 0 && successCount == 0 && result.Error != nil {
 		return result, result.Error
@@ -105,6 +110,61 @@ func (s *Service) DeployAllCerts(ctx context.Context) ([]*DeployResult, error) {
 	}
 
 	return results, nil
+}
+
+// sendDeployCallback 向 API 发送部署结果回调
+// 非关键路径，失败仅记录日志不影响部署结果
+func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult, cfg *config.Config) {
+	if cfg.API.URL == "" || cfg.API.Token == "" {
+		return
+	}
+
+	status := "success"
+	msg := ""
+	if !result.Success {
+		status = "failure"
+		if result.Error != nil {
+			msg = result.Error.Error()
+		}
+	}
+
+	// 收集绑定的服务器类型
+	var serverTypes []string
+	for _, b := range cert.Bindings {
+		if b.Enabled && b.ServerType != "" {
+			serverTypes = append(serverTypes, b.ServerType)
+		}
+	}
+
+	callbackReq := &fetcher.CallbackRequest{
+		OrderID:    cert.OrderID,
+		Domain:     strings.Join(cert.Domains, ","),
+		Status:     status,
+		DeployedAt: time.Now().Format(time.RFC3339),
+		ServerType: strings.Join(serverTypes, ","),
+		Message:    msg,
+	}
+
+	// 填充证书信息
+	if !cert.Metadata.CertExpiresAt.IsZero() {
+		callbackReq.CertExpiresAt = cert.Metadata.CertExpiresAt.Format(time.RFC3339)
+	}
+	if cert.Metadata.CertSerial != "" {
+		callbackReq.CertSerial = cert.Metadata.CertSerial
+	}
+
+	var err error
+	if cfg.API.CallbackURL != "" {
+		err = s.fetcher.Callback(ctx, cfg.API.CallbackURL, cfg.API.Token, callbackReq)
+	} else {
+		err = s.fetcher.CallbackNew(ctx, cfg.API.URL, cfg.API.Token, callbackReq)
+	}
+
+	if err != nil {
+		s.log.Warn("部署回调失败（不影响部署结果）: %v", err)
+	} else {
+		s.log.Debug("部署回调成功: %s %s", cert.CertName, status)
+	}
 }
 
 // deployToBinding 部署证书到绑定（带备份和回滚）

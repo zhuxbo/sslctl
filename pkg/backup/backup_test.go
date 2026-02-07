@@ -4,6 +4,7 @@ package backup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -434,6 +435,180 @@ func TestManager_BackupNilCertInfo(t *testing.T) {
 	// CertInfo 应该是零值
 	if meta.CertInfo.Subject != "" {
 		t.Errorf("CertInfo.Subject should be empty, got %s", meta.CertInfo.Subject)
+	}
+}
+
+// TestManager_Restore 测试恢复功能
+func TestManager_Restore(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	srcDir := filepath.Join(dir, "src")
+	_ = os.MkdirAll(srcDir, 0755)
+
+	certPath := filepath.Join(srcDir, "cert.pem")
+	keyPath := filepath.Join(srcDir, "key.pem")
+	_ = os.WriteFile(certPath, []byte("original cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("original key"), 0600)
+
+	m := NewManager(backupDir, 5)
+
+	certInfo := &CertInfo{
+		Subject: "example.com",
+		Serial:  "123",
+	}
+	result, err := m.Backup("example.com", certPath, keyPath, certInfo)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	backupTS := filepath.Base(result.BackupPath)
+
+	// 等待确保恢复时内部备份的时间戳不同
+	time.Sleep(time.Second)
+
+	// 修改源文件
+	_ = os.WriteFile(certPath, []byte("new cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("new key"), 0600)
+
+	// 恢复到指定时间戳（避免 Restore 内部备份覆盖原始备份）
+	meta, err := m.Restore("example.com", backupTS)
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if meta.CertInfo.Subject != "example.com" {
+		t.Errorf("restored metadata Subject = %s, want example.com", meta.CertInfo.Subject)
+	}
+
+	// 验证文件已恢复
+	certData, _ := os.ReadFile(certPath)
+	if string(certData) != "original cert" {
+		t.Errorf("cert not restored, got %q", string(certData))
+	}
+	keyData, _ := os.ReadFile(keyPath)
+	if string(keyData) != "original key" {
+		t.Errorf("key not restored, got %q", string(keyData))
+	}
+}
+
+// TestManager_Restore_ChainPathSymlink 测试恢复时 ChainPath 为符号链接
+func TestManager_Restore_ChainPathSymlink(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	srcDir := filepath.Join(dir, "src")
+	_ = os.MkdirAll(srcDir, 0755)
+
+	certPath := filepath.Join(srcDir, "cert.pem")
+	keyPath := filepath.Join(srcDir, "key.pem")
+	chainPath := filepath.Join(srcDir, "chain.pem")
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
+	_ = os.WriteFile(chainPath, []byte("chain"), 0644)
+
+	m := NewManager(backupDir, 5)
+	_, err := m.Backup("example.com", certPath, keyPath, nil, chainPath)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+
+	// 将 chainPath 替换为符号链接
+	_ = os.Remove(chainPath)
+	targetFile := filepath.Join(dir, "malicious-target")
+	_ = os.WriteFile(targetFile, []byte("target"), 0644)
+	_ = os.Symlink(targetFile, chainPath)
+
+	// 恢复应拒绝（因为 ChainPath 是符号链接）
+	_, err = m.Restore("example.com")
+	if err == nil {
+		t.Fatal("Restore() should reject symlink ChainPath")
+	}
+	if !strings.Contains(err.Error(), "符号链接") {
+		t.Errorf("error should mention symlink, got: %v", err)
+	}
+}
+
+// TestManager_Restore_CertPathSymlink 测试恢复时 CertPath 为符号链接
+func TestManager_Restore_CertPathSymlink(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	srcDir := filepath.Join(dir, "src")
+	_ = os.MkdirAll(srcDir, 0755)
+
+	certPath := filepath.Join(srcDir, "cert.pem")
+	keyPath := filepath.Join(srcDir, "key.pem")
+	_ = os.WriteFile(certPath, []byte("cert"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key"), 0600)
+
+	m := NewManager(backupDir, 5)
+	_, err := m.Backup("example.com", certPath, keyPath, nil)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+
+	// 将 certPath 替换为符号链接
+	_ = os.Remove(certPath)
+	targetFile := filepath.Join(dir, "malicious-target")
+	_ = os.WriteFile(targetFile, []byte("target"), 0644)
+	_ = os.Symlink(targetFile, certPath)
+
+	// 恢复应拒绝
+	_, err = m.Restore("example.com")
+	if err == nil {
+		t.Fatal("Restore() should reject symlink CertPath")
+	}
+	if !strings.Contains(err.Error(), "符号链接") {
+		t.Errorf("error should mention symlink, got: %v", err)
+	}
+}
+
+// TestManager_Restore_WithTimestamp 测试指定时间戳恢复
+func TestManager_Restore_WithTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	srcDir := filepath.Join(dir, "src")
+	_ = os.MkdirAll(srcDir, 0755)
+
+	certPath := filepath.Join(srcDir, "cert.pem")
+	keyPath := filepath.Join(srcDir, "key.pem")
+	_ = os.WriteFile(certPath, []byte("cert v1"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key v1"), 0600)
+
+	m := NewManager(backupDir, 5)
+	result1, _ := m.Backup("example.com", certPath, keyPath, &CertInfo{Subject: "v1"})
+	ts1 := filepath.Base(result1.BackupPath)
+
+	// 等待一秒确保时间戳不同
+	time.Sleep(time.Second)
+
+	_ = os.WriteFile(certPath, []byte("cert v2"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key v2"), 0600)
+	_, _ = m.Backup("example.com", certPath, keyPath, &CertInfo{Subject: "v2"})
+
+	// 修改为 v3
+	_ = os.WriteFile(certPath, []byte("cert v3"), 0644)
+	_ = os.WriteFile(keyPath, []byte("key v3"), 0600)
+
+	// 恢复到 v1
+	meta, err := m.Restore("example.com", ts1)
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if meta.CertInfo.Subject != "v1" {
+		t.Errorf("restored Subject = %s, want v1", meta.CertInfo.Subject)
+	}
+
+	certData, _ := os.ReadFile(certPath)
+	if string(certData) != "cert v1" {
+		t.Errorf("cert not restored to v1, got %q", string(certData))
+	}
+}
+
+// TestManager_Restore_NotFound 测试恢复不存在的备份
+func TestManager_Restore_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir, 3)
+
+	_, err := m.Restore("nonexistent")
+	if err == nil {
+		t.Error("Restore() should fail for nonexistent site")
 	}
 }
 

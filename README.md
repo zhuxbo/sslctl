@@ -64,12 +64,22 @@ sslctl deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-s
 
 站点信息优先从 `config.json` 获取，回退到 `scan-result.json`。
 
+### 证书回滚
+
+```bash
+sslctl rollback --site example.com              # 回滚到最新备份
+sslctl rollback --site example.com --list       # 查看备份列表
+sslctl rollback --site example.com --version 20240101-120000  # 回滚到指定版本
+```
+
+回滚前会自动备份当前文件，包含符号链接防护。
+
 **其他命令:**
 
 ```bash
 sslctl deploy --cert order-12345         # 部署指定证书
 sslctl deploy --all                      # 部署所有证书
-sslctl status                            # 查看服务状态
+sslctl status                            # 查看服务状态（含证书过期详情）
 sslctl upgrade                           # 升级到最新版本
 sslctl upgrade --check                   # 检查更新
 sslctl service repair                    # 修复 systemd 服务
@@ -124,9 +134,9 @@ sslctl --debug deploy --site example.com
 - **并发安全**：配置读取返回深拷贝，mtime 检测外部修改自动重载，防止并发修改污染
 - **配置保存安全**：拒绝写入符号链接目标，防止任意文件覆盖
 - **路径验证**：Docker 容器路径参数严格验证，防止命令注入；挂载路径精确匹配防止误匹配
-- **备份 TOCTOU 保护**：使用文件哈希校验检测并发修改，确保备份一致性
+- **备份 TOCTOU 保护**：使用文件哈希校验检测并发修改，确保备份一致性；恢复时内部备份跳过清理，防止目标备份被删除
 - **扫描防护**：Nginx/Apache 扫描器文件数量限制（1000）+ 文件大小限制（10MB），防止恶意配置耗尽资源
-- **升级安全**：gzip 解压大小限制，防止 gzip 炸弹攻击
+- **升级安全**：gzip 解压大小限制，防止 gzip 炸弹攻击；Ed25519 数字签名验证（密钥环支持多公钥 + key ID，空密钥环拒绝验证，已配置公钥时拒绝未签名版本防止降级攻击），防止供应链攻击；安装时符号链接防护；通道白名单防止路径遍历；链式升级深度防篡改；签名密钥轮换支持（链式升级自动经过过渡版本并保留用户参数，未知密钥提示重新安装）；`--check` 模式不触发链式升级；最低客户端版本检查
 - **临时目录安全**：临时目录权限设置为 0700
 - **日志目录安全**：日志目录权限设置为 0700
 - **配置文件锁**：文件锁在操作前获取，确保原子性和一致性

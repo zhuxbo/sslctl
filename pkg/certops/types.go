@@ -47,7 +47,7 @@ type RenewOptions struct {
 type RenewResult struct {
 	CertName    string
 	Mode        string // local | pull
-	Status      string // success | pending | failed
+	Status      string // success | pending | failure
 	Error       error
 	DeployCount int
 }

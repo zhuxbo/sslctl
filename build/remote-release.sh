@@ -163,6 +163,58 @@ get_channel() {
 }
 
 # ========================================
+# 远程计算校验和并更新 versions 字段
+# ========================================
+update_versions_checksums_remote() {
+    local server_str="$1"
+    local version="$2"
+    local channel="$3"
+
+    parse_server "$server_str"
+
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "python3 << 'PYEOF'
+import json
+import hashlib
+import os
+
+releases_file = '$SERVER_DIR/releases.json'
+version = '$version'
+version_dir = '$SERVER_DIR/$channel/$version'
+
+data = {}
+if os.path.exists(releases_file):
+    try:
+        with open(releases_file, 'r') as f:
+            data = json.load(f)
+    except:
+        pass
+
+if 'versions' not in data:
+    data['versions'] = {}
+
+checksums = {}
+if os.path.isdir(version_dir):
+    for filename in os.listdir(version_dir):
+        if filename.endswith('.gz'):
+            filepath = os.path.join(version_dir, filename)
+            sha256 = hashlib.sha256()
+            with open(filepath, 'rb') as f:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    sha256.update(chunk)
+            checksums[filename] = f'sha256:{sha256.hexdigest()}'
+
+if version not in data['versions']:
+    data['versions'][version] = {}
+data['versions'][version]['checksums'] = checksums
+
+with open(releases_file, 'w') as f:
+    json.dump(data, f, indent=2)
+
+print(f'已更新 {len(checksums)} 个文件的校验和')
+PYEOF"
+}
+
+# ========================================
 # 远程更新 releases.json
 # ========================================
 update_releases_json_remote() {
@@ -297,7 +349,7 @@ existing = set()
 if os.path.isdir(channel_dir):
     for d in os.listdir(channel_dir):
         if d.startswith('v'):
-            existing.add(d[1:])
+            existing.add(d)
 
 # 过滤掉已删除的版本
 versions = data['channels'][channel].get('versions', [])
@@ -343,6 +395,10 @@ upload_to_server() {
     # 上传 install.sh
     log_info "上传 install.sh..."
     rsync_cmd "$PROJECT_ROOT/deploy/install.sh" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/"
+
+    # 计算校验和并更新 versions 字段
+    log_info "计算校验和..."
+    update_versions_checksums_remote "$server_str" "$version" "$channel"
 
     # 更新 releases.json
     update_releases_json_remote "$server_str" "$version" "$channel"
