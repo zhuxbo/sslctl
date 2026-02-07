@@ -119,7 +119,7 @@ const (
 
 // 环境变量常量
 const (
-	EnvAPIToken = "SSLCTL_API_TOKEN" // API Token 环境变量名 // #nosec G101 -- 非硬编码凭据，仅为环境变量名
+	EnvAPIToken = "SSLCTL_API_TOKEN" // API Token 环境变量
 	EnvAPIURL   = "SSLCTL_API_URL"   // API URL 环境变量
 )
 
