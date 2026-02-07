@@ -9,7 +9,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"flag"
@@ -189,7 +188,12 @@ func main() {
 	log.Printf("Mock API server starting on %s", addr)
 	log.Printf("Cert: %s, Key: %s, Chain: %s", certFile, keyFile, chainFile)
 	log.Printf("Default scenario: %s", currentScenario)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }
 
 // ==============================================================================
@@ -736,7 +740,10 @@ func generateKeyPairOnce(cn string) {
 
 	// 编码证书为 PEM
 	var certPEM bytes.Buffer
-	pem.Encode(&certPEM, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	if err := pem.Encode(&certPEM, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
+		log.Printf("Failed to encode certificate PEM: %v", err)
+		return
+	}
 	generatedKeyPair.cert = certPEM.String()
 
 	// 编码私钥为 PKCS8 格式的 PEM
@@ -746,22 +753,12 @@ func generateKeyPairOnce(cn string) {
 		return
 	}
 	var keyPEM bytes.Buffer
-	pem.Encode(&keyPEM, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Key})
+	if err := pem.Encode(&keyPEM, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Key}); err != nil {
+		log.Printf("Failed to encode private key PEM: %v", err)
+		return
+	}
 	generatedKeyPair.key = keyPEM.String()
 
 	log.Printf("Generated self-signed certificate for %s", cn)
 }
 
-func generateSelfSignedCert(cn string) string {
-	return generateValidSelfSignedCert(cn)
-}
-
-func generatePrivateKey() string {
-	return generateValidPrivateKey()
-}
-
-func randomHex(n int) string {
-	bytes := make([]byte, n)
-	_, _ = rand.Read(bytes)
-	return hex.EncodeToString(bytes)
-}

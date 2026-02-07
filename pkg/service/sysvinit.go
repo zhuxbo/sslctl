@@ -158,8 +158,8 @@ func (m *SysVinitManager) Start() error {
 	if err := executor.Run("service " + m.cfg.Name + " start"); err == nil {
 		return nil
 	}
-	// 回退到直接调用脚本（脚本是自己创建的，相对安全）
-	cmd := exec.Command(m.servicePath(), "start")
+	// 回退到直接调用脚本（servicePath 返回固定前缀 /etc/init.d/ + 安装时设定的服务名）
+	cmd := exec.Command(m.servicePath(), "start") // #nosec G204 -- servicePath() 为受控路径
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("启动服务失败: %w\n%s", err, output)
 	}
