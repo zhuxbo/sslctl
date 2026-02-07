@@ -1702,6 +1702,71 @@ func TestSaveLocked_SymlinkTarget(t *testing.T) {
 	}
 }
 
+// TestConfigManager_UpdateMetadata 测试 UpdateMetadata 原子修改
+func TestConfigManager_UpdateMetadata(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+
+	// 先保存一个初始配置
+	cfg := &Config{Version: "2.0"}
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// 通过 UpdateMetadata 回调修改元数据
+	now := time.Now()
+	err = cm.UpdateMetadata(func(m *ConfigMetadata) {
+		m.LastCheckAt = now
+	})
+	if err != nil {
+		t.Fatalf("UpdateMetadata() error = %v", err)
+	}
+
+	// 重新加载验证持久化
+	loaded, err := cm.Reload()
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+
+	if loaded.Metadata.LastCheckAt.IsZero() {
+		t.Error("UpdateMetadata 回调修改的 LastCheckAt 未持久化")
+	}
+
+	// 验证 LastCheckAt 值正确（允许 1 秒误差）
+	diff := loaded.Metadata.LastCheckAt.Sub(now)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("LastCheckAt 与设置值差异过大: %v", diff)
+	}
+}
+
+// TestConfigManager_UpdateMetadata_Multiple 测试多次 UpdateMetadata 调用
+func TestConfigManager_UpdateMetadata_Multiple(t *testing.T) {
+	dir := t.TempDir()
+	cm, _ := NewConfigManagerWithDir(dir)
+
+	cfg := &Config{Version: "2.0"}
+	_ = cm.Save(cfg)
+
+	// 第一次更新
+	_ = cm.UpdateMetadata(func(m *ConfigMetadata) {
+		m.LastCheckAt = time.Now()
+	})
+
+	// 第二次更新不应覆盖第一次
+	time2 := time.Now().Add(time.Hour)
+	_ = cm.UpdateMetadata(func(m *ConfigMetadata) {
+		m.UpdatedAt = time2
+	})
+
+	loaded, _ := cm.Reload()
+	if loaded.Metadata.LastCheckAt.IsZero() {
+		t.Error("第二次 UpdateMetadata 不应覆盖第一次设置的 LastCheckAt")
+	}
+}
+
 // TestConfigManager_MtimeReload 测试配置文件被外部修改后自动重新加载
 func TestConfigManager_MtimeReload(t *testing.T) {
 	dir := t.TempDir()

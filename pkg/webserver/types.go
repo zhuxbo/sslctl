@@ -45,7 +45,7 @@ type Scanner interface {
 // Deployer 部署器接口
 type Deployer interface {
 	// Deploy 部署证书
-	Deploy(cert, chain, key string) error
+	Deploy(cert, intermediate, key string) error
 	// Reload 重载服务
 	Reload() error
 	// Test 测试配置

@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -152,14 +153,21 @@ func TestRenewOptions(t *testing.T) {
 	}
 }
 
-// TestRenewResult 测试续签结果
-func TestRenewResult(t *testing.T) {
+// TestRenewResult_StatusValues 测试续签结果状态枚举
+func TestRenewResult_StatusValues(t *testing.T) {
+	// 验证状态枚举值是否与 API 回调中使用的值一致
+	validStatuses := map[string]bool{
+		"success": true,
+		"pending": true,
+		"failure": true,
+	}
+
 	tests := []struct {
 		name   string
 		result RenewResult
 	}{
 		{
-			name: "成功续签",
+			name: "成功续签应有部署计数",
 			result: RenewResult{
 				CertName:    "order-123",
 				Mode:        "pull",
@@ -168,7 +176,7 @@ func TestRenewResult(t *testing.T) {
 			},
 		},
 		{
-			name: "等待签发",
+			name: "等待签发无错误",
 			result: RenewResult{
 				CertName: "order-456",
 				Mode:     "local",
@@ -176,23 +184,35 @@ func TestRenewResult(t *testing.T) {
 			},
 		},
 		{
-			name: "续签失败",
+			name: "续签失败应有错误",
 			result: RenewResult{
 				CertName: "order-789",
 				Mode:     "pull",
 				Status:   "failure",
-				Error:    nil, // 实际应有错误
+				Error:    fmt.Errorf("API error"),
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.result.CertName == "" {
-				t.Error("CertName 不应为空")
+			if !validStatuses[tt.result.Status] {
+				t.Errorf("Status %q 不是有效的状态枚举值", tt.result.Status)
 			}
-			if tt.result.Mode != "pull" && tt.result.Mode != "local" {
-				t.Errorf("Mode = %s, 应为 pull 或 local", tt.result.Mode)
+
+			// 成功时应有部署计数
+			if tt.result.Status == "success" && tt.result.DeployCount == 0 {
+				t.Error("成功续签时 DeployCount 应 > 0")
+			}
+
+			// 失败时应有错误
+			if tt.result.Status == "failure" && tt.result.Error == nil {
+				t.Error("失败续签时 Error 不应为 nil")
+			}
+
+			// pending 时不应有错误
+			if tt.result.Status == "pending" && tt.result.Error != nil {
+				t.Error("pending 时 Error 应为 nil")
 			}
 		})
 	}

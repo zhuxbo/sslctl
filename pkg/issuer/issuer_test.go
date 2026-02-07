@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/logger"
+	certs "github.com/zhuxbo/sslctl/testdata/certs"
 )
 
 // TestNew 测试创建签发器
@@ -218,6 +219,53 @@ func TestIssueOptions_WebRoot(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateKeyPair_ValidPair 测试有效的证书私钥对
+func TestValidateKeyPair_ValidPair(t *testing.T) {
+	log := logger.NewNopLogger()
+	iss := New(log)
+
+	// 生成有效的证书私钥对
+	testCert, err := certs.GenerateValidCert("test.example.com", []string{"test.example.com"})
+	if err != nil {
+		t.Fatalf("生成测试证书失败: %v", err)
+	}
+
+	valid := iss.validateKeyPair(testCert.CertPEM, testCert.KeyPEM)
+	if !valid {
+		t.Error("有效的证书私钥对应返回 true")
+	}
+}
+
+// TestValidateKeyPair_MismatchedPair 测试不匹配的证书私钥对
+func TestValidateKeyPair_MismatchedPair(t *testing.T) {
+	log := logger.NewNopLogger()
+	iss := New(log)
+
+	// 生成两组证书，使用第一组的证书和第二组的私钥
+	cert1, err := certs.GenerateValidCert("cert1.example.com", []string{"cert1.example.com"})
+	if err != nil {
+		t.Fatalf("生成测试证书1失败: %v", err)
+	}
+	cert2, err := certs.GenerateValidCert("cert2.example.com", []string{"cert2.example.com"})
+	if err != nil {
+		t.Fatalf("生成测试证书2失败: %v", err)
+	}
+
+	valid := iss.validateKeyPair(cert1.CertPEM, cert2.KeyPEM)
+	if valid {
+		t.Error("不匹配的证书私钥对应返回 false")
+	}
+}
+
+// TestLog_WithLogger 测试有 logger 时的日志输出
+func TestLog_WithLogger(t *testing.T) {
+	log := logger.NewNopLogger()
+	iss := New(log)
+
+	// 不应 panic
+	iss.log("test %s %d", "message", 42)
 }
 
 // TestIssueOptions_ValidationMethod 测试验证方式选项

@@ -892,6 +892,105 @@ func TestCommitPendingKey_NoPendingKey(t *testing.T) {
 	}
 }
 
+// TestSendRenewCallback_EmptyAPI 测试续签回调在 API 配置为空时的行为
+func TestSendRenewCallback_EmptyAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+	}
+	result := &RenewResult{CertName: "test-cert", Status: "success"}
+
+	// API URL 为空时应直接返回，不 panic
+	cfg := &config.Config{API: config.APIConfig{URL: "", Token: ""}}
+	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+
+	// Token 为空
+	cfg2 := &config.Config{API: config.APIConfig{URL: "https://api.com", Token: ""}}
+	svc.sendRenewCallback(t.Context(), cert, result, cfg2)
+}
+
+// TestSendRenewCallback_SuccessResult 测试成功结果的续签回调
+func TestSendRenewCallback_SuccessResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+		Metadata: config.CertMetadata{
+			CertExpiresAt: time.Now().Add(90 * 24 * time.Hour),
+			CertSerial:    "ABC123",
+		},
+	}
+	result := &RenewResult{CertName: "test-cert", Status: "success"}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
+	// 不应 panic（非关键路径）
+	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+}
+
+// TestSendRenewCallback_FailureResult 测试失败结果的续签回调
+func TestSendRenewCallback_FailureResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  456,
+		Domains:  []string{"fail.com"},
+	}
+	result := &RenewResult{
+		CertName: "test-cert",
+		Status:   "failure",
+		Error:    os.ErrNotExist,
+	}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
+	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+}
+
+// TestSendRenewCallback_WithCallbackURL 测试使用自定义 CallbackURL 的续签回调
+func TestSendRenewCallback_WithCallbackURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  789,
+		Domains:  []string{"callback.com"},
+	}
+	result := &RenewResult{CertName: "test-cert", Status: "success"}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	cfg := &config.Config{API: config.APIConfig{
+		URL:         callbackServer.URL,
+		Token:       "test-token",
+		CallbackURL: callbackServer.URL + "/hook",
+	}}
+	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+}
+
 // TestCommitPendingKey_ReadOnlyTargetDir 测试 commitPendingKey 目标目录不可写时的行为
 func TestCommitPendingKey_ReadOnlyTargetDir(t *testing.T) {
 	if os.Getuid() == 0 {

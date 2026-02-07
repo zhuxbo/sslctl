@@ -874,21 +874,102 @@ func TestNewService_Fields(t *testing.T) {
 }
 
 
-// TestDeployToBinding_RollbackFailureContainsBackupPath 测试回滚失败错误信息包含备份路径
-func TestDeployToBinding_RollbackFailureContainsBackupPath(t *testing.T) {
-	// 验证回滚失败时的错误消息格式中包含备份路径
-	// 通过检查代码中 fmt.Sprintf 的格式化结果来间接验证
-	backupPath := "/opt/sslctl/backup/test-site/20240101"
-	deployErr := fmt.Errorf("nginx reload failed")
-	rollbackErr := fmt.Errorf("permission denied")
+// TestSendDeployCallback_EmptyAPI 测试 API URL 为空时回调直接返回
+func TestSendDeployCallback_EmptyAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
 
-	errMsg := fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v, 手动恢复备份: %s",
-		deployErr, rollbackErr, backupPath)
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+	}
+	result := &DeployResult{CertName: "test-cert", Success: true}
 
-	if !strings.Contains(errMsg, backupPath) {
-		t.Errorf("回滚失败错误消息应包含备份路径 %s: %s", backupPath, errMsg)
+	// API URL 为空，不应 panic
+	cfg := &config.Config{API: config.APIConfig{URL: "", Token: ""}}
+	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+
+	// API Token 为空
+	cfg2 := &config.Config{API: config.APIConfig{URL: "https://api.com", Token: ""}}
+	svc.sendDeployCallback(t.Context(), cert, result, cfg2)
+}
+
+// TestSendDeployCallback_SuccessResult 测试成功结果的回调
+func TestSendDeployCallback_SuccessResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com", "www.example.com"},
+		Bindings: []config.SiteBinding{
+			{SiteName: "site1", ServerType: config.ServerTypeNginx, Enabled: true},
+		},
 	}
-	if !strings.Contains(errMsg, "手动恢复备份") {
-		t.Errorf("回滚失败错误消息应包含恢复提示: %s", errMsg)
+	result := &DeployResult{CertName: "test-cert", Success: true}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	// 使用本地回调服务，不应 panic（非关键路径）
+	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
+	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+}
+
+// TestSendDeployCallback_FailureResult 测试失败结果的回调
+func TestSendDeployCallback_FailureResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  456,
+		Domains:  []string{"fail.com"},
 	}
+	result := &DeployResult{
+		CertName: "test-cert",
+		Success:  false,
+		Error:    fmt.Errorf("deploy error"),
+	}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
+	// 失败结果也不应 panic
+	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+}
+
+// TestSendDeployCallback_WithCallbackURL 测试使用 CallbackURL 的回调
+func TestSendDeployCallback_WithCallbackURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  789,
+		Domains:  []string{"callback.com"},
+	}
+	result := &DeployResult{CertName: "test-cert", Success: true}
+
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
+	// 使用自定义 CallbackURL
+	cfg := &config.Config{API: config.APIConfig{
+		URL:         callbackServer.URL,
+		Token:       "test-token",
+		CallbackURL: callbackServer.URL + "/hook",
+	}}
+	svc.sendDeployCallback(t.Context(), cert, result, cfg)
 }

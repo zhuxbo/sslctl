@@ -623,6 +623,98 @@ func TestManager_BackupSourceNotExist(t *testing.T) {
 	}
 }
 
+// TestComputeFileHash_RejectsSymlink 测试 computeFileHash 拒绝符号链接
+func TestComputeFileHash_RejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建真实文件
+	realFile := filepath.Join(dir, "real.pem")
+	_ = os.WriteFile(realFile, []byte("cert content"), 0644)
+
+	// 创建符号链接
+	symlinkFile := filepath.Join(dir, "symlink.pem")
+	if err := os.Symlink(realFile, symlinkFile); err != nil {
+		t.Skip("无法创建符号链接:", err)
+	}
+
+	// 真实文件应正常计算哈希
+	hash, err := computeFileHash(realFile)
+	if err != nil {
+		t.Errorf("computeFileHash 对真实文件应成功: %v", err)
+	}
+	if hash == "" {
+		t.Error("哈希不应为空")
+	}
+
+	// 符号链接应被拒绝
+	_, err = computeFileHash(symlinkFile)
+	if err == nil {
+		t.Error("computeFileHash 应拒绝符号链接")
+	}
+	if err != nil && !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("错误消息应包含 'symbolic link': %v", err)
+	}
+}
+
+// TestComputeFileHash_NotExist 测试 computeFileHash 处理不存在的文件
+func TestComputeFileHash_NotExist(t *testing.T) {
+	_, err := computeFileHash("/nonexistent/file.pem")
+	if err == nil {
+		t.Error("computeFileHash 应对不存在的文件返回错误")
+	}
+}
+
+// TestManager_Backup_SourceSymlink 测试 Backup 在源文件为符号链接时失败
+func TestManager_Backup_SourceSymlink(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	srcDir := filepath.Join(dir, "src")
+	_ = os.MkdirAll(srcDir, 0755)
+
+	// 创建真实的 key 文件
+	realKeyPath := filepath.Join(srcDir, "real-key.pem")
+	_ = os.WriteFile(realKeyPath, []byte("key content"), 0600)
+
+	// 创建 cert 为符号链接
+	realCertPath := filepath.Join(srcDir, "real-cert.pem")
+	_ = os.WriteFile(realCertPath, []byte("cert content"), 0644)
+
+	symlinkCert := filepath.Join(srcDir, "cert.pem")
+	if err := os.Symlink(realCertPath, symlinkCert); err != nil {
+		t.Skip("无法创建符号链接:", err)
+	}
+
+	m := NewManager(backupDir, 3)
+
+	// 证书文件为符号链接时备份应失败
+	_, err := m.Backup("example.com", symlinkCert, realKeyPath, nil)
+	if err == nil {
+		t.Error("Backup() 应在源文件为符号链接时失败")
+	}
+}
+
+// TestComputeFileHash_Consistency 测试哈希计算一致性
+func TestComputeFileHash_Consistency(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.pem")
+	content := []byte("test certificate content")
+	_ = os.WriteFile(file, content, 0644)
+
+	// 多次计算应得到相同结果
+	hash1, _ := computeFileHash(file)
+	hash2, _ := computeFileHash(file)
+	if hash1 != hash2 {
+		t.Error("相同文件的哈希应一致")
+	}
+
+	// 修改内容后哈希应变化
+	_ = os.WriteFile(file, []byte("modified content"), 0644)
+	hash3, _ := computeFileHash(file)
+	if hash1 == hash3 {
+		t.Error("修改文件后哈希应变化")
+	}
+}
+
 // TestManager_BackupChainNotExist 测试证书链文件不存在时的备份
 func TestManager_BackupChainNotExist(t *testing.T) {
 	dir := t.TempDir()

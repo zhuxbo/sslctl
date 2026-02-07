@@ -196,6 +196,154 @@ func TestAllErrorConstructors(t *testing.T) {
 	}
 }
 
+// TestStructuredDeployError_Error 测试结构化部署错误格式化
+func TestStructuredDeployError_Error(t *testing.T) {
+	// 有 Cause
+	cause := errors.New("permission denied")
+	err := NewStructuredDeployError(DeployErrorPermission, PhaseWriteCert, "写入证书失败", cause)
+	errStr := err.Error()
+	if !containsAll(errStr, "permission", "write_cert", "写入证书失败", "permission denied") {
+		t.Errorf("Error() = %s, 应包含类型、阶段、消息和原因", errStr)
+	}
+
+	// 无 Cause
+	err2 := NewStructuredDeployError(DeployErrorConfig, PhaseValidate, "配置无效", nil)
+	errStr2 := err2.Error()
+	if !containsAll(errStr2, "config", "validate", "配置无效") {
+		t.Errorf("Error() = %s, 应包含类型、阶段和消息", errStr2)
+	}
+	// 无 Cause 时不应包含多余的 ": <nil>"
+	if containsAll(errStr2, "<nil>") {
+		t.Errorf("Error() 无 Cause 时不应包含 <nil>: %s", errStr2)
+	}
+}
+
+// TestStructuredDeployError_Unwrap 测试结构化部署错误解包
+func TestStructuredDeployError_Unwrap(t *testing.T) {
+	cause := errors.New("network timeout")
+	err := NewStructuredDeployError(DeployErrorNetwork, PhaseReload, "重载失败", cause)
+
+	// Unwrap 应返回 Cause
+	if err.Unwrap() != cause {
+		t.Error("Unwrap() 应返回 Cause")
+	}
+
+	// errors.Is 应能匹配
+	if !errors.Is(err, cause) {
+		t.Error("errors.Is 应匹配 Cause")
+	}
+
+	// 无 Cause 时 Unwrap 返回 nil
+	err2 := NewStructuredDeployError(DeployErrorConfig, PhaseValidate, "test", nil)
+	if err2.Unwrap() != nil {
+		t.Error("无 Cause 时 Unwrap() 应返回 nil")
+	}
+}
+
+// TestStructuredDeployError_Retryable 测试可重试判断
+func TestStructuredDeployError_Retryable(t *testing.T) {
+	tests := []struct {
+		name      string
+		errType   DeployErrorType
+		retryable bool
+	}{
+		{"Network 可重试", DeployErrorNetwork, true},
+		{"Reload 可重试", DeployErrorReload, true},
+		{"Config 不可重试", DeployErrorConfig, false},
+		{"Permission 不可重试", DeployErrorPermission, false},
+		{"Validation 不可重试", DeployErrorValidation, false},
+		{"Unknown 不可重试", DeployErrorUnknown, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := NewStructuredDeployError(tt.errType, PhaseReload, "test", nil)
+			if err.Retryable() != tt.retryable {
+				t.Errorf("Retryable() = %v, 期望 %v", err.Retryable(), tt.retryable)
+			}
+		})
+	}
+}
+
+// TestDeployErrorType_String 测试所有部署错误类型的字符串表示
+func TestDeployErrorType_String(t *testing.T) {
+	tests := []struct {
+		errType DeployErrorType
+		want    string
+	}{
+		{DeployErrorUnknown, "unknown"},
+		{DeployErrorConfig, "config"},
+		{DeployErrorPermission, "permission"},
+		{DeployErrorNetwork, "network"},
+		{DeployErrorValidation, "validation"},
+		{DeployErrorReload, "reload"},
+		{DeployErrorType(999), "unknown"}, // 未知枚举值
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := tt.errType.String()
+			if got != tt.want {
+				t.Errorf("DeployErrorType(%d).String() = %s, 期望 %s", tt.errType, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDeployPhase_Values 测试部署阶段常量值
+func TestDeployPhase_Values(t *testing.T) {
+	phases := map[DeployPhase]string{
+		PhaseValidate:   "validate",
+		PhaseBackup:     "backup",
+		PhaseWriteCert:  "write_cert",
+		PhaseWriteKey:   "write_key",
+		PhaseWriteChain: "write_chain",
+		PhaseTest:       "test_config",
+		PhaseReload:     "reload",
+		PhaseRollback:   "rollback",
+	}
+
+	for phase, want := range phases {
+		if string(phase) != want {
+			t.Errorf("Phase %s 值 = %s, 期望 %s", phase, string(phase), want)
+		}
+	}
+}
+
+// TestNewStructuredDeployError 测试结构化部署错误构造
+func TestNewStructuredDeployError(t *testing.T) {
+	cause := errors.New("test error")
+	err := NewStructuredDeployError(DeployErrorNetwork, PhaseReload, "重载超时", cause)
+
+	if err.Type != DeployErrorNetwork {
+		t.Errorf("Type = %v, 期望 DeployErrorNetwork", err.Type)
+	}
+	if err.Phase != PhaseReload {
+		t.Errorf("Phase = %v, 期望 PhaseReload", err.Phase)
+	}
+	if err.Message != "重载超时" {
+		t.Errorf("Message = %s, 期望 重载超时", err.Message)
+	}
+	if err.Cause != cause {
+		t.Error("Cause 不匹配")
+	}
+}
+
+// TestStructuredDeployError_ErrorsAs 测试 errors.As 类型断言
+func TestStructuredDeployError_ErrorsAs(t *testing.T) {
+	cause := errors.New("base")
+	err := NewStructuredDeployError(DeployErrorPermission, PhaseWriteKey, "权限不足", cause)
+
+	// 将其作为 error 接口传递
+	var target *StructuredDeployError
+	if !errors.As(err, &target) {
+		t.Error("errors.As 应能匹配 *StructuredDeployError")
+	}
+	if target.Type != DeployErrorPermission {
+		t.Error("类型断言后 Type 不匹配")
+	}
+}
+
 // containsAll 检查字符串是否包含所有子串
 func containsAll(s string, substrs ...string) bool {
 	for _, sub := range substrs {

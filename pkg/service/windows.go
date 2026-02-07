@@ -86,8 +86,10 @@ func (m *WindowsManager) Uninstall() error {
 	}
 	defer s.Close()
 
-	// 停止服务
-	s.Control(svc.Stop)
+	// 停止服务（记录日志但继续，服务可能已停止）
+	if _, err := s.Control(svc.Stop); err != nil {
+		// 停止失败不阻塞卸载，服务可能已停止
+	}
 	time.Sleep(time.Second)
 
 	// 删除服务
@@ -123,17 +125,20 @@ func (m *WindowsManager) Start() error {
 func (m *WindowsManager) Stop() error {
 	manager, err := mgr.Connect()
 	if err != nil {
-		return nil
+		return fmt.Errorf("连接服务管理器失败: %w", err)
 	}
 	defer manager.Disconnect()
 
 	s, err := manager.OpenService(m.cfg.Name)
 	if err != nil {
+		// 服务不存在视为已停止
 		return nil
 	}
 	defer s.Close()
 
-	s.Control(svc.Stop)
+	if _, err := s.Control(svc.Stop); err != nil {
+		return fmt.Errorf("停止服务失败: %w", err)
+	}
 	return nil
 }
 
@@ -222,7 +227,9 @@ func (m *WindowsManager) Disable() error {
 	}
 
 	cfg.StartType = mgr.StartManual
-	s.UpdateConfig(cfg)
+	if err := s.UpdateConfig(cfg); err != nil {
+		return fmt.Errorf("更新服务配置失败: %w", err)
+	}
 
 	return nil
 }

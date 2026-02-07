@@ -135,10 +135,10 @@ func TestContextTimeout(t *testing.T) {
 		t.Error("上下文应该有截止时间")
 	}
 
-	// 验证截止时间在 30 分钟后（允许几秒误差）
+	// 验证截止时间在 30 分钟后（允许 1 秒误差，兼容慢速 CI）
 	expected := time.Now().Add(30 * time.Minute)
 	diff := deadline.Sub(expected)
-	if diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("截止时间不正确: diff = %v", diff)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("截止时间不正确: diff = %v，应在 ±1s 内", diff)
 	}
 }
