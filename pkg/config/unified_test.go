@@ -316,9 +316,11 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0600)
 
 	// 设置环境变量（Token 至少 32 字符）
+	// URL 使用 localhost 避免 CI 环境中 DNS 解析失败导致 SSRF 校验拒绝
 	envToken := "env-token-that-is-long-enough-for-validation"
+	envURL := "http://localhost:8080"
 	_ = os.Setenv(EnvAPIToken, envToken)
-	_ = os.Setenv(EnvAPIURL, "https://env-api.com")
+	_ = os.Setenv(EnvAPIURL, envURL)
 	defer func() {
 		_ = os.Unsetenv(EnvAPIToken)
 		_ = os.Unsetenv(EnvAPIURL)
@@ -331,8 +333,8 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 	if loaded.API.Token != envToken {
 		t.Errorf("API.Token = %s, want %s (from env)", loaded.API.Token, envToken)
 	}
-	if loaded.API.URL != "https://env-api.com" {
-		t.Errorf("API.URL = %s, want https://env-api.com (from env)", loaded.API.URL)
+	if loaded.API.URL != envURL {
+		t.Errorf("API.URL = %s, want %s (from env)", loaded.API.URL, envURL)
 	}
 }
 

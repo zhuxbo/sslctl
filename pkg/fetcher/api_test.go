@@ -356,11 +356,11 @@ func TestMustValidURL(t *testing.T) {
 		url     string
 		wantErr bool
 	}{
-		{"HTTPS 远程", "https://api.example.com", false},
+		{"HTTPS localhost", "https://localhost:443", false},
 		{"HTTP localhost", "http://localhost:8080", false},
 		{"HTTP 127.0.0.1", "http://127.0.0.1:8080", false},
 		{"HTTP 远程", "http://api.example.com", true},
-		{"无效 scheme", "ftp://api.example.com", true},
+		{"无效 scheme", "ftp://localhost", true},
 		{"无 host", "https://", true},
 		{"无效 URL", "not-a-url", true},
 	}
