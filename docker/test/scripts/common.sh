@@ -328,7 +328,7 @@ build_binary() {
     local ldflags="-s -w -X 'main.version=${version}' -X 'main.buildTime=${build_time}'"
 
     mkdir -p "${PROJECT_DIR}/dist"
-    GOOS=linux GOARCH="$arch" $GO_CMD build -ldflags "$ldflags" -o "$output" ./cmd/main.go
+    GOOS=linux GOARCH="$arch" $GO_CMD build -ldflags "$ldflags" -o "$output" ./cmd/
 
     log_info "构建完成: $output"
 }
