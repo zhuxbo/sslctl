@@ -6,19 +6,31 @@ SSL 证书部署工具，支持 Nginx、Apache，支持 Docker 容器。
 
 ```bash
 # 安装最新稳定版
-curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash
+curl -fsSL https://release.cnssl.com/sslctl/install.sh | sudo bash
 
 # 安装测试版
-curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --dev
+curl -fsSL https://release.cnssl.com/sslctl/install.sh | sudo bash -s -- --dev
 
 # 安装指定版本
-curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --version 1.0.0
+curl -fsSL https://release.cnssl.com/sslctl/install.sh | sudo bash -s -- --version 1.0.0
 
 # 强制重新安装
-curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash -s -- --force
+curl -fsSL https://release.cnssl.com/sslctl/install.sh | sudo bash -s -- --force
 ```
 
-手动安装: 从 [Releases](https://sslctl-cn.cnssl.com/releases.json) 下载解压，重命名为 `sslctl`。
+Windows (PowerShell 管理员):
+
+```powershell
+# 安装最新稳定版
+irm https://release.cnssl.com/sslctl/install.ps1 | iex
+
+# 直接执行支持参数
+.\install.ps1 -Dev                     # 安装测试版
+.\install.ps1 -Version 1.0.0           # 安装指定版本
+.\install.ps1 -Force                   # 强制重新安装
+```
+
+手动安装: 从 [Releases](https://release.cnssl.com/sslctl/releases.json) 下载解压，重命名为 `sslctl`。
 
 ## 使用
 
@@ -173,6 +185,7 @@ sslctl status
     "url": "https://api.example.com",
     "token": "your-deploy-token"
   },
+  "release_url": "https://release.cnssl.com/sslctl",
   "schedule": {
     "check_interval_hours": 6,
     "renew_before_days": 13

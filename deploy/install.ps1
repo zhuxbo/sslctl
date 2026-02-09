@@ -1,6 +1,16 @@
 # sslctl Windows 安装脚本
 # 自动检测架构，下载部署工具
-# 使用方法: irm https://raw.githubusercontent.com/zhuxbo/sslctl/main/deploy/install.ps1 | iex
+# 使用方法:
+#   直接执行: .\install.ps1 [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
+#   管道模式: irm https://raw.githubusercontent.com/zhuxbo/sslctl/main/deploy/install.ps1 | iex
+
+param(
+    [switch]$Dev,
+    [switch]$Stable,
+    [string]$Version,
+    [switch]$Force,
+    [switch]$Help
+)
 
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
@@ -8,6 +18,174 @@ $ErrorActionPreference = "Stop"
 function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
 function Write-Err { param($msg) Write-Host "[ERROR] $msg" -ForegroundColor Red }
+
+# 帮助信息
+if ($Help) {
+    Write-Host "用法: install.ps1 [选项]"
+    Write-Host ""
+    Write-Host "选项:"
+    Write-Host "  -Dev          安装测试版（dev 通道）"
+    Write-Host "  -Stable       安装稳定版（stable 通道，默认）"
+    Write-Host "  -Version VER  安装指定版本"
+    Write-Host "  -Force        强制重新安装（即使版本相同）"
+    Write-Host "  -Help         显示此帮助信息"
+    Write-Host ""
+    Write-Host "示例:"
+    Write-Host "  .\install.ps1                              # 安装最新稳定版"
+    Write-Host "  .\install.ps1 -Dev                         # 安装最新测试版"
+    Write-Host "  .\install.ps1 -Version 1.0.0               # 安装指定版本"
+    Write-Host "  .\install.ps1 -Dev -Version 1.0.1-dev      # 安装指定测试版"
+    Write-Host "  .\install.ps1 -Force                       # 强制重新安装"
+    Write-Host ""
+    Write-Host "管道模式 (irm ... | iex) 不支持参数，默认安装最新稳定版。"
+    exit 0
+}
+
+# Release 服务器（由发布脚本自动替换，与 Linux 保持一致）
+$ReleaseUrl = "__RELEASE_URL__"
+# 去掉末尾斜杠，避免拼接出错
+$ReleaseUrl = $ReleaseUrl.TrimEnd("/")
+
+# 检测占位符未被替换（直接运行源码中的脚本）
+if ($ReleaseUrl -like "*__RELEASE_URL__*") {
+    Write-Err "安装脚本未正确配置，请从官方渠道下载安装脚本"
+    exit 1
+}
+
+# --- 辅助函数 ---
+
+# 规范化版本号（确保带 v 前缀）
+function Normalize-Version {
+    param([string]$Ver)
+    if (-not $Ver.StartsWith("v")) {
+        return "v$Ver"
+    }
+    return $Ver
+}
+
+# 获取已安装版本
+function Get-InstalledVersion {
+    $ExePath = "C:\sslctl\sslctl.exe"
+    if (-not (Test-Path $ExePath)) {
+        return ""
+    }
+    try {
+        $output = & $ExePath --version 2>&1
+        if ($output -match '(v?\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?)') {
+            return Normalize-Version $Matches[1]
+        }
+    } catch {}
+    return ""
+}
+
+# 获取目标版本（支持通道/版本选择）
+# 返回 hashtable: @{ Version; Channel; ReleaseInfo }
+function Get-TargetVersion {
+    param(
+        [string]$BaseUrl,
+        [string]$RequestedVersion,
+        [switch]$UseDev,
+        [switch]$UseStable
+    )
+
+    $releaseInfo = $null
+
+    # 获取 releases.json（指定版本时也需要，用于校验和）
+    try {
+        $releaseInfo = Invoke-RestMethod -Uri "$BaseUrl/releases.json" -TimeoutSec 30 -ErrorAction Stop
+    } catch {
+        # 指定了版本时可以不需要 releases.json（但无法校验）
+        if (-not $RequestedVersion) {
+            return $null
+        }
+    }
+
+    $channel = ""
+    $targetVersion = ""
+
+    if ($RequestedVersion) {
+        # 指定了版本，直接使用
+        $targetVersion = Normalize-Version $RequestedVersion
+
+        # 自动推断通道（除非已指定）
+        if ($UseDev) {
+            $channel = "dev"
+        } elseif ($UseStable) {
+            $channel = "stable"
+        } elseif ($targetVersion -match "-") {
+            $channel = "dev"
+        } else {
+            $channel = "stable"
+        }
+    } else {
+        # 从 releases.json 获取最新版本
+        if (-not $releaseInfo) {
+            return $null
+        }
+
+        if ($UseDev) {
+            $targetVersion = $releaseInfo.latest_dev
+            $channel = "dev"
+        } elseif ($UseStable) {
+            $targetVersion = $releaseInfo.latest_stable
+            $channel = "stable"
+        } else {
+            # 默认：优先 stable
+            $targetVersion = $releaseInfo.latest_stable
+            $channel = "stable"
+            if (-not $targetVersion) {
+                $targetVersion = $releaseInfo.latest_dev
+                $channel = "dev"
+            }
+        }
+    }
+
+    if (-not $targetVersion) {
+        return $null
+    }
+
+    return @{
+        Version     = $targetVersion
+        Channel     = $channel
+        ReleaseInfo = $releaseInfo
+    }
+}
+
+# 验证 SHA256 校验和
+# expected 格式: "sha256:hexstring"
+function Verify-SHA256Checksum {
+    param(
+        [string]$FilePath,
+        [string]$Expected
+    )
+
+    if (-not $Expected) {
+        Write-Warn "无校验和信息，跳过校验（兼容旧版本）"
+        return $true
+    }
+
+    # 解析 sha256:hex 格式
+    if (-not $Expected.StartsWith("sha256:")) {
+        Write-Warn "未知校验和格式: $Expected，跳过校验"
+        return $true
+    }
+
+    $expectedHash = $Expected.Substring(7).ToLower()
+
+    $actualHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+
+    if ($actualHash -ne $expectedHash) {
+        Write-Err "SHA256 校验失败"
+        Write-Err "  期望: $expectedHash"
+        Write-Err "  实际: $actualHash"
+        return $false
+    }
+
+    Write-Info "SHA256 校验通过"
+    return $true
+}
+
+# --- 主流程 ---
 
 # 检测架构
 Write-Info "检测系统..."
@@ -44,27 +222,41 @@ try {
     }
 } catch {}
 
-# 获取最新版本号
-function Get-LatestVersion {
-    $version = $null
-    try {
-        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/zhuxbo/sslctl/releases" -TimeoutSec 30 -ErrorAction Stop
-        if ($releases.Count -gt 0) {
-            $version = $releases[0].tag_name
-        }
-    } catch {}
-    return $version
-}
+# 获取目标版本
+Write-Info "获取目标版本..."
+$targetInfo = Get-TargetVersion -BaseUrl $ReleaseUrl -RequestedVersion $Version -UseDev:$Dev -UseStable:$Stable
 
-Write-Info "获取最新版本..."
-$Version = Get-LatestVersion
-
-if (-not $Version) {
+if (-not $targetInfo) {
     Write-Err "无法获取版本信息"
     exit 1
 }
 
-Write-Info "最新版本: $Version"
+$TargetVersion = $targetInfo.Version
+$Channel = $targetInfo.Channel
+$releaseInfo = $targetInfo.ReleaseInfo
+
+# 显示通道信息
+if ($Channel -eq "dev") {
+    Write-Info "目标版本: $TargetVersion (测试版)"
+} else {
+    Write-Info "目标版本: $TargetVersion (稳定版)"
+}
+
+# 检测已安装版本
+$CurrentVersion = Get-InstalledVersion
+
+if ($CurrentVersion) {
+    if ($CurrentVersion -eq $TargetVersion) {
+        if ($Force) {
+            Write-Info "当前版本: $CurrentVersion，强制重新安装"
+        } else {
+            Write-Info "当前版本 $CurrentVersion 已是目标版本，使用 -Force 强制重新安装"
+            exit 0
+        }
+    } else {
+        Write-Info "升级: $CurrentVersion -> $TargetVersion"
+    }
+}
 
 # 创建安装目录
 $InstallDir = "C:\sslctl"
@@ -84,18 +276,39 @@ foreach ($dir in @("sites", "logs", "backup", "certs")) {
 # 下载
 $Filename = "sslctl-windows-$Arch.exe.gz"
 $TempFile = "$env:TEMP\$Filename"
-$GithubUrl = "https://github.com/zhuxbo/sslctl/releases/download/$Version/$Filename"
+$DownloadUrl = "$ReleaseUrl/$Channel/$TargetVersion/$Filename"
 
 Write-Info "下载 $Filename..."
 
 $downloaded = $false
 try {
-    Invoke-WebRequest -Uri $GithubUrl -OutFile $TempFile -TimeoutSec 120 -ErrorAction Stop
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempFile -TimeoutSec 120 -ErrorAction Stop
     $downloaded = $true
 } catch {}
 
 if (-not $downloaded) {
-    Write-Err "下载失败"
+    Write-Err "下载失败: $DownloadUrl"
+    exit 1
+}
+
+# SHA256 校验
+$expectedChecksum = ""
+if ($releaseInfo) {
+    try {
+        $versions = $releaseInfo.versions
+        if ($versions -and $versions.$TargetVersion) {
+            $checksums = $versions.$TargetVersion.checksums
+            if ($checksums -and $checksums.$Filename) {
+                $expectedChecksum = $checksums.$Filename
+            }
+        }
+    } catch {}
+}
+
+$checksumOk = Verify-SHA256Checksum -FilePath $TempFile -Expected $expectedChecksum
+if (-not $checksumOk) {
+    Remove-Item $TempFile -Force -ErrorAction SilentlyContinue
+    Write-Err "文件校验失败，安装中止"
     exit 1
 }
 
@@ -119,6 +332,23 @@ try {
 # 清理临时文件
 Remove-Item $TempFile -Force -ErrorAction SilentlyContinue
 
+# 写入 release_url 到配置文件（解析失败不覆盖原文件）
+$ConfigFile = Join-Path $WorkDir "config.json"
+if (Test-Path $ConfigFile) {
+    try {
+        $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+    } catch {
+        Write-Err "配置解析失败，未修改 release_url"
+        exit 1
+    }
+} else {
+    $cfg = @{ version = "1.0" }
+}
+$cfg.release_url = $ReleaseUrl
+$ConfigTmpFile = "$ConfigFile.tmp"
+$cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigTmpFile -Encoding UTF8
+Move-Item -Path $ConfigTmpFile -Destination $ConfigFile -Force
+
 # 添加到 PATH
 $Path = [Environment]::GetEnvironmentVariable("Path", "Machine")
 if ($Path -notlike "*$InstallDir*") {
@@ -130,11 +360,12 @@ Write-Host ""
 Write-Info "安装完成！"
 Write-Host ""
 Write-Host "使用方法 (需重新打开终端):"
-Write-Host "  sslctl nginx scan                    # 扫描 Nginx SSL 站点"
-Write-Host "  sslctl apache scan                   # 扫描 Apache SSL 站点"
-Write-Host "  sslctl nginx deploy --site example.com  # 部署证书"
-Write-Host "  sslctl --debug nginx scan            # 调试模式"
-Write-Host "  sslctl help                          # 查看帮助"
+Write-Host "  sslctl scan                              # 扫描站点"
+Write-Host "  sslctl deploy --site example.com         # 部署证书"
+Write-Host "  sslctl status                            # 查看服务状态"
+Write-Host "  sslctl upgrade                           # 升级工具"
+Write-Host "  sslctl --debug scan                      # 调试模式"
+Write-Host "  sslctl help                              # 查看帮助"
 Write-Host ""
 Write-Host "配置目录: C:\sslctl\sites\"
 Write-Host "日志目录: C:\sslctl\logs\"
