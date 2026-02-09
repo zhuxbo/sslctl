@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -23,7 +24,9 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/service"
 	"github.com/zhuxbo/sslctl/pkg/upgrade"
 	"github.com/zhuxbo/sslctl/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/validator"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
+	"golang.org/x/term"
 )
 
 var (
@@ -437,12 +440,31 @@ func runUpgrade(args []string) {
 		os.Exit(1)
 	}
 
+	cfgManager, err := config.NewConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := cfgManager.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	releaseURL, err := resolveReleaseURL(cfgManager, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
 	opts := upgrade.Options{
 		Channel:        *channel,
 		TargetVersion:  *targetVersion,
 		Force:          *force,
 		CheckOnly:      *checkOnly,
 		CurrentVersion: version,
+		ReleaseURL:     releaseURL,
 	}
 
 	// 使用 fmt.Printf 作为日志回调
@@ -454,6 +476,60 @@ func runUpgrade(args []string) {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
+}
+
+// resolveReleaseURL 获取并校验升级地址，必要时提示用户输入并保存。
+func resolveReleaseURL(cfgManager *config.ConfigManager, cfg *config.Config) (string, error) {
+	// 统一处理末尾斜杠，避免拼接出错
+	releaseURL := strings.TrimRight(strings.TrimSpace(cfg.ReleaseURL), "/")
+	if releaseURL != "" {
+		// SSRF 防护：校验配置文件中的 URL
+		if err := validator.ValidateAPIURL(releaseURL); err != nil {
+			return "", fmt.Errorf("配置文件中的升级地址不安全: %w", err)
+		}
+		// 若配置中存在尾部斜杠，顺便纠正并落盘
+		if cfg.ReleaseURL != releaseURL {
+			cfg.ReleaseURL = releaseURL
+			if err := cfgManager.Save(cfg); err != nil {
+				return "", fmt.Errorf("保存升级地址失败: %w", err)
+			}
+		}
+		return releaseURL, nil
+	}
+
+	// 非交互环境无法安全提示输入
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("未配置升级地址，请在交互终端中运行并输入升级地址")
+	}
+
+	fmt.Fprint(os.Stderr, "未配置升级地址，请输入升级地址: ")
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("读取升级地址失败: %w", err)
+	}
+
+	releaseURL = strings.TrimRight(strings.TrimSpace(input), "/")
+	if releaseURL == "" {
+		return "", fmt.Errorf("升级地址不能为空")
+	}
+
+	// SSRF 防护：校验用户输入的 URL
+	if err := validator.ValidateAPIURL(releaseURL); err != nil {
+		return "", fmt.Errorf("升级地址不安全: %w", err)
+	}
+
+	// 校验升级地址可用性（releases.json 可访问且可解析）
+	if _, err := upgrade.FetchReleaseInfo(releaseURL); err != nil {
+		return "", fmt.Errorf("升级地址校验失败: %w", err)
+	}
+
+	cfg.ReleaseURL = releaseURL
+	if err := cfgManager.Save(cfg); err != nil {
+		return "", fmt.Errorf("保存升级地址失败: %w", err)
+	}
+
+	return releaseURL, nil
 }
 
 // runRollback 回滚命令

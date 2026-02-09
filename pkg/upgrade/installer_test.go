@@ -74,11 +74,19 @@ func TestGetDownloadFilename(t *testing.T) {
 }
 
 func TestGetDownloadURL(t *testing.T) {
-	url := GetDownloadURL("stable", "v1.0.0")
 	filename := GetDownloadFilename()
-	expected := ReleaseURL + "/stable/v1.0.0/" + filename
+
+	url := GetDownloadURL("https://release.example.com/sslctl", "stable", "v1.0.0")
+	expected := "https://release.example.com/sslctl/stable/v1.0.0/" + filename
 	if url != expected {
 		t.Errorf("url = %q, want %q", url, expected)
+	}
+
+	// dev 通道
+	devURL := GetDownloadURL("https://release.example.com/sslctl", "dev", "v2.0.0")
+	expectedDev := "https://release.example.com/sslctl/dev/v2.0.0/" + filename
+	if devURL != expectedDev {
+		t.Errorf("dev url = %q, want %q", devURL, expectedDev)
 	}
 }
 

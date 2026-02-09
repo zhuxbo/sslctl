@@ -69,7 +69,7 @@ for target in "${TARGETS[@]}"; do
     echo "  Building ${GOOS}/${GOARCH}..."
 
     cd "$PROJECT_DIR"
-    GOOS="$GOOS" GOARCH="$GOARCH" $GO_CMD build -ldflags "$LDFLAGS" -o "${OUTPUT_DIR}/${OUTPUT_NAME}" ./cmd/main.go
+    GOOS="$GOOS" GOARCH="$GOARCH" $GO_CMD build -ldflags "$LDFLAGS" -o "${OUTPUT_DIR}/${OUTPUT_NAME}" ./cmd/
 
     # 压缩
     if [ "$GOOS" = "windows" ]; then

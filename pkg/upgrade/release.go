@@ -15,9 +15,6 @@ const (
 	maxReleaseInfoSize = 1 * 1024 * 1024 // 最大版本信息大小 1MB
 )
 
-// ReleaseURL 发布信息 URL
-const ReleaseURL = "https://sslctl.cnssl.com"
-
 // VersionInfo 版本详细信息
 type VersionInfo struct {
 	Checksums  map[string]string `json:"checksums"`            // 文件名 -> sha256:hash
@@ -34,8 +31,16 @@ type ReleaseInfo struct {
 }
 
 // FetchReleaseInfo 获取远程版本信息
-func FetchReleaseInfo() (*ReleaseInfo, error) {
-	return fetchReleaseInfoFrom(ReleaseURL+"/releases.json", secureHTTPClient())
+func FetchReleaseInfo(baseURL string) (*ReleaseInfo, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("未配置升级地址，请重新安装或在配置文件中设置 release_url")
+	}
+	// 安全校验：强制 HTTPS（与 downloadBinaryWithClient 保持一致）
+	if !strings.HasPrefix(baseURL, "https://") {
+		return nil, fmt.Errorf("升级地址必须使用 HTTPS 协议")
+	}
+	return fetchReleaseInfoFrom(baseURL+"/releases.json", secureHTTPClient())
 }
 
 // fetchReleaseInfoFrom 内部实现，接受 URL 和 client 参数（便于测试）

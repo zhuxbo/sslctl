@@ -32,6 +32,7 @@ type Options struct {
 	Force          bool   // 强制重新安装
 	CheckOnly      bool   // 仅检查更新
 	CurrentVersion string // 当前版本
+	ReleaseURL     string // 发布地址（必需，从配置文件读取）
 }
 
 // Result 升级结果
@@ -46,7 +47,16 @@ type Result struct {
 // Execute 执行升级
 // 返回升级结果和日志回调（用于输出进度信息）
 func Execute(opts Options, logFunc func(format string, args ...interface{})) (*Result, error) {
-	return executeWithClient(opts, logFunc, ReleaseURL+"/releases.json", secureHTTPClient())
+	// 统一处理末尾斜杠，避免拼接出错
+	opts.ReleaseURL = strings.TrimRight(strings.TrimSpace(opts.ReleaseURL), "/")
+	if opts.ReleaseURL == "" {
+		return nil, fmt.Errorf("未配置升级地址，请重新安装或在配置文件中设置 release_url")
+	}
+	// 安全校验：强制 HTTPS
+	if !strings.HasPrefix(opts.ReleaseURL, "https://") {
+		return nil, fmt.Errorf("升级地址必须使用 HTTPS 协议")
+	}
+	return executeWithClient(opts, logFunc, opts.ReleaseURL+"/releases.json", secureHTTPClient())
 }
 
 // executeWithClient 内部实现，接受 URL 和 client 参数（便于测试）
@@ -87,23 +97,24 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 
 	// 4. 检查最低客户端版本（密钥轮换等场景）
 	baseURL := strings.TrimSuffix(releaseURL, "/releases.json")
+	installHint := fmt.Sprintf("curl -fsSL %s/install.sh | sudo bash", baseURL)
 	if info.MinClientVersion != "" && CompareVersions(current, info.MinClientVersion) < 0 {
 		// CheckOnly 模式下不执行链式升级或下载，仅返回提示
 		if opts.CheckOnly {
 			if len(info.UpgradePath) > 0 {
-				return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），需要链式升级，请运行 'sslctl upgrade' 或重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash",
-					current, NormalizeVersion(info.MinClientVersion))
+				return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），需要链式升级，请运行 'sslctl upgrade' 或重新安装:\n  %s",
+					current, NormalizeVersion(info.MinClientVersion), installHint)
 			}
-			return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash",
-				current, NormalizeVersion(info.MinClientVersion))
+			return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  %s",
+				current, NormalizeVersion(info.MinClientVersion), installHint)
 		}
 
 		// 尝试链式升级
 		if len(info.UpgradePath) > 0 {
-			return nil, tryChainUpgrade(current, opts, info, logFunc, releaseURL, client, baseURL)
+			return nil, tryChainUpgrade(current, opts, info, logFunc, releaseURL, client, baseURL, installHint)
 		}
-		return nil, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash",
-			current, NormalizeVersion(info.MinClientVersion))
+		return nil, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  %s",
+			current, NormalizeVersion(info.MinClientVersion), installHint)
 	}
 
 	// 5. 如果只是检查，返回结果
@@ -113,7 +124,7 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	}
 
 	// 6. 下载并安装
-	if err := downloadVerifyInstall(target, channel, info, logFunc, client, baseURL); err != nil {
+	if err := downloadVerifyInstall(target, channel, info, logFunc, client, baseURL, installHint); err != nil {
 		return nil, err
 	}
 
@@ -128,8 +139,9 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 var validChannels = map[string]bool{"stable": true, "dev": true}
 
 // downloadVerifyInstall 下载、验证签名/校验和、安装
-// baseURL 为下载基础 URL，格式如 https://sslctl.cnssl.com
-func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc func(format string, args ...interface{}), client *http.Client, baseURL string) error {
+// baseURL 为下载基础 URL，格式如 https://release.cnssl.com/sslctl
+// installHint 为重新安装提示命令
+func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc func(format string, args ...interface{}), client *http.Client, baseURL, installHint string) error {
 	// 安全校验：通道白名单（防止路径遍历）
 	if !validChannels[channel] {
 		return fmt.Errorf("不支持的发布通道: %s", channel)
@@ -159,7 +171,7 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 	if err := VerifySignature(gzData, expectedSignature); err != nil {
 		var keyNotFound *ErrKeyNotFound
 		if errors.As(err, &keyNotFound) {
-			return fmt.Errorf("签名密钥已更新，请重新安装以获取最新版本:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash")
+			return fmt.Errorf("签名密钥已更新，请重新安装以获取最新版本:\n  %s", installHint)
 		}
 		return fmt.Errorf("数字签名验证失败: %w", err)
 	}
@@ -185,11 +197,11 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 
 // tryChainUpgrade 尝试链式升级
 // 在 upgrade_path 中找到第一个 > 当前版本的过渡版本，下载安装后用 syscall.Exec 替换进程
-func tryChainUpgrade(current string, opts Options, info *ReleaseInfo, logFunc func(format string, args ...interface{}), releaseURL string, client *http.Client, baseURL string) error {
+func tryChainUpgrade(current string, opts Options, info *ReleaseInfo, logFunc func(format string, args ...interface{}), releaseURL string, client *http.Client, baseURL, installHint string) error {
 	// 检查升级深度
 	depth := getUpgradeDepth()
 	if depth >= maxUpgradeDepth {
-		return fmt.Errorf("链式升级步数超过限制（%d），请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash", maxUpgradeDepth)
+		return fmt.Errorf("链式升级步数超过限制（%d），请重新安装:\n  %s", maxUpgradeDepth, installHint)
 	}
 
 	// 在 upgrade_path 中找第一个 > 当前版本的过渡版本
@@ -203,7 +215,7 @@ func tryChainUpgrade(current string, opts Options, info *ReleaseInfo, logFunc fu
 	}
 
 	if transitVersion == "" {
-		return fmt.Errorf("当前版本 %s 过旧，无可用的过渡版本，请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash", current)
+		return fmt.Errorf("当前版本 %s 过旧，无可用的过渡版本，请重新安装:\n  %s", current, installHint)
 	}
 
 	// 确定过渡版本的通道：含 - 为 dev，否则为 stable
@@ -213,14 +225,14 @@ func tryChainUpgrade(current string, opts Options, info *ReleaseInfo, logFunc fu
 	}
 	if _, ok := info.Versions[transitVersion]; !ok {
 		// 如果 Versions 中没有该版本信息，无法验证
-		return fmt.Errorf("过渡版本 %s 缺少版本信息，请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash", transitVersion)
+		return fmt.Errorf("过渡版本 %s 缺少版本信息，请重新安装:\n  %s", transitVersion, installHint)
 	}
 
 	logFunc("链式升级: 先升级到过渡版本 %s（步骤 %d/%d）...", transitVersion, depth+1, maxUpgradeDepth)
 
 	// 下载、验证并安装过渡版本
-	if err := downloadVerifyInstall(transitVersion, transitChannel, info, logFunc, client, baseURL); err != nil {
-		return fmt.Errorf("过渡版本 %s 安装失败: %w\n请重新安装:\n  curl -fsSL https://sslctl-cn.cnssl.com/install.sh | sudo bash", transitVersion, err)
+	if err := downloadVerifyInstall(transitVersion, transitChannel, info, logFunc, client, baseURL, installHint); err != nil {
+		return fmt.Errorf("过渡版本 %s 安装失败: %w\n请重新安装:\n  %s", transitVersion, err, installHint)
 	}
 
 	logFunc("过渡版本 %s 安装完成，重新执行升级...", transitVersion)

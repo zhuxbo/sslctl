@@ -13,8 +13,16 @@ echo_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Release 服务器
-RELEASE_URL="https://sslctl.cnssl.com"
+# Release 服务器（由发布脚本自动替换）
+RELEASE_URL="__RELEASE_URL__"
+# 去掉末尾斜杠，避免拼接出错
+RELEASE_URL="${RELEASE_URL%/}"
+
+# 检测占位符未被替换（直接运行源码中的脚本）
+if [[ "$RELEASE_URL" == *"__RELEASE_URL__"* ]]; then
+    echo_error "安装脚本未正确配置，请从官方渠道下载安装脚本"
+    exit 1
+fi
 
 # 参数解析
 CHANNEL=""          # 空=自动，stable/dev=指定
@@ -236,6 +244,71 @@ chmod +x /usr/local/bin/sslctl
 
 # 创建工作目录
 mkdir -p /opt/sslctl/{sites,logs,backup,certs}
+
+# 写入 release_url 到配置文件
+CONFIG_FILE="/opt/sslctl/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    # 配置已存在，合并 release_url（不覆盖其他字段）
+    if command -v python3 >/dev/null 2>&1; then
+        # 使用 python3 解析并原子写回，解析失败不覆盖原文件
+        if ! python3 - "$CONFIG_FILE" "$RELEASE_URL" << 'PYEOF'
+import json
+import os
+import sys
+import tempfile
+
+config_path = sys.argv[1]
+release_url = sys.argv[2]
+
+try:
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+except json.JSONDecodeError:
+    print("配置解析失败，未修改 release_url", file=sys.stderr)
+    sys.exit(1)
+except FileNotFoundError:
+    print("配置文件不存在", file=sys.stderr)
+    sys.exit(1)
+
+cfg["release_url"] = release_url
+
+dir_path = os.path.dirname(config_path) or "."
+with tempfile.NamedTemporaryFile("w", delete=False, dir=dir_path, encoding="utf-8") as tmp:
+    json.dump(cfg, tmp, indent=2, ensure_ascii=False)
+    tmp_path = tmp.name
+
+os.replace(tmp_path, config_path)
+PYEOF
+        then
+            echo_error "写入 release_url 失败，配置未修改"
+            exit 1
+        fi
+        chmod 600 "$CONFIG_FILE"
+    elif command -v jq >/dev/null 2>&1; then
+        # 使用 jq 解析并原子写回，解析失败不覆盖原文件
+        tmp_file=$(mktemp)
+        if jq --arg url "$RELEASE_URL" '.release_url = $url' "$CONFIG_FILE" > "$tmp_file"; then
+            mv "$tmp_file" "$CONFIG_FILE"
+            chmod 600 "$CONFIG_FILE"
+        else
+            rm -f "$tmp_file"
+            echo_error "配置解析失败，未修改 release_url"
+            exit 1
+        fi
+    else
+        echo_error "未找到 python3 或 jq，无法写入 release_url"
+        exit 1
+    fi
+else
+    # 首次安装，创建最小配置
+    cat > "$CONFIG_FILE" << CFGEOF
+{
+  "version": "1.0",
+  "release_url": "$RELEASE_URL"
+}
+CFGEOF
+    chmod 600 "$CONFIG_FILE"
+fi
 
 # 检测 init 系统
 detect_init_system() {

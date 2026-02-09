@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Version      string         `json:"version"`
 	API          APIConfig      `json:"api"`
+	ReleaseURL   string         `json:"release_url,omitempty"`
 	Schedule     ScheduleConfig `json:"schedule"`
 	Certificates []CertConfig   `json:"certificates"`
 	Metadata     ConfigMetadata `json:"metadata,omitempty"`

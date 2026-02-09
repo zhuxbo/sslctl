@@ -298,9 +298,9 @@ func GetDownloadFilename() string {
 }
 
 // GetDownloadURL 获取下载 URL
-func GetDownloadURL(channel, version string) string {
+func GetDownloadURL(baseURL, channel, version string) string {
 	filename := GetDownloadFilename()
-	return fmt.Sprintf("%s/%s/%s/%s", ReleaseURL, channel, version, filename)
+	return fmt.Sprintf("%s/%s/%s/%s", baseURL, channel, version, filename)
 }
 
 // copyFile 复制文件（用于跨文件系统移动）

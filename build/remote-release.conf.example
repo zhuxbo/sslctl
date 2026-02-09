@@ -10,11 +10,11 @@
 # - 主机: SSH 主机地址
 # - 端口: SSH 端口（默认 22）
 # - 目录: 远程发布目录
-# - URL: 公网访问 URL
+# - URL: 公网访问 URL（用于替换脚本中的 RELEASE_URL）
 
 SERVERS=(
-    "cn,sslctl-cn.example.com,22,/var/www/release/sslctl,https://sslctl-cn.example.com/sslctl"
-    "us,sslctl-us.example.com,22,/var/www/release/sslctl,https://sslctl-us.example.com/sslctl"
+    "cn,release-cn.example.com,22,/var/www/release/sslctl,https://release-cn.example.com/sslctl"
+    "us,release-us.example.com,22,/var/www/release/sslctl,https://release-us.example.com/sslctl"
 )
 
 # ========================================

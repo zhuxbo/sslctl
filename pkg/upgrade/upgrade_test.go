@@ -626,7 +626,7 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 func TestDownloadVerifyInstall_InvalidChannel(t *testing.T) {
 	// 非法通道应被拒绝（防止路径遍历）
 	info := &ReleaseInfo{}
-	err := downloadVerifyInstall("v1.0.0", "../evil", info, nil, nil, "https://example.com")
+	err := downloadVerifyInstall("v1.0.0", "../evil", info, nil, nil, "https://example.com", "curl -fsSL https://example.com/install.sh | sudo bash")
 	if err == nil {
 		t.Fatal("expected error for invalid channel")
 	}

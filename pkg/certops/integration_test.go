@@ -2,26 +2,187 @@
 package certops
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/csr"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
+var loadEnvOnce sync.Once
+
+func ensureTestEnv(t *testing.T) {
+	t.Helper()
+	loadEnvOnce.Do(func() {
+		if err := loadDotEnv(".env"); err != nil {
+			t.Logf("加载 .env 失败: %v", err)
+		}
+	})
+}
+
+func loadDotEnv(filename string) error {
+	startDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	dir := startDir
+	for {
+		envPath := filepath.Join(dir, filename)
+		if _, statErr := os.Stat(envPath); statErr == nil {
+			return applyDotEnv(envPath)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil
+}
+
+func applyDotEnv(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			continue
+		}
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if os.Getenv(key) == "" {
+			_ = os.Setenv(key, value)
+		}
+	}
+	return scanner.Err()
+}
+
 // getTestAPIConfig 获取测试 API 配置（必须通过环境变量设置）
 func getTestAPIConfig(t *testing.T) (string, string) {
+	ensureTestEnv(t)
 	url := os.Getenv("TEST_API_URL")
 	token := os.Getenv("TEST_API_TOKEN")
 	if url == "" || token == "" {
 		t.Skip("跳过集成测试: 未设置 TEST_API_URL 或 TEST_API_TOKEN 环境变量")
 	}
 	return url, token
+}
+
+func getTestAPIDomain(t *testing.T) string {
+	ensureTestEnv(t)
+	domain := strings.TrimSpace(os.Getenv("TEST_API_DOMAIN"))
+	if domain == "" {
+		t.Skip("跳过集成测试: 未设置 TEST_API_DOMAIN 环境变量")
+	}
+	return domain
+}
+
+func getTestAPIMethod() string {
+	method := strings.TrimSpace(os.Getenv("TEST_API_METHOD"))
+	if method == "" {
+		return "http"
+	}
+	return method
+}
+
+func requireWriteAccess(t *testing.T) {
+	t.Helper()
+	ensureTestEnv(t)
+	if strings.TrimSpace(os.Getenv("TEST_API_ALLOW_WRITE")) != "1" {
+		t.Skip("跳过写入型集成测试: 未设置 TEST_API_ALLOW_WRITE=1")
+	}
+}
+
+func requireCallbackAccess(t *testing.T) {
+	t.Helper()
+	ensureTestEnv(t)
+	if strings.TrimSpace(os.Getenv("TEST_API_ALLOW_CALLBACK")) != "1" {
+		t.Skip("跳过回调集成测试: 未设置 TEST_API_ALLOW_CALLBACK=1")
+	}
+}
+
+func splitDomains(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	domains := make([]string, 0, len(parts))
+	for _, part := range parts {
+		domain := strings.TrimSpace(part)
+		if domain != "" {
+			domains = append(domains, domain)
+		}
+	}
+	return domains
+}
+
+func containsDomain(domains []string, target string) bool {
+	target = normalizeDomain(target)
+	for _, domain := range domains {
+		if matchDomain(target, normalizeDomain(domain)) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDomain(domain string) string {
+	return strings.ToLower(strings.TrimSpace(domain))
+}
+
+// matchDomain 支持简单通配符匹配（仅支持前缀 *.)
+func matchDomain(expect, candidate string) bool {
+	if expect == "" || candidate == "" {
+		return false
+	}
+	if expect == candidate {
+		return true
+	}
+
+	if strings.HasPrefix(expect, "*.") {
+		suffix := strings.TrimPrefix(expect, "*.")
+		if strings.HasPrefix(candidate, "*.") {
+			candSuffix := strings.TrimPrefix(candidate, "*.")
+			return candSuffix == suffix || strings.HasSuffix(candSuffix, "."+suffix)
+		}
+		return candidate == suffix || strings.HasSuffix(candidate, "."+suffix)
+	}
+
+	if strings.HasPrefix(candidate, "*.") {
+		candSuffix := strings.TrimPrefix(candidate, "*.")
+		return expect == candSuffix || strings.HasSuffix(expect, "."+candSuffix)
+	}
+
+	return false
 }
 
 // TestIntegration_FetcherInfo 测试 Fetcher.Info 获取证书信息
@@ -48,6 +209,149 @@ func TestIntegration_FetcherInfo(t *testing.T) {
 	t.Logf("  HasCert: %v", certData.Cert != "")
 	t.Logf("  HasKey: %v", certData.PrivateKey != "")
 	t.Logf("  HasCA: %v", certData.IntermediateCert != "")
+}
+
+// TestIntegration_DomainMatch 验证 API 返回的域名包含预期域名
+func TestIntegration_DomainMatch(t *testing.T) {
+	apiURL, token := getTestAPIConfig(t)
+	expectDomain := getTestAPIDomain(t)
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Fatalf("Info() 失败: %v", err)
+	}
+
+	candidates := splitDomains(certData.Domains)
+	if certData.Domain != "" {
+		candidates = append(candidates, certData.Domain)
+	}
+	if certData.CommonName != "" {
+		candidates = append(candidates, certData.CommonName)
+	}
+
+	if !containsDomain(candidates, expectDomain) {
+		t.Fatalf("域名不匹配: want %q, got %v", expectDomain, candidates)
+	}
+
+	t.Logf("✓ 域名匹配: %s", expectDomain)
+}
+
+// TestIntegration_QueryByDomain 测试按域名查询
+func TestIntegration_QueryByDomain(t *testing.T) {
+	apiURL, token := getTestAPIConfig(t)
+	expectDomain := getTestAPIDomain(t)
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	certData, err := f.Query(ctx, apiURL, token, expectDomain)
+	if err != nil {
+		t.Fatalf("Query() 失败: %v", err)
+	}
+
+	if certData == nil {
+		t.Fatal("Query() 返回空数据")
+	}
+
+	candidates := splitDomains(certData.Domains)
+	if certData.Domain != "" {
+		candidates = append(candidates, certData.Domain)
+	}
+	if certData.CommonName != "" {
+		candidates = append(candidates, certData.CommonName)
+	}
+
+	if !containsDomain(candidates, expectDomain) {
+		t.Fatalf("查询结果域名不匹配: want %q, got %v", expectDomain, candidates)
+	}
+}
+
+// TestIntegration_UpdateWithCSR 测试更新/续费接口（需显式允许写入）
+func TestIntegration_UpdateWithCSR(t *testing.T) {
+	requireWriteAccess(t)
+	apiURL, token := getTestAPIConfig(t)
+	expectDomain := getTestAPIDomain(t)
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Fatalf("Info() 失败: %v", err)
+	}
+	if infoData.OrderID == 0 {
+		t.Skip("未获取到有效 OrderID，跳过更新测试")
+	}
+
+	keyPEM, csrPEM, _, err := csr.GenerateKeyAndCSR(csr.KeyOptions{}, csr.CSROptions{
+		CommonName: expectDomain,
+	})
+	if err != nil {
+		t.Fatalf("生成 CSR 失败: %v", err)
+	}
+	if keyPEM == "" || csrPEM == "" {
+		t.Fatalf("CSR 或私钥为空")
+	}
+
+	domains := strings.TrimSpace(os.Getenv("TEST_API_DOMAINS"))
+	if domains == "" {
+		domains = infoData.Domains
+	}
+	if domains == "" {
+		domains = expectDomain
+	}
+
+	method := getTestAPIMethod()
+	updated, err := f.Update(ctx, apiURL, token, infoData.OrderID, csrPEM, domains, method)
+	if err != nil {
+		t.Fatalf("Update() 失败: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("Update() 返回空数据")
+	}
+	if updated.OrderID == 0 {
+		t.Log("注意: Update() 未返回有效 OrderID")
+	}
+}
+
+// TestIntegration_CallbackNew 测试回调接口（需显式允许写入与回调）
+func TestIntegration_CallbackNew(t *testing.T) {
+	requireWriteAccess(t)
+	requireCallbackAccess(t)
+	apiURL, token := getTestAPIConfig(t)
+	expectDomain := getTestAPIDomain(t)
+
+	f := fetcher.New(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	infoData, err := f.Info(ctx, apiURL, token)
+	if err != nil {
+		t.Fatalf("Info() 失败: %v", err)
+	}
+	if infoData.OrderID == 0 {
+		t.Skip("未获取到有效 OrderID，跳过回调测试")
+	}
+
+	req := &fetcher.CallbackRequest{
+		OrderID:       infoData.OrderID,
+		Domain:        expectDomain,
+		Status:        "success",
+		DeployedAt:    time.Now().Format(time.RFC3339),
+		CertExpiresAt: infoData.ExpiresAt,
+		ServerType:    "nginx",
+		Message:       "integration test callback",
+	}
+
+	if err := f.CallbackNew(ctx, apiURL, token, req); err != nil {
+		t.Fatalf("CallbackNew() 失败: %v", err)
+	}
 }
 
 // TestIntegration_QueryOrder 测试按订单 ID 查询

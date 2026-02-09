@@ -39,7 +39,8 @@ sslctl/
 docker/test/*/sslctl-*
 docker/test/**/sslctl
 docker/test/*/sites/
-docker/test/reports/test-report-*.md
+docker/test/reports/test-report*.md
+build/test-report.md
 
 # 版本文件（构建时生成）
 version.json

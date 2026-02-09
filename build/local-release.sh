@@ -51,6 +51,20 @@ load_config() {
         log_error "未配置 RELEASE_DIR"
         exit 1
     fi
+
+    if [ -z "$RELEASE_URL" ]; then
+        log_error "未配置 RELEASE_URL"
+        exit 1
+    fi
+
+    # 去掉末尾斜杠，避免拼接出错
+    RELEASE_URL="${RELEASE_URL%/}"
+
+    # 校验 URL 不含 sed 分隔符，防止替换异常
+    if [[ "$RELEASE_URL" == *"|"* ]]; then
+        log_error "RELEASE_URL 包含非法字符 '|'"
+        exit 1
+    fi
 }
 
 # ========================================
@@ -311,9 +325,19 @@ deploy_local() {
         fi
     done
 
-    # 复制 install.sh
+    # 复制 install.sh（替换占位符为实际发布地址）
     log_info "复制 install.sh..."
-    cp "$PROJECT_ROOT/deploy/install.sh" "$RELEASE_DIR/"
+    local tmp_install
+    tmp_install=$(mktemp)
+    sed "s|__RELEASE_URL__|$RELEASE_URL|g" "$PROJECT_ROOT/deploy/install.sh" > "$tmp_install"
+    mv "$tmp_install" "$RELEASE_DIR/install.sh" || { rm -f "$tmp_install"; log_error "复制 install.sh 失败"; exit 1; }
+
+    # 复制 install.ps1（替换占位符为实际发布地址）
+    log_info "复制 install.ps1..."
+    local tmp_install_ps1
+    tmp_install_ps1=$(mktemp)
+    sed "s|__RELEASE_URL__|$RELEASE_URL|g" "$PROJECT_ROOT/deploy/install.ps1" > "$tmp_install_ps1"
+    mv "$tmp_install_ps1" "$RELEASE_DIR/install.ps1" || { rm -f "$tmp_install_ps1"; log_error "复制 install.ps1 失败"; exit 1; }
 
     # 计算校验和并更新 versions 字段
     log_info "计算校验和..."
