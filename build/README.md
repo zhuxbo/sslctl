@@ -5,9 +5,7 @@
 | 脚本 | 用途 |
 |------|------|
 | `build.sh` | 构建多平台二进制 |
-| `git-release.sh` | 更新版本号、打 tag |
-| `local-release.sh` | 发布到本地目录 |
-| `remote-release.sh` | 发布到远程服务器 |
+| `release.sh` | 发布到远程服务器 |
 
 ## 远程发布
 
@@ -45,26 +43,26 @@ yum install python3  # CentOS/RHEL
 
 1. 复制配置文件
 ```bash
-cp remote-release.conf.example remote-release.conf
-chmod 600 remote-release.conf
+cp release.conf.example release.conf
+chmod 600 release.conf
 ```
 
-2. 编辑 `remote-release.conf`，配置服务器列表和 SSH 密钥
+2. 编辑 `release.conf`，配置服务器列表和 SSH 密钥
 
 ### 发布命令
 
 ```bash
 # 测试连接
-./remote-release.sh --test
+./release.sh --test
 
 # 发布指定版本
-./remote-release.sh 0.0.1-beta
+./release.sh 0.0.1-beta
 
 # 只发布到指定服务器
-./remote-release.sh --server cn 0.0.1-beta
+./release.sh --server cn 0.0.1-beta
 
 # 跳过构建，只上传
-./remote-release.sh --upload-only 0.0.1-beta
+./release.sh --upload-only 0.0.1-beta
 ```
 
 ### 发布通道

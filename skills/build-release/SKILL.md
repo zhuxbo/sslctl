@@ -56,7 +56,7 @@ var (
 )
 ```
 
-`version.json` 由 `git-release.sh` 生成，已加入 `.gitignore`，不提交到仓库。
+`version.json` 构建时自动生成，已加入 `.gitignore`，不提交到仓库。
 
 ---
 
@@ -66,44 +66,40 @@ var (
 
 | 脚本 | 说明 |
 |------|------|
-| `build/git-release.sh` | 生成 version.json + 创建 git tag |
 | `build/build.sh` | 多平台交叉编译 |
-| `build/remote-release.sh` | 构建并发布到远程服务器（cn/us） |
-| `build/local-release.sh` | 构建并发布到本地目录 |
+| `build/release.sh` | 构建并发布到远程服务器（cn/us） |
 | `build/sign-release.sh` | Ed25519 签名发布包 |
 | `build/generate-keys.sh` | 生成 Ed25519 密钥对 |
 
 ### 标准发布步骤
 
 ```bash
-# 1. 创建 tag（生成 version.json + git tag）
-bash build/git-release.sh v1.0.0-beta
-
-# 2. 推送代码和 tag
+# 1. 推送代码
 git push origin dev
-git push origin v1.0.0-beta
 
-# 3. 构建并远程发布（自动测试 SSH → 构建 → 上传 → 更新 releases.json）
-bash build/remote-release.sh v1.0.0-beta
+# 2. 构建并远程发布（自动测试 SSH → 构建 → 上传 → 更新 releases.json）
+# 正式版在 main 分支上会自动创建/更新 tag 并 push
+bash build/release.sh v1.0.0-beta
 
-# 4. 可选：签名发布包
+# 3. 可选：签名发布包
 bash build/sign-release.sh --key ~/release-key.pem --dir /path/to/release --version v1.0.0-beta --key-id key-1
 ```
 
-### remote-release.sh 选项
+- **正式版**（不含 `-`）：在 main 分支发布时，脚本自动创建/更新 `v{版本号}` tag 并 push，无需手动操作
+- **测试版**（含 `-`）：无需 tag，直接发布
+
+### release.sh 选项
 
 ```bash
-bash build/remote-release.sh                    # 发布 version.json 中的版本
-bash build/remote-release.sh 0.0.10-beta        # 发布指定版本
-bash build/remote-release.sh --server cn         # 只发布到 cn 服务器
-bash build/remote-release.sh --upload-only       # 只上传，跳过构建
-bash build/remote-release.sh --test              # 测试 SSH 连接
+bash build/release.sh 0.0.10-beta                # 发布指定版本（必须指定）
+bash build/release.sh --server cn 0.0.10-beta    # 只发布到 cn 服务器
+bash build/release.sh --upload-only 0.0.10-beta  # 只上传，跳过构建（仍需版本号）
+bash build/release.sh --test                     # 测试 SSH 连接
 ```
 
 ### 配置文件
 
-- `build/remote-release.conf` — 远程服务器 SSH 配置（权限应为 600）
-- `build/local-release.conf` — 本地发布目录配置
+- `build/release.conf` — 远程服务器 SSH 配置（权限应为 600）
 
 配置文件不提交到仓库，从 `.example` 文件复制并填写。
 
