@@ -23,6 +23,7 @@ pkg/           # 可复用包
   webserver/   # Web 服务器抽象层（统一 Scanner/Deployer/Rollback 接口）
   config/      # 配置管理（文件锁+内存锁双重保护，返回深拷贝确保并发安全，含 SSRF 防护）
   errors/      # 错误类型定义（含结构化部署错误 StructuredDeployError）
+  csr/         # CSR + 私钥生成（RSA/ECDSA）
   matcher/     # 域名匹配
   fetcher/     # API 客户端（含 SSRF/DNS Rebinding 防护）
   backup/      # 备份管理（哈希校验 TOCTOU 保护）
@@ -101,18 +102,18 @@ bash docker/test/scripts/run-e2e-tests.sh --all           # 全发行版测试
 
 ```text
 docker/test/
-├── scripts/           # 测试脚本
-│   ├── common.sh      # 公共函数
+├── scripts/           # 测试脚本（构建+运行均自动化）
+│   ├── common.sh      # 公共函数（含 build_binary/build_mock_api）
 │   ├── run-e2e-tests.sh    # E2E 测试主脚本
 │   ├── run-mock-tests.sh   # Mock 测试主脚本
 │   ├── test-setup.sh       # setup 命令测试
 │   ├── test-deploy.sh      # deploy 命令测试
 │   ├── test-deploy-local.sh # deploy local 测试
 │   └── test-scan.sh        # scan 命令测试
-├── e2e/               # E2E 测试环境
+├── e2e/               # E2E 测试环境（多发行版通过 --build-arg DISTRO 选择）
 │   ├── docker-compose.e2e.yml
-│   ├── nginx-e2e/     # Nginx E2E 容器
-│   └── apache-e2e/    # Apache E2E 容器
+│   ├── nginx-e2e/     # Nginx E2E 容器（ubuntu/debian/alpine/rocky）
+│   └── apache-e2e/    # Apache E2E 容器（ubuntu/debian/alpine/rocky）
 ├── mock-api/          # Mock API 服务
 │   └── main.go        # 支持场景切换、请求记录
 └── reports/           # 测试报告输出

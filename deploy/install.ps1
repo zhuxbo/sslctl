@@ -218,7 +218,7 @@ if ($services.Count -gt 0) {
 try {
     $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServer -ErrorAction SilentlyContinue
     if ($iisFeature -and $iisFeature.State -eq 'Enabled') {
-        Write-Warn "检测到 IIS，请使用 sslctl-iis 项目 (https://github.com/cnssl/sslctl-iis)"
+        Write-Warn "检测到 IIS，请使用 sslctlw 项目 (https://github.com/zhuxbo/sslctlw)"
     }
 } catch {}
 
@@ -370,4 +370,4 @@ Write-Host ""
 Write-Host "配置目录: C:\sslctl\sites\"
 Write-Host "日志目录: C:\sslctl\logs\"
 Write-Host ""
-Write-Host "IIS 用户请使用: https://github.com/cnssl/sslctl-iis"
+Write-Host "IIS 用户请使用: https://github.com/zhuxbo/sslctlw"

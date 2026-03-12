@@ -4,8 +4,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d %H:%M:%S')
 LDFLAGS := -s -w -X 'main.version=$(VERSION)' -X 'main.buildTime=$(BUILD_TIME)'
-GCFLAGS := -trimpath=$(shell pwd)
-BUILD_FLAGS := -ldflags "$(LDFLAGS)" -gcflags "$(GCFLAGS)"
+BUILD_FLAGS := -trimpath -ldflags "$(LDFLAGS)"
 
 # 输出目录
 DIST_DIR := dist

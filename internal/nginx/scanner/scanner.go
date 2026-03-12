@@ -840,17 +840,20 @@ func (s *Scanner) HasSSLConfig(configPath string) bool {
 
 // ScanAll 扫描所有站点（包括 SSL 和非 SSL）
 func (s *Scanner) ScanAll() ([]*Site, error) {
-	// 优先尝试使用 nginx -T 获取合并配置（更可靠）
-	sites, err := s.scanWithNginxT()
-	if err == nil && len(sites) > 0 {
-		s.logDebug("使用 nginx -T 扫描成功，发现 %d 个站点", len(sites))
-		return sites, nil
-	}
-	if err != nil {
-		s.logDebug("nginx -T 扫描失败: %v，回退到文件扫描", err)
+	// 已指定配置文件路径时，直接使用文件扫描（不走 nginx -T）
+	if s.mainConfigPath == "" {
+		// 优先尝试使用 nginx -T 获取合并配置（更可靠）
+		sites, err := s.scanWithNginxT()
+		if err == nil && len(sites) > 0 {
+			s.logDebug("使用 nginx -T 扫描成功，发现 %d 个站点", len(sites))
+			return sites, nil
+		}
+		if err != nil {
+			s.logDebug("nginx -T 扫描失败: %v，回退到文件扫描", err)
+		}
 	}
 
-	// 回退到文件扫描方式
+	// 文件扫描方式
 	if s.mainConfigPath == "" {
 		configPath, err := DetectNginx()
 		if err != nil {

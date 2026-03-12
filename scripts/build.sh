@@ -46,23 +46,12 @@ mkdir -p dist
 
 # Linux
 info "  构建 Linux..."
-GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-nginx-linux-amd64 ./cmd/nginx
-GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-apache-linux-amd64 ./cmd/apache
-GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/sslctl-nginx-linux-arm64 ./cmd/nginx
-GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/sslctl-apache-linux-arm64 ./cmd/apache
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-linux-amd64 ./cmd
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-linux-arm64 ./cmd
 
 # Windows
 info "  构建 Windows..."
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-nginx-windows-amd64.exe ./cmd/nginx
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-apache-windows-amd64.exe ./cmd/apache
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-iis-windows-amd64.exe ./cmd/iis
-
-# macOS
-info "  构建 macOS..."
-GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-nginx-darwin-amd64 ./cmd/nginx
-GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sslctl-apache-darwin-amd64 ./cmd/apache
-GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/sslctl-nginx-darwin-arm64 ./cmd/nginx
-GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/sslctl-apache-darwin-arm64 ./cmd/apache
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-windows-amd64.exe ./cmd
 
 info "✓ 构建完成"
 echo ""
