@@ -5,22 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/service"
 )
-
-// 链式升级常量
-const (
-	maxUpgradeDepth    = 5                      // 链式升级最大步数
-	upgradeDepthEnvKey = "SSLCTL_UPGRADE_DEPTH" // 环境变量：当前升级步数
-)
-
-// execFunc 进程替换函数，可在测试中替换
-var execFunc = defaultExecFunc
 
 // installFunc 安装函数，可在测试中替换
 var installFunc = Install
@@ -95,29 +84,10 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 		return result, nil
 	}
 
-	// 4. 检查最低客户端版本（密钥轮换等场景）
 	baseURL := strings.TrimSuffix(releaseURL, "/releases.json")
 	installHint := fmt.Sprintf("curl -fsSL %s/install.sh | sudo bash", baseURL)
-	if info.MinClientVersion != "" && CompareVersions(current, info.MinClientVersion) < 0 {
-		// CheckOnly 模式下不执行链式升级或下载，仅返回提示
-		if opts.CheckOnly {
-			if len(info.UpgradePath) > 0 {
-				return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），需要链式升级，请运行 'sslctl upgrade' 或重新安装:\n  %s",
-					current, NormalizeVersion(info.MinClientVersion), installHint)
-			}
-			return result, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  %s",
-				current, NormalizeVersion(info.MinClientVersion), installHint)
-		}
 
-		// 尝试链式升级
-		if len(info.UpgradePath) > 0 {
-			return nil, tryChainUpgrade(current, opts, info, logFunc, releaseURL, client, baseURL, installHint)
-		}
-		return nil, fmt.Errorf("当前版本 %s 过旧（要求最低 %s），请重新安装:\n  %s",
-			current, NormalizeVersion(info.MinClientVersion), installHint)
-	}
-
-	// 5. 如果只是检查，返回结果
+	// 4. 如果只是检查，返回结果
 	if opts.CheckOnly {
 		logFunc("\n有新版本可用，运行 'sslctl upgrade' 进行升级")
 		return result, nil
@@ -170,7 +140,8 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 	logFunc("验证数字签名...")
 	if err := VerifySignature(gzData, expectedSignature); err != nil {
 		var keyNotFound *ErrKeyNotFound
-		if errors.As(err, &keyNotFound) {
+		var noPublicKeys *ErrNoPublicKeys
+		if errors.As(err, &keyNotFound) || errors.As(err, &noPublicKeys) {
 			return fmt.Errorf("签名密钥已更新，请重新安装以获取最新版本:\n  %s", installHint)
 		}
 		return fmt.Errorf("数字签名验证失败: %w", err)
@@ -193,81 +164,6 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 	}
 	logFunc("安装完成")
 	return nil
-}
-
-// tryChainUpgrade 尝试链式升级
-// 在 upgrade_path 中找到第一个 > 当前版本的过渡版本，下载安装后用 syscall.Exec 替换进程
-func tryChainUpgrade(current string, opts Options, info *ReleaseInfo, logFunc func(format string, args ...interface{}), releaseURL string, client *http.Client, baseURL, installHint string) error {
-	// 检查升级深度
-	depth := getUpgradeDepth()
-	if depth >= maxUpgradeDepth {
-		return fmt.Errorf("链式升级步数超过限制（%d），请重新安装:\n  %s", maxUpgradeDepth, installHint)
-	}
-
-	// 在 upgrade_path 中找第一个 > 当前版本的过渡版本
-	var transitVersion string
-	for _, v := range info.UpgradePath {
-		v = NormalizeVersion(v)
-		if CompareVersions(v, current) > 0 {
-			transitVersion = v
-			break
-		}
-	}
-
-	if transitVersion == "" {
-		return fmt.Errorf("当前版本 %s 过旧，无可用的过渡版本，请重新安装:\n  %s", current, installHint)
-	}
-
-	// 确定过渡版本的通道：含 - 为 dev，否则为 stable
-	transitChannel := "stable"
-	if strings.Contains(transitVersion, "-") {
-		transitChannel = "dev"
-	}
-	if _, ok := info.Versions[transitVersion]; !ok {
-		// 如果 Versions 中没有该版本信息，无法验证
-		return fmt.Errorf("过渡版本 %s 缺少版本信息，请重新安装:\n  %s", transitVersion, installHint)
-	}
-
-	logFunc("链式升级: 先升级到过渡版本 %s（步骤 %d/%d）...", transitVersion, depth+1, maxUpgradeDepth)
-
-	// 下载、验证并安装过渡版本
-	if err := downloadVerifyInstall(transitVersion, transitChannel, info, logFunc, client, baseURL, installHint); err != nil {
-		return fmt.Errorf("过渡版本 %s 安装失败: %w\n请重新安装:\n  %s", transitVersion, err, installHint)
-	}
-
-	logFunc("过渡版本 %s 安装完成，重新执行升级...", transitVersion)
-
-	// 设置升级深度环境变量并用 syscall.Exec 替换进程
-	if err := os.Setenv(upgradeDepthEnvKey, strconv.Itoa(depth+1)); err != nil {
-		return fmt.Errorf("设置环境变量失败: %w", err)
-	}
-
-	binPath := GetBinaryPath()
-	args := []string{binPath, "upgrade"}
-	if opts.Channel != "" {
-		args = append(args, "--channel", opts.Channel)
-	}
-	if opts.TargetVersion != "" {
-		args = append(args, "--version", opts.TargetVersion)
-	}
-	if opts.Force {
-		args = append(args, "--force")
-	}
-	return execFunc(binPath, args, os.Environ())
-}
-
-// getUpgradeDepth 获取当前链式升级深度
-// 对非法值（非数字、负数）返回 maxUpgradeDepth，防止被绕过
-func getUpgradeDepth() int {
-	val := os.Getenv(upgradeDepthEnvKey)
-	if val == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(val)
-	if err != nil || n < 0 {
-		return maxUpgradeDepth
-	}
-	return n
 }
 
 // tryRestartService 尝试优雅重启服务（如果运行中）

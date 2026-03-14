@@ -149,8 +149,6 @@ func printUsage() {
   sslctl scan
   sslctl --debug deploy --cert example.com
   sslctl setup --url https://api.example.com --token abc123 --order 12345
-
-更多信息请访问: https://github.com/zhuxbo/sslctl
 `, version)
 }
 

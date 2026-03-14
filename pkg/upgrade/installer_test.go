@@ -375,73 +375,7 @@ func saveAndRestoreKeys(t *testing.T) {
 	t.Cleanup(func() { releasePublicKeys = oldKeys })
 }
 
-// --- 旧格式兼容测试（ed25519:<base64>）---
-
-func TestVerifySignature_LegacyFormat_Valid(t *testing.T) {
-	pub, priv := generateTestKeyPair(t)
-	saveAndRestoreKeys(t)
-	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
-
-	data := []byte("test binary data")
-	sig := ed25519.Sign(priv, data)
-	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
-
-	if err := VerifySignature(data, sigStr); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestVerifySignature_LegacyFormat_Invalid(t *testing.T) {
-	pub, priv := generateTestKeyPair(t)
-	saveAndRestoreKeys(t)
-	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
-
-	data := []byte("test binary data")
-	sig := ed25519.Sign(priv, data)
-	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
-
-	// 篡改数据
-	tamperedData := []byte("tampered binary data")
-	if err := VerifySignature(tamperedData, sigStr); err == nil {
-		t.Error("expected error for tampered data")
-	}
-}
-
-func TestVerifySignature_LegacyFormat_WrongKey(t *testing.T) {
-	pub1, _ := generateTestKeyPair(t)
-	_, priv2 := generateTestKeyPair(t)
-	saveAndRestoreKeys(t)
-	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub1})
-
-	data := []byte("test binary data")
-	sig := ed25519.Sign(priv2, data) // 用错误的私钥签名
-	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
-
-	if err := VerifySignature(data, sigStr); err == nil {
-		t.Error("expected error for wrong key")
-	}
-}
-
-func TestVerifySignature_LegacyFormat_MultipleKeys(t *testing.T) {
-	pub1, _ := generateTestKeyPair(t)
-	pub2, priv2 := generateTestKeyPair(t)
-	saveAndRestoreKeys(t)
-	SetReleasePublicKeys(map[string]ed25519.PublicKey{
-		"key-1": pub1,
-		"key-2": pub2,
-	})
-
-	data := []byte("test binary data")
-	sig := ed25519.Sign(priv2, data) // 用 key-2 的私钥签名
-	sigStr := "ed25519:" + base64.StdEncoding.EncodeToString(sig)
-
-	// 旧格式遍历所有公钥，key-2 应该匹配
-	if err := VerifySignature(data, sigStr); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// --- 新格式测试（ed25519:<key_id>:<base64>）---
+// --- 签名验证测试（ed25519:<key_id>:<base64>）---
 
 func TestVerifySignature_NewFormat_Valid(t *testing.T) {
 	pub, priv := generateTestKeyPair(t)
@@ -625,9 +559,9 @@ func TestVerifySignature_WrongSignatureLength(t *testing.T) {
 	saveAndRestoreKeys(t)
 	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub})
 
-	// 签名长度不正确（旧格式）
+	// 签名长度不正确
 	shortSig := base64.StdEncoding.EncodeToString([]byte("too short"))
-	if err := VerifySignature([]byte("data"), "ed25519:"+shortSig); err == nil {
+	if err := VerifySignature([]byte("data"), "ed25519:key-1:"+shortSig); err == nil {
 		t.Error("expected error for wrong signature length")
 	}
 }

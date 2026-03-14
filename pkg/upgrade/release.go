@@ -23,11 +23,9 @@ type VersionInfo struct {
 
 // ReleaseInfo 发布信息
 type ReleaseInfo struct {
-	LatestStable     string                 `json:"latest_stable"`
-	LatestDev        string                 `json:"latest_dev"`
-	MinClientVersion string                 `json:"min_client_version,omitempty"` // 最低客户端版本，低于此版本需重新安装
-	UpgradePath      []string               `json:"upgrade_path,omitempty"`       // 链式升级路径（过渡版本列表）
-	Versions         map[string]VersionInfo `json:"versions,omitempty"`
+	LatestStable string                 `json:"latest_stable"`
+	LatestDev    string                 `json:"latest_dev"`
+	Versions     map[string]VersionInfo `json:"versions,omitempty"`
 }
 
 // FetchReleaseInfo 获取远程版本信息

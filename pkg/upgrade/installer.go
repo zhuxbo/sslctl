@@ -122,10 +122,7 @@ func hasReleasePublicKeys() bool {
 }
 
 // VerifySignature 验证 Ed25519 签名
-// 支持两种签名格式:
-//   - 新格式: "ed25519:<key_id>:<base64_signature>" — 按 key ID 查找公钥验证
-//   - 旧格式: "ed25519:<base64_signature>" — 遍历所有公钥尝试验证
-//
+// 签名格式: "ed25519:<key_id>:<base64_signature>" — 按 key ID 查找公钥验证
 // 签名对象为 gzip 压缩后的原始数据（与校验和一致）
 func VerifySignature(data []byte, expected string) error {
 	if expected == "" {
@@ -146,29 +143,15 @@ func VerifySignature(data []byte, expected string) error {
 		return &ErrNoPublicKeys{}
 	}
 
-	// 解析签名格式：去掉 "ed25519:" 前缀后按 ":" 分割
+	// 解析签名格式：去掉 "ed25519:" 前缀后按 ":" 分割为 key_id 和 base64
 	remainder := strings.TrimPrefix(expected, "ed25519:")
 	parts := strings.SplitN(remainder, ":", 2)
-
-	var keyID string
-	var sigB64 string
-
-	if len(parts) == 2 {
-		// 可能是新格式 key_id:base64，也可能是 base64 中恰好含冒号（不可能，base64 不含冒号）
-		// 尝试解码第一部分：如果不是合法 base64 或长度不对，则视为 key ID
-		candidate, err := base64.StdEncoding.DecodeString(parts[0])
-		if err != nil || len(candidate) != ed25519.SignatureSize {
-			// 第一部分不是合法签名 → 新格式：key_id:base64
-			keyID = parts[0]
-			sigB64 = parts[1]
-		} else {
-			// 第一部分是合法签名长度 → 旧格式，整个 remainder 是 base64
-			sigB64 = remainder
-		}
-	} else {
-		// 只有一部分 → 旧格式
-		sigB64 = remainder
+	if len(parts) != 2 || parts[0] == "" {
+		return fmt.Errorf("签名格式无效，期望 ed25519:<key_id>:<base64>")
 	}
+
+	keyID := parts[0]
+	sigB64 := parts[1]
 
 	sig, err := base64.StdEncoding.DecodeString(sigB64)
 	if err != nil {
@@ -179,26 +162,15 @@ func VerifySignature(data []byte, expected string) error {
 		return fmt.Errorf("签名长度无效: 期望 %d 字节, 实际 %d 字节", ed25519.SignatureSize, len(sig))
 	}
 
-	if keyID != "" {
-		// 新格式：按 key ID 查找公钥
-		pubKey, ok := releasePublicKeys[keyID]
-		if !ok {
-			return &ErrKeyNotFound{KeyID: keyID}
-		}
-		if !ed25519.Verify(pubKey, data, sig) {
-			return fmt.Errorf("签名验证失败: 文件可能被篡改")
-		}
-		return nil
+	// 按 key ID 查找公钥
+	pubKey, ok := releasePublicKeys[keyID]
+	if !ok {
+		return &ErrKeyNotFound{KeyID: keyID}
 	}
-
-	// 旧格式：遍历所有公钥尝试验证
-	for _, pubKey := range releasePublicKeys {
-		if ed25519.Verify(pubKey, data, sig) {
-			return nil
-		}
+	if !ed25519.Verify(pubKey, data, sig) {
+		return fmt.Errorf("签名验证失败: 文件可能被篡改")
 	}
-
-	return fmt.Errorf("签名验证失败: 文件可能被篡改")
+	return nil
 }
 
 // VerifyChecksum 验证文件校验和

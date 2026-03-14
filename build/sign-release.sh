@@ -4,7 +4,9 @@
 # 使用 Ed25519 私钥对 .gz 文件签名，并更新 releases.json
 #
 # 用法:
-#   ./sign-release.sh --key <私钥文件> --dir <发布目录> --version <版本号> [--key-id <key_id>]
+#   ./sign-release.sh --key <私钥文件> --dir <发布目录> --version <版本号> --key-id <key_id>
+#
+# 支持从 build/release.conf 读取 SIGN_KEY 和 SIGN_KEY_ID 作为默认值（命令行参数优先）
 #
 # 示例:
 #   ./sign-release.sh --key ~/release-key.pem --dir /var/www/sslctl --version v1.0.0 --key-id key-1
@@ -29,7 +31,16 @@ RELEASE_DIR=""
 VERSION=""
 KEY_ID=""
 
-# 解析参数
+# 从 release.conf 读取默认值（如果存在）
+CONF_FILE="$SCRIPT_DIR/release.conf"
+if [ -f "$CONF_FILE" ]; then
+    # shellcheck source=/dev/null
+    source "$CONF_FILE"
+    KEY_FILE="${SIGN_KEY:-}"
+    KEY_ID="${SIGN_KEY_ID:-}"
+fi
+
+# 解析参数（命令行参数优先于 release.conf）
 while [ $# -gt 0 ]; do
     case "$1" in
         --key)
@@ -49,13 +60,15 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         -h|--help)
-            echo "用法: $0 --key <私钥文件> --dir <发布目录> --version <版本号> [--key-id <key_id>]"
+            echo "用法: $0 --key <私钥文件> --dir <发布目录> --version <版本号> --key-id <key_id>"
             echo ""
             echo "选项:"
             echo "  --key      私钥文件路径"
             echo "  --dir      发布目录路径"
             echo "  --version  版本号（如 v1.0.0）"
-            echo "  --key-id   密钥 ID（如 key-1），不指定则使用旧格式"
+            echo "  --key-id   密钥 ID（如 key-1）"
+            echo ""
+            echo "支持从 build/release.conf 读取 SIGN_KEY 和 SIGN_KEY_ID 作为默认值"
             exit 0
             ;;
         *)
@@ -65,9 +78,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ -z "$KEY_FILE" ] || [ -z "$RELEASE_DIR" ] || [ -z "$VERSION" ]; then
+if [ -z "$KEY_FILE" ] || [ -z "$RELEASE_DIR" ] || [ -z "$VERSION" ] || [ -z "$KEY_ID" ]; then
     log_error "缺少必要参数"
-    echo "用法: $0 --key <私钥文件> --dir <发布目录> --version <版本号> [--key-id <key_id>]"
+    echo "用法: $0 --key <私钥文件> --dir <发布目录> --version <版本号> --key-id <key_id>"
     exit 1
 fi
 
@@ -96,11 +109,7 @@ fi
 
 log_info "签名版本: $VERSION"
 log_info "发布目录: $RELEASE_DIR"
-if [ -n "$KEY_ID" ]; then
-    log_info "Key ID: $KEY_ID"
-else
-    log_info "Key ID: （未指定，使用旧格式）"
-fi
+log_info "Key ID: $KEY_ID"
 
 # 使用 Go 签名并更新 releases.json
 go run - "$KEY_FILE" "$RELEASES_FILE" "$VERSION" "$KEY_ID" << 'GOEOF'
@@ -122,12 +131,10 @@ type VersionInfo struct {
 }
 
 type ReleaseInfo struct {
-	LatestStable     string                    `json:"latest_stable"`
-	LatestDev        string                    `json:"latest_dev"`
-	MinClientVersion string                    `json:"min_client_version,omitempty"`
-	UpgradePath      []string                  `json:"upgrade_path,omitempty"`
-	Channels         json.RawMessage           `json:"channels,omitempty"`
-	Versions         map[string]VersionInfo    `json:"versions,omitempty"`
+	LatestStable string                    `json:"latest_stable"`
+	LatestDev    string                    `json:"latest_dev"`
+	Channels     json.RawMessage           `json:"channels,omitempty"`
+	Versions     map[string]VersionInfo    `json:"versions,omitempty"`
 }
 
 func main() {
@@ -198,12 +205,7 @@ func main() {
 		sig := ed25519.Sign(privKey, fileData)
 		sigB64 := base64.StdEncoding.EncodeToString(sig)
 
-		// 根据是否有 key ID 选择签名格式
-		if keyID != "" {
-			verInfo.Signatures[filename] = fmt.Sprintf("ed25519:%s:%s", keyID, sigB64)
-		} else {
-			verInfo.Signatures[filename] = "ed25519:" + sigB64
-		}
+		verInfo.Signatures[filename] = fmt.Sprintf("ed25519:%s:%s", keyID, sigB64)
 
 		fmt.Printf("已签名: %s\n", filename)
 	}

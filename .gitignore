@@ -44,3 +44,8 @@ build/test-report.md
 
 # 版本文件（构建时生成）
 version.json
+
+# 签名密钥（由 build/generate-keys.sh 生成）
+release-key.pem
+release-key.pub
+public_key.go
