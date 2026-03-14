@@ -58,7 +58,7 @@ RUN apk add --no-cache \
 # ==============================================================================
 FROM rockylinux:9 AS rocky-base
 
-RUN dnf install -y \
+RUN dnf install -y --allowerasing \
     httpd \
     mod_ssl \
     openssl \
@@ -66,7 +66,8 @@ RUN dnf install -y \
     jq \
     ca-certificates \
     bash \
-    && dnf clean all
+    && dnf clean all \
+    && rm -f /etc/httpd/conf.d/ssl.conf
 
 # ==============================================================================
 # 最终镜像（根据 DISTRO 参数选择基础）

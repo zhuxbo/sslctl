@@ -37,8 +37,7 @@ mkdir -p "$REPORTS_DIR"
 # 测试结果存储
 # ==============================================================================
 
-declare -A TEST_RESULTS
-declare -a TEST_LOG
+TEST_LOG=()
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
@@ -60,20 +59,18 @@ record_test() {
     local result="$3"  # pass/fail
     local message="${4:-}"
 
-    ((TOTAL_TESTS++))
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
     if [ "$result" = "pass" ]; then
-        ((PASSED_TESTS++))
-        TEST_RESULTS["$test_id"]="✅"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
         log_test "✅ $test_id: $test_name"
     else
-        ((FAILED_TESTS++))
-        TEST_RESULTS["$test_id"]="❌"
+        FAILED_TESTS=$((FAILED_TESTS + 1))
         log_test "❌ $test_id: $test_name"
         [ -n "$message" ] && log_error "   原因: $message"
     fi
 
-    TEST_LOG+=("$test_id|$test_name|$result|$message")
+    TEST_LOG[${#TEST_LOG[@]}]="$test_id|$test_name|$result|$message"
 }
 
 # ==============================================================================
@@ -289,7 +286,7 @@ get_first_active_order() {
 
     # 解析 JSON，获取第一个 status=active 的订单
     local order
-    order=$(echo "$response" | jq -r '.data[] | select(.status == "active") | . ' | head -1)
+    order=$(echo "$response" | jq -r '[.data[] | select(.status == "active")] | first // empty')
 
     if [ -z "$order" ] || [ "$order" = "null" ]; then
         # 如果没有 active，尝试获取第一个订单
@@ -455,7 +452,7 @@ generate_report() {
 |---------|----------|------|------|
 EOF
 
-    for entry in "${TEST_LOG[@]}"; do
+    for entry in ${TEST_LOG[@]+"${TEST_LOG[@]}"}; do
         IFS='|' read -r test_id test_name result message <<< "$entry"
         local status_icon
         if [ "$result" = "pass" ]; then

@@ -159,8 +159,8 @@ get_test_order() {
             return 1
         fi
 
-        # 从响应中提取数据
-        order_json=$(echo "$order_json" | jq -r '.data')
+        # 从响应中提取数据（data 是数组，取第一个元素）
+        order_json=$(echo "$order_json" | jq -r '.data[0]')
     else
         # 自动获取第一个活跃订单
         order_json=$(get_first_active_order "$SSLCTL_API_URL" "$SSLCTL_API_TOKEN")
@@ -241,6 +241,73 @@ run_single_test() {
         record_test "TC-E2E-STARTUP" "容器启动" "fail" "容器未能正常启动"
         return 1
     }
+
+    # 为证书域名创建匹配的站点配置
+    log_step "创建测试站点配置 (域名: $ORDER_DOMAINS)..."
+    local test_domain
+    test_domain=$(echo "$ORDER_DOMAINS" | tr ',' '\n' | head -1 | tr -d ' ')
+    if [ -n "$test_domain" ]; then
+        if [ "$server" = "nginx" ]; then
+            # 生成证书
+            docker exec "$container_name" mkdir -p "/etc/nginx/ssl/${test_domain}"
+            docker exec "$container_name" openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+                -keyout "/etc/nginx/ssl/${test_domain}/privkey.pem" \
+                -out "/etc/nginx/ssl/${test_domain}/fullchain.pem" \
+                -subj "/CN=${test_domain}/O=Test/C=CN" 2>/dev/null
+
+            # 生成站点配置
+            local nginx_conf="server {
+    listen 443 ssl;
+    server_name ${test_domain};
+    ssl_certificate /etc/nginx/ssl/${test_domain}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/${test_domain}/privkey.pem;
+    location / {
+        return 200 'Hello from E2E Test';
+        add_header Content-Type text/plain;
+    }
+}"
+            # 写入所有可能的 include 目录
+            for dir in /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/http.d; do
+                if docker exec "$container_name" test -d "$dir" 2>/dev/null; then
+                    echo "$nginx_conf" | docker exec -i "$container_name" tee "${dir}/${test_domain}.conf" >/dev/null
+                fi
+            done
+            docker exec "$container_name" sh -c "nginx -t 2>/dev/null && nginx -s reload 2>/dev/null || nginx 2>/dev/null || true"
+        else
+            docker exec "$container_name" bash -c "
+                if [ -d /etc/httpd ]; then
+                    SSL_DIR=/etc/httpd/ssl
+                    CONF_DIR=/etc/httpd/conf.d
+                else
+                    SSL_DIR=/etc/apache2/ssl
+                    if [ -d /etc/apache2/sites-available ]; then
+                        CONF_DIR=/etc/apache2/sites-enabled
+                    else
+                        CONF_DIR=/etc/apache2/conf.d
+                    fi
+                fi
+                mkdir -p \${SSL_DIR}/${test_domain}
+                openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+                    -keyout \${SSL_DIR}/${test_domain}/privkey.pem \
+                    -out \${SSL_DIR}/${test_domain}/fullchain.pem \
+                    -subj '/CN=${test_domain}/O=Test/C=CN' 2>/dev/null
+                cat > \${CONF_DIR}/${test_domain}.conf << SITEEOF
+<VirtualHost *:443>
+    ServerName ${test_domain}
+    DocumentRoot /var/www/html
+    SSLEngine on
+    SSLCertificateFile \${SSL_DIR}/${test_domain}/fullchain.pem
+    SSLCertificateKeyFile \${SSL_DIR}/${test_domain}/privkey.pem
+    <Directory /var/www/html>
+        Require all granted
+    </Directory>
+</VirtualHost>
+SITEEOF
+                apachectl -t 2>/dev/null || httpd -t 2>/dev/null || true
+            "
+        fi
+        log_info "站点配置已创建: ${test_domain}"
+    fi
 
     # 运行测试脚本
     log_step "运行 setup 测试..."

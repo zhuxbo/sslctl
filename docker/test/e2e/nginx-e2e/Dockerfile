@@ -55,7 +55,7 @@ RUN apk add --no-cache \
 # ==============================================================================
 FROM rockylinux:9 AS rocky-base
 
-RUN dnf install -y \
+RUN dnf install -y --allowerasing \
     nginx \
     openssl \
     curl \

@@ -173,7 +173,7 @@ test_scan_nginx_paths() {
     local test_name="Nginx 路径检测"
 
     if [ "$SERVER_TYPE" != "nginx" ]; then
-        log_warn "跳过 Nginx 测试（当前服务器类型: $SERVER_TYPE）"
+        log_warn "跳过 Nginx 测试（当前服务器类型: ${SERVER_TYPE}）"
         record_test "$test_id" "$test_name" "pass" "非 Nginx 环境，跳过"
         return 0
     fi
@@ -213,7 +213,7 @@ test_scan_apache_paths() {
     local test_name="Apache 路径检测"
 
     if [ "$SERVER_TYPE" != "apache" ]; then
-        log_warn "跳过 Apache 测试（当前服务器类型: $SERVER_TYPE）"
+        log_warn "跳过 Apache 测试（当前服务器类型: ${SERVER_TYPE}）"
         record_test "$test_id" "$test_name" "pass" "非 Apache 环境，跳过"
         return 0
     fi
