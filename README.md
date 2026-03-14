@@ -43,7 +43,7 @@ sslctl setup --url https://api.example.com --token your-token --order 12345
 自动完成：
 1. 检测 Web 服务器（Nginx/Apache）
 2. 获取证书信息并匹配站点
-3. 自动为未启用 SSL 的站点安装 HTTPS 配置（备份原配置，失败自动回滚）
+3. 为未启用 SSL 的站点安装 HTTPS 配置（需确认，备份原配置，失败自动回滚）
 4. 部署证书到匹配的站点
 5. 安装守护服务（自动续签）
 

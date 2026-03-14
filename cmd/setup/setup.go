@@ -135,7 +135,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 		site := smr.Site
 		fmt.Printf("\n  ✓ 完全匹配: %s\n", site.ServerName)
 		if !site.HasSSL {
-			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
+			fmt.Printf("    站点未启用 SSL\n")
+			if !*yes {
+				if !confirm("    是否安装 HTTPS 配置?") {
+					continue
+				}
+			}
 			result, err := installSSLConfig(site, cfgManager)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
@@ -163,7 +168,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 		}
 
 		if !site.HasSSL {
-			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
+			fmt.Printf("    站点未启用 SSL\n")
+			if !*yes {
+				if !confirm("    是否安装 HTTPS 配置?") {
+					continue
+				}
+			}
 			result, err := installSSLConfig(site, cfgManager)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
@@ -510,8 +520,8 @@ func updateSiteAfterInstall(site *matcher.ScannedSiteInfo, cm *config.ConfigMana
 // confirm 确认提示
 func confirm(prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s [y/N]: ", prompt)
+	fmt.Printf("%s [Y/n]: ", prompt)
 	response, _ := reader.ReadString('\n')
 	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes"
+	return response != "n" && response != "no"
 }

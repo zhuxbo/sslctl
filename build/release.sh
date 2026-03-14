@@ -158,7 +158,7 @@ get_channel() {
     if [[ "$version" == *"-"* ]]; then
         echo "dev"
     else
-        echo "stable"
+        echo "main"
     fi
 }
 
@@ -186,23 +186,82 @@ ensure_tag() {
 }
 
 # ========================================
-# 远程计算校验和并更新 versions 字段
+# 本地计算校验和和签名
 # ========================================
-update_versions_checksums_remote() {
+compute_checksums_and_sign_local() {
+    local version="$1"
+
+    CHECKSUMS_JSON="{"
+    SIGNATURES_JSON="{"
+    local first=true
+
+    for gz in "$DIST_DIR"/*.gz; do
+        [ -f "$gz" ] || continue
+        local filename=$(basename "$gz")
+        local checksum
+        checksum="sha256:$(shasum -a 256 "$gz" | cut -d' ' -f1)"
+
+        if [ "$first" = true ]; then first=false; else CHECKSUMS_JSON+=","; SIGNATURES_JSON+=","; fi
+        CHECKSUMS_JSON+="\"$filename\":\"$checksum\""
+
+        # 签名
+        if [ -n "$SIGN_KEY" ] && [ -f "$SIGN_KEY" ]; then
+            local sig
+            sig=$(sign_file_local "$gz" "$SIGN_KEY" "${SIGN_KEY_ID:-key-1}")
+            SIGNATURES_JSON+="\"$filename\":\"$sig\""
+        fi
+    done
+
+    CHECKSUMS_JSON+="}"
+    SIGNATURES_JSON+="}"
+}
+
+# 本地对单个文件签名（返回 ed25519:key_id:base64 格式）
+sign_file_local() {
+    local file="$1"
+    local key_file="$2"
+    local key_id="$3"
+
+    local SIGN_GO=$(mktemp /tmp/sign-XXXXXX.go)
+    cat > "$SIGN_GO" << 'GOEOF'
+package main
+
+import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	seedB64, _ := os.ReadFile(os.Args[1])
+	seed, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(string(seedB64)))
+	privKey := ed25519.NewKeyFromSeed(seed)
+	fileData, _ := os.ReadFile(os.Args[2])
+	sig := ed25519.Sign(privKey, fileData)
+	fmt.Printf("ed25519:%s:%s", os.Args[3], base64.StdEncoding.EncodeToString(sig))
+}
+GOEOF
+    go run "$SIGN_GO" "$key_file" "$file" "$key_id" 2>/dev/null
+    rm -f "$SIGN_GO"
+}
+
+# 远程更新 versions 字段（校验和+签名）
+# ========================================
+update_versions_remote() {
     local server_str="$1"
     local version="$2"
-    local channel="$3"
+    local checksums_json="$3"
+    local signatures_json="$4"
 
     parse_server "$server_str"
 
-    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "python3 << 'PYEOF'
-import json
-import hashlib
-import os
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "python3 << PYEOF
+import json, os
 
 releases_file = '$SERVER_DIR/releases.json'
 version = '$version'
-version_dir = '$SERVER_DIR/$channel/$version'
 
 data = {}
 if os.path.exists(releases_file):
@@ -215,25 +274,21 @@ if os.path.exists(releases_file):
 if 'versions' not in data:
     data['versions'] = {}
 
-checksums = {}
-if os.path.isdir(version_dir):
-    for filename in os.listdir(version_dir):
-        if filename.endswith('.gz'):
-            filepath = os.path.join(version_dir, filename)
-            sha256 = hashlib.sha256()
-            with open(filepath, 'rb') as f:
-                for chunk in iter(lambda: f.read(8192), b''):
-                    sha256.update(chunk)
-            checksums[filename] = f'sha256:{sha256.hexdigest()}'
+checksums = json.loads('$checksums_json')
+signatures = json.loads('$signatures_json')
 
 if version not in data['versions']:
     data['versions'][version] = {}
 data['versions'][version]['checksums'] = checksums
+if signatures:
+    data['versions'][version]['signatures'] = signatures
 
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
+os.chmod(releases_file, 0o644)
 
-print(f'已更新 {len(checksums)} 个文件的校验和')
+sig_msg = '（含签名）' if signatures else ''
+print(f'已更新 {len(checksums)} 个文件的校验和{sig_msg}')
 PYEOF"
 }
 
@@ -307,12 +362,13 @@ else:
 data['channels'][channel]['latest'] = v_version
 
 # 更新顶级 latest 字段（便于简单解析）
-data['latest_stable'] = data['channels'].get('stable', {}).get('latest', '')
+data['latest_main'] = data['channels'].get('main', {}).get('latest', '')
 data['latest_dev'] = data['channels'].get('dev', {}).get('latest', '')
 
 # 写入文件
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
+os.chmod(releases_file, 0o644)
 
 print(f'已更新 releases.json: {channel}/{v_version}')
 PYEOF"
@@ -379,11 +435,12 @@ versions = data['channels'][channel].get('versions', [])
 data['channels'][channel]['versions'] = [v for v in versions if v['version'] in existing]
 
 # 更新顶级 latest 字段
-data['latest_stable'] = data['channels'].get('stable', {}).get('latest', '')
+data['latest_main'] = data['channels'].get('main', {}).get('latest', '')
 data['latest_dev'] = data['channels'].get('dev', {}).get('latest', '')
 
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
+os.chmod(releases_file, 0o644)
 PYEOF"
 }
 
@@ -435,9 +492,9 @@ upload_to_server() {
     rsync_cmd "$tmp_install_ps1" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/install.ps1"
     rm -f "$tmp_install_ps1"
 
-    # 计算校验和并更新 versions 字段
-    log_info "计算校验和..."
-    update_versions_checksums_remote "$server_str" "$version" "$channel"
+    # 更新校验和和签名
+    log_info "更新校验和和签名..."
+    update_versions_remote "$server_str" "$version" "$CHECKSUMS_JSON" "$SIGNATURES_JSON"
 
     # 更新 releases.json
     update_releases_json_remote "$server_str" "$version" "$channel"
@@ -458,6 +515,9 @@ upload_to_server() {
             fi
         done
     "
+
+    # 修复文件权限（确保 Nginx 可读）
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "chmod 644 \"$SERVER_DIR/releases.json\" \"$SERVER_DIR/install.sh\" \"$SERVER_DIR/install.ps1\" 2>/dev/null; chmod -R 644 \"$remote_version_dir\"/*.gz 2>/dev/null"
 
     # 清理旧版本
     cleanup_old_versions_remote "$server_str" "$channel"
@@ -499,6 +559,7 @@ deploy_to_all() {
 
     return $failed
 }
+
 
 # ========================================
 # 显示帮助
@@ -585,24 +646,9 @@ main() {
     # 确定通道
     local channel=$(get_channel "$version")
 
-    # 正式版 + main 分支：检查未提交文件和 tag
-    if [ "$channel" = "stable" ]; then
-        local current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-        if [ "$current_branch" = "main" ]; then
-            # 检查未提交修改
-            if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-                log_warning "检测到未提交的修改："
-                git status --short
-                echo ""
-                read -r -p "是否继续发布？[y/N] " confirm
-                if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-                    log_info "已取消发布"
-                    exit 0
-                fi
-            fi
-            # 确保 tag 指向当前提交（去除可能已有的 v 前缀再加上）
-            ensure_tag "v${version#v}"
-        fi
+    # 确保 tag 存在
+    if [ "$channel" = "main" ]; then
+        ensure_tag "v${version#v}"
     fi
 
     # 确保版本号带 v 前缀
@@ -633,6 +679,10 @@ main() {
         log_error "构建产物不存在: $DIST_DIR"
         exit 1
     fi
+
+    # 本地计算校验和和签名
+    log_step "计算校验和和签名..."
+    compute_checksums_and_sign_local "$version"
 
     # 部署
     local result=0

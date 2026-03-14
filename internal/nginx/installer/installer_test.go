@@ -164,7 +164,6 @@ server {
 }`,
 			wantContains: []string{
 				"listen 443 ssl;",
-				"listen [::]:443 ssl;",
 				"ssl_certificate",
 				"ssl_certificate_key",
 				"ssl_protocols TLSv1.2 TLSv1.3;",
@@ -194,6 +193,18 @@ server {
 }`,
 			wantContains: []string{
 				"listen 443 ssl;",
+				"listen [::]:443 ssl;",
+			},
+		},
+		{
+			name: "无 IPv6 不添加 IPv6 443",
+			content: `
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/html;
+}`,
+			wantNotContain: []string{
 				"listen [::]:443 ssl;",
 			},
 		},
@@ -293,11 +304,14 @@ func TestInsertSSLDirectives(t *testing.T) {
 		"server {",
 		"    listen 80;",
 		"    server_name example.com;",
+		"    root /var/www;",
 		"}",
 	}
 
-	// 在 listen 80 后插入（索引 1）
-	result := installer.insertSSLDirectives(lines, 1)
+	// listen 443 在 listen 80 后（索引 1），SSL 配置在 root 后（索引 3）
+	// 先插入靠后的 SSL 配置，再插入 listen
+	result := installer.insertSSLCertDirectives(lines, 3)
+	result = installer.insertListenDirectives(result, 1)
 
 	// 验证长度增加
 	if len(result) <= len(lines) {

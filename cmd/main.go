@@ -419,7 +419,7 @@ func repairService() {
 // runUpgrade 升级命令
 func runUpgrade(args []string) {
 	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
-	channel := fs.String("channel", "", "更新通道 (stable/dev)")
+	channel := fs.String("channel", "", "更新通道 (main/dev)")
 	targetVersion := fs.String("version", "", "指定版本")
 	force := fs.Bool("force", false, "强制重新安装")
 	checkOnly := fs.Bool("check", false, "仅检查更新")

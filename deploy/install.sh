@@ -19,13 +19,13 @@ RELEASE_URL="__RELEASE_URL__"
 RELEASE_URL="${RELEASE_URL%/}"
 
 # 检测占位符未被替换（直接运行源码中的脚本）
-if [[ "$RELEASE_URL" == *"__RELEASE_URL__"* ]]; then
+if [[ "$RELEASE_URL" != https://* ]]; then
     echo_error "安装脚本未正确配置，请从官方渠道下载安装脚本"
     exit 1
 fi
 
 # 参数解析
-CHANNEL=""          # 空=自动，stable/dev=指定
+CHANNEL=""          # 空=自动，main/dev=指定
 TARGET_VERSION=""   # 空=最新，指定=使用该版本
 FORCE=false
 
@@ -35,8 +35,8 @@ while [[ $# -gt 0 ]]; do
             CHANNEL="dev"
             shift
             ;;
-        --stable)
-            CHANNEL="stable"
+        --main)
+            CHANNEL="main"
             shift
             ;;
         --version)
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "选项:"
             echo "  --dev          安装测试版（dev 通道）"
-            echo "  --stable       安装稳定版（stable 通道，默认）"
+            echo "  --main       安装稳定版（main 通道，默认）"
             echo "  --version VER  安装指定版本"
             echo "  --force        强制重新安装（即使版本相同）"
             echo "  --help         显示此帮助信息"
@@ -149,7 +149,7 @@ get_target_version() {
             if [[ "$TARGET_VERSION" == *"-"* ]]; then
                 CHANNEL="dev"
             else
-                CHANNEL="stable"
+                CHANNEL="main"
             fi
         fi
         # 规范化版本号
@@ -168,11 +168,11 @@ get_target_version() {
     local version=""
     if [ "$CHANNEL" = "dev" ]; then
         version=$(echo "$json" | grep -o '"latest_dev" *: *"[^"]*"' | cut -d'"' -f4)
-    elif [ "$CHANNEL" = "stable" ]; then
-        version=$(echo "$json" | grep -o '"latest_stable" *: *"[^"]*"' | cut -d'"' -f4)
+    elif [ "$CHANNEL" = "main" ]; then
+        version=$(echo "$json" | grep -o '"latest_main" *: *"[^"]*"' | cut -d'"' -f4)
     else
-        # 默认：优先 stable
-        version=$(echo "$json" | grep -o '"latest_stable" *: *"[^"]*"' | cut -d'"' -f4)
+        # 默认：优先 main
+        version=$(echo "$json" | grep -o '"latest_main" *: *"[^"]*"' | cut -d'"' -f4)
         [ -z "$version" ] && version=$(echo "$json" | grep -o '"latest_dev" *: *"[^"]*"' | cut -d'"' -f4)
     fi
 
@@ -181,7 +181,7 @@ get_target_version() {
         if [[ "$version" == *"-"* ]]; then
             CHANNEL="dev"
         else
-            CHANNEL="stable"
+            CHANNEL="main"
         fi
     fi
 
@@ -194,6 +194,15 @@ VERSION=$(get_target_version)
 if [ -z "$VERSION" ]; then
     echo_error "无法获取版本信息"
     exit 1
+fi
+
+# 子 shell 中设置的 CHANNEL 不会传回，在此推断
+if [ -z "$CHANNEL" ]; then
+    if [[ "$VERSION" == *"-"* ]]; then
+        CHANNEL="dev"
+    else
+        CHANNEL="main"
+    fi
 fi
 
 # 显示通道信息

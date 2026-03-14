@@ -25,7 +25,7 @@ if ($Help) {
     Write-Host ""
     Write-Host "选项:"
     Write-Host "  -Dev          安装测试版（dev 通道）"
-    Write-Host "  -Stable       安装稳定版（stable 通道，默认）"
+    Write-Host "  -Stable       安装稳定版（main 通道，默认）"
     Write-Host "  -Version VER  安装指定版本"
     Write-Host "  -Force        强制重新安装（即使版本相同）"
     Write-Host "  -Help         显示此帮助信息"
@@ -47,7 +47,7 @@ $ReleaseUrl = "__RELEASE_URL__"
 $ReleaseUrl = $ReleaseUrl.TrimEnd("/")
 
 # 检测占位符未被替换（直接运行源码中的脚本）
-if ($ReleaseUrl -like "*__RELEASE_URL__*") {
+if (-not $ReleaseUrl.StartsWith("https://")) {
     Write-Err "安装脚本未正确配置，请从官方渠道下载安装脚本"
     exit 1
 }
@@ -111,11 +111,11 @@ function Get-TargetVersion {
         if ($UseDev) {
             $channel = "dev"
         } elseif ($UseStable) {
-            $channel = "stable"
+            $channel = "main"
         } elseif ($targetVersion -match "-") {
             $channel = "dev"
         } else {
-            $channel = "stable"
+            $channel = "main"
         }
     } else {
         # 从 releases.json 获取最新版本
@@ -127,12 +127,12 @@ function Get-TargetVersion {
             $targetVersion = $releaseInfo.latest_dev
             $channel = "dev"
         } elseif ($UseStable) {
-            $targetVersion = $releaseInfo.latest_stable
-            $channel = "stable"
+            $targetVersion = $releaseInfo.latest_main
+            $channel = "main"
         } else {
-            # 默认：优先 stable
-            $targetVersion = $releaseInfo.latest_stable
-            $channel = "stable"
+            # 默认：优先 main
+            $targetVersion = $releaseInfo.latest_main
+            $channel = "main"
             if (-not $targetVersion) {
                 $targetVersion = $releaseInfo.latest_dev
                 $channel = "dev"

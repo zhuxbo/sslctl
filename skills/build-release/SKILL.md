@@ -40,10 +40,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 ### 版本号格式
 
-- 正式版：`v1.0.0`, `v2.1.0`（发布到 stable 通道）
+- 正式版：`v1.0.0`, `v2.1.0`（发布到 main 通道）
 - 测试版：`v1.0.0-beta`, `v1.0.0-rc.1`（发布到 dev 通道）
 
-通道自动判断：版本号含 `-` 则为 dev，否则为 stable。
+通道自动判断：版本号含 `-` 则为 dev，否则为 main。
 
 ### 版本注入
 
@@ -137,10 +137,10 @@ bash build/release.sh --test                     # 测试 SSH 连接
 │   │   ├── sslctl-linux-arm64.gz
 │   │   └── sslctl-windows-amd64.exe.gz
 │   └── ...
-├── stable/                # stable 通道
+├── main/                # main 通道
 │   └── ...
 ├── dev-latest/            # dev 最新版符号链接
-└── latest/                # stable 最新版符号链接
+└── latest/                # main 最新版符号链接
 ```
 
 ---
@@ -163,6 +163,6 @@ bash build/release.sh --test                     # 测试 SSH 连接
 
 - 自动检测系统架构（amd64/arm64）
 - 从 `releases.json` 获取最新版本
-- 支持 `--dev`/`--stable`/`--version`/`--force` 参数
+- 支持 `--dev`/`--main`/`--version`/`--force` 参数
 - 下载、校验、安装到 `/usr/local/bin/sslctl`
 - 创建配置目录 `/opt/sslctl/`
