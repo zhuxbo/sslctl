@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"context"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/backup"
@@ -25,6 +26,37 @@ func NewService(cfgManager *config.ConfigManager, log *logger.Logger) *Service {
 		fetcher:    fetcher.New(30 * time.Second),
 		backupMgr:  backup.NewManager(cfgManager.GetBackupDir(), 5),
 		log:        log,
+	}
+}
+
+// sendCallback 统一发送回调
+// 非关键路径，失败仅记录日志
+func (s *Service) sendCallback(ctx context.Context, cfg *config.Config, req *fetcher.CallbackRequest) {
+	if cfg.API.URL == "" || cfg.API.Token == "" {
+		return
+	}
+
+	var err error
+	if cfg.API.CallbackURL != "" {
+		err = s.fetcher.Callback(ctx, cfg.API.CallbackURL, cfg.API.Token, req)
+	} else {
+		err = s.fetcher.CallbackNew(ctx, cfg.API.URL, cfg.API.Token, req)
+	}
+
+	if err != nil {
+		s.log.Warn("回调发送失败（不影响结果）: %v", err)
+	} else {
+		s.log.Debug("回调成功: order=%d status=%s", req.OrderID, req.Status)
+	}
+}
+
+// fillCertMetadata 填充回调请求中的证书元数据
+func fillCertMetadata(req *fetcher.CallbackRequest, cert *config.CertConfig) {
+	if !cert.Metadata.CertExpiresAt.IsZero() {
+		req.CertExpiresAt = cert.Metadata.CertExpiresAt.Format(time.RFC3339)
+	}
+	if cert.Metadata.CertSerial != "" {
+		req.CertSerial = cert.Metadata.CertSerial
 	}
 }
 

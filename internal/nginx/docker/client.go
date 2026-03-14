@@ -12,6 +12,27 @@ import (
 	"time"
 )
 
+// defaultDockerTimeout Docker 操作默认超时（当调用方未设置 context deadline 时生效）
+const defaultDockerTimeout = 60 * time.Second
+
+// ensureTimeout 确保 context 有超时限制
+func ensureTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); !ok {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return ctx, func() {}
+}
+
+// truncateOutput 截断命令输出用于错误消息（限制 200 字符，过滤换行）
+func truncateOutput(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
+}
+
 // Client Docker 客户端
 type Client struct {
 	containerID string
@@ -85,6 +106,9 @@ var allowedExecCommands = map[string]struct{}{
 // Exec 在容器内执行命令
 // 注意：命令会经过白名单验证，只允许特定的 Web 服务器相关命令
 func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	// 安全校验：验证命令是否在白名单中
 	if err := validateExecCommand(cmd); err != nil {
 		return "", err
@@ -186,6 +210,9 @@ func validateExecCommand(cmd string) error {
 // CopyToContainer 复制文件到容器
 // 对目标路径进行安全校验，防止命令注入
 func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) error {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	// 安全校验：验证容器内目标路径
 	if !isValidContainerPath(dstPath) {
 		return fmt.Errorf("invalid container path: contains dangerous characters")
@@ -210,7 +237,7 @@ func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) e
 
 	output, err := cpCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker cp failed: %v, output: %s", err, string(output))
+		return fmt.Errorf("docker cp failed: %w, output: %s", err, truncateOutput(string(output)))
 	}
 	return nil
 }
@@ -218,6 +245,9 @@ func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) e
 // CopyFromContainer 从容器复制文件
 // 对源路径进行安全校验，防止命令注入
 func (c *Client) CopyFromContainer(ctx context.Context, srcPath, dstPath string) error {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	// 安全校验：验证容器内源路径
 	if !isValidContainerPath(srcPath) {
 		return fmt.Errorf("invalid container path: contains dangerous characters")
@@ -238,13 +268,16 @@ func (c *Client) CopyFromContainer(ctx context.Context, srcPath, dstPath string)
 
 	output, err := cpCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker cp failed: %v, output: %s", err, string(output))
+		return fmt.Errorf("docker cp failed: %w, output: %s", err, truncateOutput(string(output)))
 	}
 	return nil
 }
 
 // GetContainerInfo 获取容器信息
 func (c *Client) GetContainerInfo(ctx context.Context) (*ContainerInfo, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	containerID := c.containerID
 
 	// 如果是 compose 模式，先获取容器 ID
@@ -454,6 +487,9 @@ func isValidContainerPath(path string) bool {
 // ExecAux 执行辅助命令（mkdir/chmod），使用严格验证
 // 不使用 sh -c，直接传递命令参数
 func (c *Client) ExecAux(ctx context.Context, cmd string, args ...string) (string, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	// 白名单命令
 	allowedAuxCommands := map[string]struct{}{
 		"mkdir": {},

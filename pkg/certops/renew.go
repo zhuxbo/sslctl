@@ -120,10 +120,6 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 // sendRenewCallback 向 API 发送续签结果回调
 // 非关键路径，失败仅记录日志
 func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig, result *RenewResult, cfg *config.Config) {
-	if cfg.API.URL == "" || cfg.API.Token == "" {
-		return
-	}
-
 	msg := ""
 	if result.Error != nil {
 		msg = result.Error.Error()
@@ -137,25 +133,8 @@ func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig
 		Message:    msg,
 	}
 
-	if !cert.Metadata.CertExpiresAt.IsZero() {
-		callbackReq.CertExpiresAt = cert.Metadata.CertExpiresAt.Format(time.RFC3339)
-	}
-	if cert.Metadata.CertSerial != "" {
-		callbackReq.CertSerial = cert.Metadata.CertSerial
-	}
-
-	var err error
-	if cfg.API.CallbackURL != "" {
-		err = s.fetcher.Callback(ctx, cfg.API.CallbackURL, cfg.API.Token, callbackReq)
-	} else {
-		err = s.fetcher.CallbackNew(ctx, cfg.API.URL, cfg.API.Token, callbackReq)
-	}
-
-	if err != nil {
-		s.log.Warn("续签回调失败（不影响续签结果）: %v", err)
-	} else {
-		s.log.Debug("续签回调成功: %s %s", cert.CertName, result.Status)
-	}
+	fillCertMetadata(callbackReq, cert)
+	s.sendCallback(ctx, cfg, callbackReq)
 }
 
 // getRenewMode 获取续签模式（带默认值）

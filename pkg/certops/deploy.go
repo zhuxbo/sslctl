@@ -115,10 +115,6 @@ func (s *Service) DeployAllCerts(ctx context.Context) ([]*DeployResult, error) {
 // sendDeployCallback 向 API 发送部署结果回调
 // 非关键路径，失败仅记录日志不影响部署结果
 func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult, cfg *config.Config) {
-	if cfg.API.URL == "" || cfg.API.Token == "" {
-		return
-	}
-
 	status := "success"
 	msg := ""
 	if !result.Success {
@@ -145,26 +141,8 @@ func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfi
 		Message:    msg,
 	}
 
-	// 填充证书信息
-	if !cert.Metadata.CertExpiresAt.IsZero() {
-		callbackReq.CertExpiresAt = cert.Metadata.CertExpiresAt.Format(time.RFC3339)
-	}
-	if cert.Metadata.CertSerial != "" {
-		callbackReq.CertSerial = cert.Metadata.CertSerial
-	}
-
-	var err error
-	if cfg.API.CallbackURL != "" {
-		err = s.fetcher.Callback(ctx, cfg.API.CallbackURL, cfg.API.Token, callbackReq)
-	} else {
-		err = s.fetcher.CallbackNew(ctx, cfg.API.URL, cfg.API.Token, callbackReq)
-	}
-
-	if err != nil {
-		s.log.Warn("部署回调失败（不影响部署结果）: %v", err)
-	} else {
-		s.log.Debug("部署回调成功: %s %s", cert.CertName, status)
-	}
+	fillCertMetadata(callbackReq, cert)
+	s.sendCallback(ctx, cfg, callbackReq)
 }
 
 // deployToBinding 部署证书到绑定（带备份和回滚）
@@ -216,8 +194,9 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		if rollbackErr := s.rollbackFromBackup(binding, backupPath); rollbackErr != nil {
 			s.log.Error("回滚失败: %v", rollbackErr)
 			// 构造手动恢复指引
-			recoveryCmd := fmt.Sprintf("cp %s/cert.pem %s && cp %s/key.pem %s",
-				backupPath, binding.Paths.Certificate, backupPath, binding.Paths.PrivateKey)
+			recoveryCmd := fmt.Sprintf("cp %s %s && cp %s %s",
+				util.ShellQuote(backupPath+"/cert.pem"), util.ShellQuote(binding.Paths.Certificate),
+				util.ShellQuote(backupPath+"/key.pem"), util.ShellQuote(binding.Paths.PrivateKey))
 			if binding.Reload.TestCommand != "" {
 				recoveryCmd += " && " + binding.Reload.TestCommand
 			}

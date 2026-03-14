@@ -98,26 +98,9 @@ func (d *Deployer) Deploy(ctx context.Context, cert, intermediate, key string) e
 		}
 	}
 
-	// 4. 测试配置
-	if d.testCommand != "" {
-		if !allowedContainerCommands[d.testCommand] {
-			return fmt.Errorf("command not in whitelist: %s", d.testCommand)
-		}
-		output, err := d.client.Exec(ctx, d.testCommand)
-		if err != nil {
-			return fmt.Errorf("配置测试失败: %v, output: %s", err, output)
-		}
-	}
-
-	// 5. 重载 Nginx
-	if d.reloadCommand != "" {
-		if !allowedContainerCommands[d.reloadCommand] {
-			return fmt.Errorf("command not in whitelist: %s", d.reloadCommand)
-		}
-		output, err := d.client.Exec(ctx, d.reloadCommand)
-		if err != nil {
-			return fmt.Errorf("重载失败: %v, output: %s", err, output)
-		}
+	// 4. 测试配置并重载
+	if err := d.testAndReload(ctx); err != nil {
+		return err
 	}
 
 	return nil
@@ -134,7 +117,8 @@ func (d *Deployer) DetectDeployMode(ctx context.Context) (string, error) {
 	// 获取容器信息
 	info, err := d.client.GetContainerInfo(ctx)
 	if err != nil {
-		return "copy", nil // 默认 copy 模式
+		fmt.Fprintf(os.Stderr, "warning: 获取容器信息失败，降级到 copy 模式: %v\n", err)
+		return "copy", nil
 	}
 
 	// 检查证书路径是否有可写挂载
@@ -277,28 +261,33 @@ func (d *Deployer) Rollback(ctx context.Context, backupCertPath, backupKeyPath s
 		}
 	}
 
-	// 测试配置
+	// 测试配置并重载
+	if err := d.testAndReload(ctx); err != nil {
+		return fmt.Errorf("回滚后验证失败: %w", err)
+	}
+
+	return nil
+}
+
+// testAndReload 测试配置并重载服务
+// 命令须先通过 allowedContainerCommands 白名单检查
+func (d *Deployer) testAndReload(ctx context.Context) error {
 	if d.testCommand != "" {
 		if !allowedContainerCommands[d.testCommand] {
 			return fmt.Errorf("command not in whitelist: %s", d.testCommand)
 		}
-		output, err := d.client.Exec(ctx, d.testCommand)
-		if err != nil {
-			return fmt.Errorf("config test failed after rollback: %v, output: %s", err, output)
+		if _, err := d.client.Exec(ctx, d.testCommand); err != nil {
+			return fmt.Errorf("配置测试失败: %w", err)
 		}
 	}
-
-	// 重载服务
 	if d.reloadCommand != "" {
 		if !allowedContainerCommands[d.reloadCommand] {
 			return fmt.Errorf("command not in whitelist: %s", d.reloadCommand)
 		}
-		output, err := d.client.Exec(ctx, d.reloadCommand)
-		if err != nil {
-			return fmt.Errorf("reload failed after rollback: %v, output: %s", err, output)
+		if _, err := d.client.Exec(ctx, d.reloadCommand); err != nil {
+			return fmt.Errorf("重载失败: %w", err)
 		}
 	}
-
 	return nil
 }
 

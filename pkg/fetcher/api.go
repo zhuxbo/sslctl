@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"net/http"
 	"net/url"
 	"time"
@@ -221,10 +222,17 @@ func NewWithRetry(timeout time.Duration, retryConfig RetryConfig) *Fetcher {
 	return f
 }
 
+// defaultMaxResponseSize API 响应体最大大小（512KB 足够承载证书链）
+const defaultMaxResponseSize = 512 * 1024
+
 // isRetryable 判断错误是否可重试
 func isRetryable(err error, statusCode int) bool {
-	// 网络错误可重试
+	// 网络错误可重试，但 SSRF 防护拒绝的请求除外
 	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "not allowed") || strings.Contains(msg, "cloud metadata endpoint") {
+			return false
+		}
 		return true
 	}
 	// 5xx 服务器错误可重试
@@ -298,6 +306,30 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 	return nil, lastErr
 }
 
+// doAPICall 统一的 API 调用流程：发送请求 → 读取响应 → 解析 JSON → 校验 Code → 返回证书数据
+func (f *Fetcher) doAPICall(ctx context.Context, newRequest func() (*http.Request, error), errMsg string) (*CertData, error) {
+	resp, err := f.doWithRetry(ctx, newRequest)
+	if err != nil {
+		return nil, errors.NewNetworkError(errMsg, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, defaultMaxResponseSize))
+	if err != nil {
+		return nil, errors.NewNetworkError("failed to read response body", err)
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, errors.NewNetworkError("failed to parse JSON response", err)
+	}
+	if apiResp.Code != APICodeSuccess {
+		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
+	}
+	return apiResp.ParseData()
+}
+
 // mustValidURL 校验 URL 是否有效。
 // 仅 localhost/127.0.0.1 允许 HTTP，其他必须使用 HTTPS。
 // 同时检查 SSRF 风险，阻止访问内网 IP 和云元数据地址。
@@ -324,28 +356,7 @@ func (f *Fetcher) Info(ctx context.Context, apiURL, token string) (*CertData, er
 		return req, nil
 	}
 
-	resp, err := f.doWithRetry(ctx, newRequest)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to get certificate info", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
-	}
-	// 限制响应体大小，防止不合理的大包造成内存压力
-	const maxResponseSize = 512 * 1024 // 512KB 足够承载证书链
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to read response body", err)
-	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, errors.NewNetworkError("failed to parse JSON response", err)
-	}
-	if apiResp.Code != APICodeSuccess {
-		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
-	}
-	return apiResp.ParseData()
+	return f.doAPICall(ctx, newRequest, "failed to get certificate info")
 }
 
 // StartOrUpdate 调用 POST 提交 CSR 发起/更新签发（兼容旧接口）
@@ -375,27 +386,7 @@ func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, token, csrPEM, vali
 		return req, nil
 	}
 
-	resp, err := f.doWithRetry(ctx, newRequest)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to post CSR", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
-	}
-	const maxResponseSize = 512 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to read response body", err)
-	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, errors.NewNetworkError("failed to parse JSON response", err)
-	}
-	if apiResp.Code != APICodeSuccess {
-		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
-	}
-	return apiResp.ParseData()
+	return f.doAPICall(ctx, newRequest, "failed to post CSR")
 }
 
 // Callback 调用回调接口通知部署结果
@@ -485,27 +476,7 @@ func (f *Fetcher) Query(ctx context.Context, baseURL, token, domain string) (*Ce
 		return req, nil
 	}
 
-	resp, err := f.doWithRetry(ctx, newRequest)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to query certificate", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
-	}
-	const maxResponseSize = 512 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to read response body", err)
-	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, errors.NewNetworkError("failed to parse JSON response", err)
-	}
-	if apiResp.Code != APICodeSuccess {
-		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
-	}
-	return apiResp.ParseData()
+	return f.doAPICall(ctx, newRequest, "failed to query certificate")
 }
 
 // Update 更新/续费证书（新 API：POST {baseURL}/api/deploy）
@@ -537,27 +508,7 @@ func (f *Fetcher) Update(ctx context.Context, baseURL, token string, orderID int
 		return req, nil
 	}
 
-	resp, err := f.doWithRetry(ctx, newRequest)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to update certificate", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
-	}
-	const maxResponseSize = 512 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to read response body", err)
-	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, errors.NewNetworkError("failed to parse JSON response", err)
-	}
-	if apiResp.Code != APICodeSuccess {
-		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
-	}
-	return apiResp.ParseData()
+	return f.doAPICall(ctx, newRequest, "failed to update certificate")
 }
 
 // CallbackNew 调用新的回调接口（POST {baseURL}/api/deploy/callback）
@@ -594,25 +545,5 @@ func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID
 		return req, nil
 	}
 
-	resp, err := f.doWithRetry(ctx, newRequest)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to query order", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
-	}
-	const maxResponseSize = 512 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to read response body", err)
-	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, errors.NewNetworkError("failed to parse JSON response", err)
-	}
-	if apiResp.Code != APICodeSuccess {
-		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
-	}
-	return apiResp.ParseData()
+	return f.doAPICall(ctx, newRequest, "failed to query order")
 }

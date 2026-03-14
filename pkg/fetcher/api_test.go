@@ -4,6 +4,7 @@ package fetcher
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -562,6 +563,10 @@ func TestIsRetryable(t *testing.T) {
 		want       bool
 	}{
 		{"网络错误", context.DeadlineExceeded, 0, true},
+		{"SSRF private IP", fmt.Errorf("dial tcp: private IP not allowed: 10.0.0.1"), 0, false},
+		{"SSRF loopback", fmt.Errorf("dial tcp: loopback address not allowed: 127.0.0.1"), 0, false},
+		{"SSRF link-local", fmt.Errorf("dial tcp: link-local address not allowed: 169.254.1.1"), 0, false},
+		{"SSRF cloud metadata", fmt.Errorf("dial tcp: cloud metadata endpoint not allowed"), 0, false},
 		{"500 错误", nil, 500, true},
 		{"502 错误", nil, 502, true},
 		{"503 错误", nil, 503, true},
