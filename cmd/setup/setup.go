@@ -276,6 +276,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	certConfig.Metadata.LastDeployAt = time.Now()
 
 	// 初始化或更新配置
+	// 更新版本号
+	if cfg, err := cfgManager.Load(); err == nil {
+		cfg.Version = version
+		_ = cfgManager.Save(cfg)
+	}
+
 	// 先保存 API 配置（Load 返回副本，直接修改不会持久化）
 	if err := cfgManager.SetAPI(config.APIConfig{
 		URL:   *apiURL,

@@ -252,7 +252,7 @@ mv "/tmp/sslctl-${OS}-${ARCH}" /usr/local/bin/sslctl
 chmod +x /usr/local/bin/sslctl
 
 # 创建工作目录
-mkdir -p /opt/sslctl/{sites,logs,backup,certs}
+mkdir -p /opt/sslctl/{logs,backup,certs}
 
 # 写入 release_url 到配置文件
 CONFIG_FILE="/opt/sslctl/config.json"
@@ -528,4 +528,4 @@ echo "  sslctl service repair                 # 修复服务"
 echo "  sslctl --debug scan                   # 调试模式"
 echo "  sslctl help                           # 查看帮助"
 echo ""
-echo "配置目录: /opt/sslctl/sites/"
+echo "配置文件: /opt/sslctl/config.json"

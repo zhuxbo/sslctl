@@ -378,10 +378,29 @@ func (cm *ConfigManager) AddCert(cert *CertConfig) error {
 		return err
 	}
 
-	// 检查是否已存在
+	// 收集新证书绑定的站点名
+	newSites := make(map[string]bool)
+	for _, b := range cert.Bindings {
+		newSites[b.SiteName] = true
+	}
+
+	// 移除其他证书中对相同站点的绑定（一个站点只能绑定一个证书）
 	for i := range cfg.Certificates {
 		if cfg.Certificates[i].CertName == cert.CertName {
-			// 更新现有配置
+			continue
+		}
+		var kept []SiteBinding
+		for _, b := range cfg.Certificates[i].Bindings {
+			if !newSites[b.SiteName] {
+				kept = append(kept, b)
+			}
+		}
+		cfg.Certificates[i].Bindings = kept
+	}
+
+	// 检查是否已存在同名证书
+	for i := range cfg.Certificates {
+		if cfg.Certificates[i].CertName == cert.CertName {
 			cfg.Certificates[i] = *cert
 			return cm.saveLocked(cfg)
 		}
