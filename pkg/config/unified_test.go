@@ -82,10 +82,6 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 
 	// 创建测试配置
 	cfg := &Config{
-		API: APIConfig{
-			URL:   "https://api.example.com",
-			Token: "test-token",
-		},
 		Schedule: ScheduleConfig{
 			CheckIntervalHours: 12,
 			RenewBeforeDays:    7,
@@ -97,6 +93,10 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 				OrderID:  12345,
 				Enabled:  true,
 				Domains:  []string{"example.com", "*.example.com"},
+				API: APIConfig{
+					URL:   "https://api.example.com",
+					Token: "test-token",
+				},
 			},
 		},
 	}
@@ -118,20 +118,16 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if loaded.API.URL != cfg.API.URL {
-		t.Errorf("loaded API.URL = %s, want %s", loaded.API.URL, cfg.API.URL)
-	}
-
-	if loaded.API.Token != cfg.API.Token {
-		t.Errorf("loaded API.Token = %s, want %s", loaded.API.Token, cfg.API.Token)
-	}
-
 	if len(loaded.Certificates) != 1 {
 		t.Fatalf("loaded Certificates length = %d, want 1", len(loaded.Certificates))
 	}
 
 	if loaded.Certificates[0].CertName != "order-12345" {
 		t.Errorf("loaded CertName = %s, want order-12345", loaded.Certificates[0].CertName)
+	}
+
+	if loaded.Certificates[0].API.URL != "https://api.example.com" {
+		t.Errorf("loaded cert API.URL = %s, want https://api.example.com", loaded.Certificates[0].API.URL)
 	}
 }
 
@@ -140,15 +136,19 @@ func TestConfigManager_Reload(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewConfigManagerWithDir(dir)
 
-	// 先加载默认配置
-	cfg1, _ := cm.Load()
-	cfg1.API.Token = "token1"
-	_ = cm.Save(cfg1)
+	// 先添加一个证书
+	cert := &CertConfig{
+		CertName: "test",
+		OrderID:  1,
+		Enabled:  true,
+		API:      APIConfig{Token: "token1", URL: "https://api1.com"},
+	}
+	_ = cm.AddCert(cert)
 
 	// 外部修改配置文件
 	cm2, _ := NewConfigManagerWithDir(dir)
 	cfg2, _ := cm2.Load()
-	cfg2.API.Token = "token2"
+	cfg2.Certificates[0].API.Token = "token2"
 	_ = cm2.Save(cfg2)
 
 	// 原 cm 重新加载
@@ -157,8 +157,8 @@ func TestConfigManager_Reload(t *testing.T) {
 		t.Fatalf("Reload() error = %v", err)
 	}
 
-	if reloaded.API.Token != "token2" {
-		t.Errorf("reloaded Token = %s, want token2", reloaded.API.Token)
+	if reloaded.Certificates[0].API.Token != "token2" {
+		t.Errorf("reloaded Token = %s, want token2", reloaded.Certificates[0].API.Token)
 	}
 }
 
@@ -257,42 +257,31 @@ func TestConfigManager_AddCertUpdate(t *testing.T) {
 	}
 }
 
-// TestConfigManager_SetAPI 测试设置 API 配置
-func TestConfigManager_SetAPI(t *testing.T) {
+// TestCertConfig_API 测试证书级别 API 配置
+func TestCertConfig_API(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewConfigManagerWithDir(dir)
 
-	api := APIConfig{
-		URL:   "https://new-api.example.com",
-		Token: "new-token",
+	cert := &CertConfig{
+		CertName: "order-1",
+		OrderID:  1,
+		Enabled:  true,
+		API:      APIConfig{URL: "https://api-a.com", Token: "token-a"},
 	}
+	_ = cm.AddCert(cert)
 
-	if err := cm.SetAPI(api); err != nil {
-		t.Fatalf("SetAPI() error = %v", err)
+	got, _ := cm.GetCert("order-1")
+	if got.API.URL != "https://api-a.com" {
+		t.Errorf("API.URL = %s, want https://api-a.com", got.API.URL)
 	}
-
-	cfg, _ := cm.Load()
-	if cfg.API.URL != api.URL {
-		t.Errorf("API.URL = %s, want %s", cfg.API.URL, api.URL)
+	if got.API.Token != "token-a" {
+		t.Errorf("API.Token = %s, want token-a", got.API.Token)
 	}
 }
 
-// TestConfigManager_EnvOverride 测试环境变量覆盖
-func TestConfigManager_EnvOverride(t *testing.T) {
-	dir := t.TempDir()
-
-	// 先保存一个配置
-	cfg := &Config{
-		API: APIConfig{
-			URL:   "https://file-api.com",
-			Token: "file-token-that-is-long-enough-for-validation",
-		},
-	}
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0600)
-
+// TestCertConfig_GetAPI_EnvOverride 测试环境变量通过 GetAPI() 覆盖证书级别 API
+func TestCertConfig_GetAPI_EnvOverride(t *testing.T) {
 	// 设置环境变量（Token 至少 32 字符）
-	// URL 使用 localhost 避免 CI 环境中 DNS 解析失败导致 SSRF 校验拒绝
 	envToken := "env-token-that-is-long-enough-for-validation"
 	envURL := "http://localhost:8080"
 	_ = os.Setenv(EnvAPIToken, envToken)
@@ -302,15 +291,45 @@ func TestConfigManager_EnvOverride(t *testing.T) {
 		_ = os.Unsetenv(EnvAPIURL)
 	}()
 
-	cm, _ := NewConfigManagerWithDir(dir)
-	loaded, _ := cm.Load()
-
-	// 环境变量应该覆盖文件配置
-	if loaded.API.Token != envToken {
-		t.Errorf("API.Token = %s, want %s (from env)", loaded.API.Token, envToken)
+	cert := &CertConfig{
+		CertName: "test",
+		API: APIConfig{
+			URL:   "https://file-api.com",
+			Token: "file-token-that-is-long-enough-for-validation",
+		},
 	}
-	if loaded.API.URL != envURL {
-		t.Errorf("API.URL = %s, want %s (from env)", loaded.API.URL, envURL)
+
+	api := cert.GetAPI()
+
+	// 环境变量应该覆盖证书配置
+	if api.Token != envToken {
+		t.Errorf("API.Token = %s, want %s (from env)", api.Token, envToken)
+	}
+	if api.URL != envURL {
+		t.Errorf("API.URL = %s, want %s (from env)", api.URL, envURL)
+	}
+}
+
+// TestCertConfig_GetAPI_NoEnv 测试无环境变量时 GetAPI() 返回证书自身 API
+func TestCertConfig_GetAPI_NoEnv(t *testing.T) {
+	// 确保环境变量未设置
+	_ = os.Unsetenv(EnvAPIToken)
+	_ = os.Unsetenv(EnvAPIURL)
+
+	cert := &CertConfig{
+		CertName: "test",
+		API: APIConfig{
+			URL:   "https://cert-api.com",
+			Token: "cert-token-value",
+		},
+	}
+
+	api := cert.GetAPI()
+	if api.URL != "https://cert-api.com" {
+		t.Errorf("API.URL = %s, want https://cert-api.com", api.URL)
+	}
+	if api.Token != "cert-token-value" {
+		t.Errorf("API.Token = %s, want cert-token-value", api.Token)
 	}
 }
 
@@ -462,21 +481,24 @@ func TestConfigManager_LoadCaching(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewConfigManagerWithDir(dir)
 
+	// 添加一个证书，用于测试深拷贝
+	_ = cm.AddCert(&CertConfig{CertName: "cache-test", Enabled: true, API: APIConfig{Token: "original"}})
+
 	// 首次加载
 	cfg1, _ := cm.Load()
-	cfg1.API.Token = "modified-locally"
+	cfg1.Certificates[0].API.Token = "modified-locally"
 
 	// 第二次加载返回副本，对 cfg1 的修改不应影响 cfg2
 	cfg2, _ := cm.Load()
 
 	// 由于返回的是深拷贝副本，修改 cfg1 不应反映到 cfg2
-	if cfg2.API.Token == "modified-locally" {
+	if cfg2.Certificates[0].API.Token == "modified-locally" {
 		t.Error("Load() should return independent copy, modifications to one should not affect another")
 	}
 
 	// 验证缓存内部数据未被外部修改影响
 	cfg3, _ := cm.Load()
-	if cfg3.API.Token == "modified-locally" {
+	if cfg3.Certificates[0].API.Token == "modified-locally" {
 		t.Error("Internal cache should not be affected by external modifications")
 	}
 }
@@ -863,7 +885,9 @@ func TestConfigManager_FilePermissions(t *testing.T) {
 
 	// 保存配置
 	cfg := &Config{
-		API: APIConfig{Token: "secret-token"},
+		Certificates: []CertConfig{
+			{CertName: "test", API: APIConfig{Token: "secret-token"}},
+		},
 	}
 	if err := cm.Save(cfg); err != nil {
 		t.Fatal(err)
@@ -1753,8 +1777,9 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 
 	// 初始保存
 	cfg := &Config{
-		API:          APIConfig{URL: "https://example.com/api", Token: strings.Repeat("a", 32)},
-		Certificates: []CertConfig{},
+		Certificates: []CertConfig{
+			{CertName: "test", Enabled: true, API: APIConfig{URL: "https://example.com/api", Token: "initial"}},
+		},
 	}
 	if err := cm.Save(cfg); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -1765,8 +1790,8 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg1.API.URL != "https://example.com/api" {
-		t.Fatalf("初始 URL 不正确: %s", cfg1.API.URL)
+	if cfg1.Certificates[0].API.URL != "https://example.com/api" {
+		t.Fatalf("初始 URL 不正确: %s", cfg1.Certificates[0].API.URL)
 	}
 
 	// 等待确保 mtime 不同
@@ -1774,8 +1799,9 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 
 	// 外部修改配置文件
 	newCfg := &Config{
-		API:          APIConfig{URL: "https://modified.com/api", Token: strings.Repeat("b", 32)},
-		Certificates: []CertConfig{},
+		Certificates: []CertConfig{
+			{CertName: "test", Enabled: true, API: APIConfig{URL: "https://modified.com/api", Token: "modified"}},
+		},
 	}
 	data, _ := json.MarshalIndent(newCfg, "", "  ")
 	if err := os.WriteFile(cm.GetConfigPath(), data, 0600); err != nil {
@@ -1787,7 +1813,7 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() after external modification error = %v", err)
 	}
-	if cfg2.API.URL != "https://modified.com/api" {
-		t.Errorf("外部修改后 URL = %s, 期望 https://modified.com/api", cfg2.API.URL)
+	if cfg2.Certificates[0].API.URL != "https://modified.com/api" {
+		t.Errorf("外部修改后 URL = %s, 期望 https://modified.com/api", cfg2.Certificates[0].API.URL)
 	}
 }

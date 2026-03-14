@@ -59,8 +59,8 @@ func Run(args []string, debug bool) {
 	}
 
 	// 检查是否已有配置（重复运行时保留 Schedule 等用户自定义设置）
-	if existingCfg, loadErr := cfgManager.Load(); loadErr == nil && existingCfg.API.URL != "" {
-		fmt.Println("检测到已有配置，将更新 API 和证书配置（保留 Schedule 等设置）")
+	if existingCfg, loadErr := cfgManager.Load(); loadErr == nil && len(existingCfg.Certificates) > 0 {
+		fmt.Println("检测到已有配置，将更新证书配置（保留 Schedule 等设置）")
 	}
 
 	// 初始化日志
@@ -208,12 +208,16 @@ func Run(args []string, debug bool) {
 	fmt.Println("\n步骤 4/6: 部署证书...")
 	certName := fmt.Sprintf("order-%d", *orderID)
 
-	// 创建证书配置
+	// 创建证书配置（API 配置写入证书级别）
 	certConfig := &config.CertConfig{
 		CertName: certName,
 		OrderID:  *orderID,
 		Enabled:  true,
 		Domains:  certDomains,
+		API: config.APIConfig{
+			URL:   *apiURL,
+			Token: *token,
+		},
 		Bindings: bindings,
 	}
 
@@ -274,15 +278,6 @@ func Run(args []string, debug bool) {
 		certConfig.Metadata.CertSerial = fmt.Sprintf("%X", cert.SerialNumber)
 	}
 	certConfig.Metadata.LastDeployAt = time.Now()
-
-	// 先保存 API 配置（Load 返回副本，直接修改不会持久化）
-	if err := cfgManager.SetAPI(config.APIConfig{
-		URL:   *apiURL,
-		Token: *token,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "保存 API 配置失败: %v\n", err)
-		os.Exit(1)
-	}
 
 	if *localKey {
 		certConfig.RenewMode = config.RenewModeLocal

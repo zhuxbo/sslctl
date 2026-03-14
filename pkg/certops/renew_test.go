@@ -393,7 +393,7 @@ func TestGetRenewMode_AllModes(t *testing.T) {
 	}
 }
 
-// TestCheckAndRenewAll_NoAPIConfig 测试无 API 配置时的续签
+// TestCheckAndRenewAll_NoAPIConfig 测试无 API 配置时的续签（证书级别 API 为空）
 func TestCheckAndRenewAll_NoAPIConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -402,60 +402,32 @@ func TestCheckAndRenewAll_NoAPIConfig(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
+	// 添加证书但不设置 API（需要即将过期才会进入续签）
+	cert := &config.CertConfig{
+		CertName: "no-api-cert",
+		OrderID:  12345,
+		Enabled:  true,
+		Domains:  []string{"example.com"},
+		Metadata: config.CertMetadata{
+			CertExpiresAt: time.Now().Add(5 * 24 * time.Hour),
+		},
+	}
+	_ = cm.AddCert(cert)
+
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
 	ctx := t.Context()
-	_, err = svc.CheckAndRenewAll(ctx)
+	results, err := svc.CheckAndRenewAll(ctx)
 
-	if err == nil {
-		t.Error("无 API 配置应返回错误")
-	}
-}
-
-// TestCheckAndRenewAll_EmptyAPIURL 测试 API URL 为空时的续签
-func TestCheckAndRenewAll_EmptyAPIURL(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	// API 不完整的证书会被跳过，不返回错误
 	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
+		t.Errorf("API 不完整的证书应被跳过，不返回错误: %v", err)
 	}
 
-	// 设置不完整的 API 配置
-	_ = cm.SetAPI(config.APIConfig{URL: "", Token: "test-token"})
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	ctx := t.Context()
-	_, err = svc.CheckAndRenewAll(ctx)
-
-	if err == nil {
-		t.Error("API URL 为空应返回错误")
-	}
-}
-
-// TestCheckAndRenewAll_EmptyAPIToken 测试 API Token 为空时的续签
-func TestCheckAndRenewAll_EmptyAPIToken(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cm, err := config.NewConfigManagerWithDir(tmpDir)
-	if err != nil {
-		t.Fatalf("创建配置管理器失败: %v", err)
-	}
-
-	// 设置不完整的 API 配置
-	_ = cm.SetAPI(config.APIConfig{URL: "http://example.com", Token: ""})
-
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	ctx := t.Context()
-	_, err = svc.CheckAndRenewAll(ctx)
-
-	if err == nil {
-		t.Error("API Token 为空应返回错误")
+	// 没有可续签的证书
+	if len(results) != 0 {
+		t.Errorf("API 不完整的证书不应有续签结果，实际: %d", len(results))
 	}
 }
 
@@ -467,9 +439,6 @@ func TestCheckAndRenewAll_NoCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
-
-	// 设置完整的 API 配置
-	_ = cm.SetAPI(config.APIConfig{URL: "http://example.com", Token: "test-token"})
 
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
@@ -495,15 +464,13 @@ func TestCheckAndRenewAll_DisabledCert(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
-	// 设置 API 配置
-	_ = cm.SetAPI(config.APIConfig{URL: "http://example.com", Token: "test-token"})
-
-	// 添加禁用的证书
+	// 添加禁用的证书（带 API 配置）
 	cert := &config.CertConfig{
 		CertName: "disabled-cert",
 		OrderID:  12345,
 		Enabled:  false, // 禁用
 		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: "http://example.com", Token: "test-token"},
 	}
 	_ = cm.AddCert(cert)
 
@@ -531,15 +498,13 @@ func TestCheckAndRenewAll_CertNotNeedRenewal(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
-	// 设置 API 配置
-	_ = cm.SetAPI(config.APIConfig{URL: "http://example.com", Token: "test-token"})
-
-	// 添加有效期充足的证书
+	// 添加有效期充足的证书（带 API 配置）
 	cert := &config.CertConfig{
 		CertName: "valid-cert",
 		OrderID:  12345,
 		Enabled:  true,
 		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: "http://example.com", Token: "test-token"},
 		Metadata: config.CertMetadata{
 			CertExpiresAt: time.Now().Add(90 * 24 * time.Hour), // 90 天后过期
 		},
@@ -907,12 +872,16 @@ func TestSendRenewCallback_EmptyAPI(t *testing.T) {
 	result := &RenewResult{CertName: "test-cert", Status: "success"}
 
 	// API URL 为空时应直接返回，不 panic
-	cfg := &config.Config{API: config.APIConfig{URL: "", Token: ""}}
-	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+	svc.sendRenewCallback(t.Context(), cert, result)
 
 	// Token 为空
-	cfg2 := &config.Config{API: config.APIConfig{URL: "https://api.com", Token: ""}}
-	svc.sendRenewCallback(t.Context(), cert, result, cfg2)
+	cert2 := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: "https://api.com", Token: ""},
+	}
+	svc.sendRenewCallback(t.Context(), cert2, result)
 }
 
 // TestSendRenewCallback_SuccessResult 测试成功结果的续签回调
@@ -922,10 +891,14 @@ func TestSendRenewCallback_SuccessResult(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  123,
 		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: callbackServer.URL, Token: "test-token"},
 		Metadata: config.CertMetadata{
 			CertExpiresAt: time.Now().Add(90 * 24 * time.Hour),
 			CertSerial:    "ABC123",
@@ -933,12 +906,8 @@ func TestSendRenewCallback_SuccessResult(t *testing.T) {
 	}
 	result := &RenewResult{CertName: "test-cert", Status: "success"}
 
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
 	// 不应 panic（非关键路径）
-	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+	svc.sendRenewCallback(t.Context(), cert, result)
 }
 
 // TestSendRenewCallback_FailureResult 测试失败结果的续签回调
@@ -948,10 +917,14 @@ func TestSendRenewCallback_FailureResult(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  456,
 		Domains:  []string{"fail.com"},
+		API:      config.APIConfig{URL: callbackServer.URL, Token: "test-token"},
 	}
 	result := &RenewResult{
 		CertName: "test-cert",
@@ -959,11 +932,7 @@ func TestSendRenewCallback_FailureResult(t *testing.T) {
 		Error:    os.ErrNotExist,
 	}
 
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
-	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+	svc.sendRenewCallback(t.Context(), cert, result)
 }
 
 // TestSendRenewCallback_WithCallbackURL 测试使用自定义 CallbackURL 的续签回调
@@ -973,22 +942,22 @@ func TestSendRenewCallback_WithCallbackURL(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  789,
 		Domains:  []string{"callback.com"},
+		API: config.APIConfig{
+			URL:         callbackServer.URL,
+			Token:       "test-token",
+			CallbackURL: callbackServer.URL + "/hook",
+		},
 	}
 	result := &RenewResult{CertName: "test-cert", Status: "success"}
 
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	cfg := &config.Config{API: config.APIConfig{
-		URL:         callbackServer.URL,
-		Token:       "test-token",
-		CallbackURL: callbackServer.URL + "/hook",
-	}}
-	svc.sendRenewCallback(t.Context(), cert, result, cfg)
+	svc.sendRenewCallback(t.Context(), cert, result)
 }
 
 // TestCommitPendingKey_ReadOnlyTargetDir 测试 commitPendingKey 目标目录不可写时的行为

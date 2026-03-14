@@ -166,8 +166,8 @@ sslctl --debug deploy --site example.com
 
 | 变量 | 说明 |
 |------|------|
-| `SSLCTL_API_TOKEN` | API Token（优先级高于配置文件） |
-| `SSLCTL_API_URL` | API URL（优先级高于配置文件） |
+| `SSLCTL_API_TOKEN` | API Token（覆盖所有证书的 API 配置） |
+| `SSLCTL_API_URL` | API URL（覆盖所有证书的 API 配置） |
 | `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 |
 
 使用示例：
@@ -182,10 +182,6 @@ sslctl status
 
 ```json
 {
-  "api": {
-    "url": "https://api.example.com",
-    "token": "your-deploy-token"
-  },
   "release_url": "https://release.cnssl.com/sslctl",
   "schedule": {
     "check_interval_hours": 6,
@@ -198,6 +194,10 @@ sslctl status
       "order_id": 12345,
       "enabled": true,
       "domains": ["*.example.com", "example.com"],
+      "api": {
+        "url": "https://api.example.com",
+        "token": "your-deploy-token"
+      },
       "renew_mode": "pull",
       "bindings": [
         {
@@ -214,6 +214,8 @@ sslctl status
   ]
 }
 ```
+
+> **注意**：API 配置在证书级别，每个证书可以使用不同的 API 来源。
 
 ### schedule 字段说明
 

@@ -881,6 +881,7 @@ func TestSendDeployCallback_EmptyAPI(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	// API 为空的证书
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  123,
@@ -889,12 +890,16 @@ func TestSendDeployCallback_EmptyAPI(t *testing.T) {
 	result := &DeployResult{CertName: "test-cert", Success: true}
 
 	// API URL 为空，不应 panic
-	cfg := &config.Config{API: config.APIConfig{URL: "", Token: ""}}
-	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+	svc.sendDeployCallback(t.Context(), cert, result)
 
 	// API Token 为空
-	cfg2 := &config.Config{API: config.APIConfig{URL: "https://api.com", Token: ""}}
-	svc.sendDeployCallback(t.Context(), cert, result, cfg2)
+	cert2 := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: "https://api.com", Token: ""},
+	}
+	svc.sendDeployCallback(t.Context(), cert2, result)
 }
 
 // TestSendDeployCallback_SuccessResult 测试成功结果的回调
@@ -904,22 +909,22 @@ func TestSendDeployCallback_SuccessResult(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  123,
 		Domains:  []string{"example.com", "www.example.com"},
+		API:      config.APIConfig{URL: callbackServer.URL, Token: "test-token"},
 		Bindings: []config.SiteBinding{
 			{SiteName: "site1", ServerType: config.ServerTypeNginx, Enabled: true},
 		},
 	}
 	result := &DeployResult{CertName: "test-cert", Success: true}
 
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
 	// 使用本地回调服务，不应 panic（非关键路径）
-	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
-	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+	svc.sendDeployCallback(t.Context(), cert, result)
 }
 
 // TestSendDeployCallback_FailureResult 测试失败结果的回调
@@ -929,10 +934,14 @@ func TestSendDeployCallback_FailureResult(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
+	callbackServer := newCallbackTestServer(t)
+	defer callbackServer.Close()
+
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		OrderID:  456,
 		Domains:  []string{"fail.com"},
+		API:      config.APIConfig{URL: callbackServer.URL, Token: "test-token"},
 	}
 	result := &DeployResult{
 		CertName: "test-cert",
@@ -940,12 +949,8 @@ func TestSendDeployCallback_FailureResult(t *testing.T) {
 		Error:    fmt.Errorf("deploy error"),
 	}
 
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	cfg := &config.Config{API: config.APIConfig{URL: callbackServer.URL, Token: "test-token"}}
 	// 失败结果也不应 panic
-	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+	svc.sendDeployCallback(t.Context(), cert, result)
 }
 
 // TestSendDeployCallback_WithCallbackURL 测试使用 CallbackURL 的回调
@@ -955,21 +960,21 @@ func TestSendDeployCallback_WithCallbackURL(t *testing.T) {
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
 
-	cert := &config.CertConfig{
-		CertName: "test-cert",
-		OrderID:  789,
-		Domains:  []string{"callback.com"},
-	}
-	result := &DeployResult{CertName: "test-cert", Success: true}
-
 	callbackServer := newCallbackTestServer(t)
 	defer callbackServer.Close()
 
 	// 使用自定义 CallbackURL
-	cfg := &config.Config{API: config.APIConfig{
-		URL:         callbackServer.URL,
-		Token:       "test-token",
-		CallbackURL: callbackServer.URL + "/hook",
-	}}
-	svc.sendDeployCallback(t.Context(), cert, result, cfg)
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  789,
+		Domains:  []string{"callback.com"},
+		API: config.APIConfig{
+			URL:         callbackServer.URL,
+			Token:       "test-token",
+			CallbackURL: callbackServer.URL + "/hook",
+		},
+	}
+	result := &DeployResult{CertName: "test-cert", Success: true}
+
+	svc.sendDeployCallback(t.Context(), cert, result)
 }

@@ -69,28 +69,19 @@ func Run(args []string, version, buildTime string, debug bool) {
 		log.SetLevel(logger.LevelDebug)
 	}
 
-	cfg, err := cfgManager.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	if cfg.API.URL == "" || cfg.API.Token == "" {
-		fmt.Fprintln(os.Stderr, "API 配置不完整，请先运行 setup 命令")
-		os.Exit(1)
-	}
-
 	ctx := context.Background()
 	f := fetcher.New(30 * time.Second)
 
 	if *all {
 		// 部署所有证书
-		for i := range cfg.Certificates {
-			cert := &cfg.Certificates[i]
-			if !cert.Enabled {
-				continue
-			}
-			if err := fetchAndDeployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
+		certs, err := cfgManager.ListEnabledCerts()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "获取证书列表失败: %v\n", err)
+			os.Exit(1)
+		}
+		for i := range certs {
+			cert := &certs[i]
+			if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
 				log.Error("部署证书 %s 失败: %v", cert.CertName, err)
 			}
 		}
@@ -101,7 +92,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			fmt.Fprintf(os.Stderr, "证书不存在: %s\n", *certName)
 			os.Exit(1)
 		}
-		if err := fetchAndDeployCert(ctx, cfgManager, cert, cfg.API, f, log); err != nil {
+		if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
 			fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -111,8 +102,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 }
 
 // fetchAndDeployCert 从 API 获取并部署单个证书到所有绑定
-func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, api config.APIConfig, f *fetcher.Fetcher, log *logger.Logger) error {
+func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher, log *logger.Logger) error {
 	fmt.Printf("部署证书: %s\n", cert.CertName)
+
+	api := cert.GetAPI()
+	if api.URL == "" || api.Token == "" {
+		return fmt.Errorf("证书 %s 的 API 配置不完整，请先运行 setup 命令", cert.CertName)
+	}
 
 	// 查询证书
 	certData, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)

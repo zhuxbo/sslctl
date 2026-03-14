@@ -32,16 +32,19 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		return nil, fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	if cfg.API.URL == "" || cfg.API.Token == "" {
-		return nil, fmt.Errorf("API 配置不完整")
-	}
-
 	var results []*RenewResult
 
 	for i := range cfg.Certificates {
 		// 使用值拷贝而非指针，确保深拷贝保护有效
 		cert := cfg.Certificates[i]
 		if !cert.Enabled {
+			continue
+		}
+
+		// 逐证书检查 API 配置
+		api := cert.GetAPI()
+		if api.URL == "" || api.Token == "" {
+			s.log.Warn("证书 %s 的 API 配置不完整，跳过续签", cert.CertName)
 			continue
 		}
 
@@ -65,9 +68,9 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		)
 
 		if mode == config.RenewModeLocal {
-			certData, privateKey, err = s.prepareLocalRenew(ctx, &cert, cfg.API)
+			certData, privateKey, err = s.prepareLocalRenew(ctx, &cert, api)
 		} else {
-			certData, privateKey, err = s.preparePullRenew(ctx, &cert, cfg.API)
+			certData, privateKey, err = s.preparePullRenew(ctx, &cert, api)
 		}
 
 		if err != nil {
@@ -86,16 +89,16 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 		// 部署证书
 		deployCount, deployErr := s.deployCertToBindings(ctx, &cert, certData, privateKey)
+		result.DeployCount = deployCount
 		if deployErr != nil {
 			result.Status = "failure"
 			result.Error = deployErr
 		} else {
 			result.Status = "success"
-			result.DeployCount = deployCount
 		}
 
-		// 更新配置
-		if result.Status == "success" {
+		// 部分成功时也需持久化元数据（deployCertToBindings 内部已更新 cert 的过期时间等）
+		if deployCount > 0 {
 			if err := s.cfgManager.UpdateCert(&cert); err != nil {
 				s.log.Warn("更新证书元数据失败: %v", err)
 			}
@@ -103,7 +106,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 		// 发送续签回调（仅在有明确结果时）
 		if result.Status == "success" || result.Status == "failure" {
-			s.sendRenewCallback(ctx, &cert, result, cfg)
+			s.sendRenewCallback(ctx, &cert, result)
 		}
 
 		results = append(results, result)
@@ -119,7 +122,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 
 // sendRenewCallback 向 API 发送续签结果回调
 // 非关键路径，失败仅记录日志
-func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig, result *RenewResult, cfg *config.Config) {
+func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig, result *RenewResult) {
 	msg := ""
 	if result.Error != nil {
 		msg = result.Error.Error()
@@ -134,7 +137,7 @@ func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cfg, callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
 }
 
 // getRenewMode 获取续签模式（带默认值）

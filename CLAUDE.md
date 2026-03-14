@@ -74,6 +74,7 @@ sslctl uninstall                  # 卸载
 
 统一配置文件：`/opt/sslctl/config.json`
 
+- API 配置在**证书级别**（每个证书独立的 `api` 字段），不再有全局 API
 - `release_url`：升级发布地址（由 install.sh/install.ps1 安装时写入，升级模块从此读取，未配置时升级命令报错）
 
 证书存储目录：`/opt/sslctl/certs/{site_name}/`
@@ -82,8 +83,8 @@ sslctl uninstall                  # 卸载
 
 | 变量                      | 说明                             |
 |---------------------------|----------------------------------|
-| `SSLCTL_API_TOKEN`   | API Token（优先级高于配置文件）  |
-| `SSLCTL_API_URL`     | API URL（优先级高于配置文件）    |
+| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）  |
+| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）    |
 | `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出  |
 
 ## 测试

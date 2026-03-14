@@ -4,7 +4,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,7 +81,7 @@ func (cm *ConfigManager) ensureDirs() error {
 
 // Load 加载配置
 // 重要：返回配置的深拷贝副本，对返回值的修改不会影响内部缓存。
-// 如需持久化修改，必须显式调用 Save() 或使用 SetAPI()/UpdateCert() 等方法。
+// 如需持久化修改，必须显式调用 Save() 或使用 UpdateCert() 等方法。
 func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.RLock()
 	if cm.config != nil {
@@ -176,7 +175,6 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 		if os.IsNotExist(err) {
 			// 返回默认配置
 			cm.config = &Config{
-				API:          APIConfig{},
 				Schedule:     defaultSchedule(),
 				Certificates: []CertConfig{},
 			}
@@ -193,30 +191,6 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	cm.config = &cfg
 	cm.cachedAt = time.Now()
-
-	// 环境变量优先级高于配置文件（带完整校验）
-	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
-		// Token 完整校验：长度 + 格式
-		if err := validateToken(envToken); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIToken, err)
-		} else {
-			if cm.config.API.Token != "" && cm.config.API.Token != envToken {
-				log.Printf("[config] API Token 被环境变量覆盖")
-			}
-			cm.config.API.Token = envToken
-		}
-	}
-	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
-		// URL 完整校验：格式 + SSRF 防护
-		if err := validateAPIURL(envURL); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIURL, err)
-		} else {
-			if cm.config.API.URL != "" && cm.config.API.URL != envURL {
-				log.Printf("[config] API URL 被环境变量覆盖")
-			}
-			cm.config.API.URL = envURL
-		}
-	}
 
 	return cm.config, nil
 }
@@ -470,20 +444,6 @@ func (cm *ConfigManager) ListEnabledCerts() ([]CertConfig, error) {
 		}
 	}
 	return enabled, nil
-}
-
-// SetAPI 设置 API 配置
-// 注意：此方法在持有锁的情况下重新加载配置，确保不会覆盖其他并发修改
-func (cm *ConfigManager) SetAPI(api APIConfig) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	cfg, err := cm.loadLocked()
-	if err != nil {
-		return err
-	}
-	cfg.API = api
-	return cm.saveLocked(cfg)
 }
 
 // GetWorkDir 获取工作目录

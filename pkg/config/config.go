@@ -2,6 +2,8 @@
 package config
 
 import (
+	"log"
+	"os"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/webserver"
@@ -9,7 +11,6 @@ import (
 
 // Config 统一配置结构（config.json）
 type Config struct {
-	API          APIConfig      `json:"api"`
 	ReleaseURL   string         `json:"release_url,omitempty"`
 	Schedule     ScheduleConfig `json:"schedule"`
 	Certificates []CertConfig   `json:"certificates"`
@@ -30,8 +31,31 @@ type CertConfig struct {
 	Enabled   bool          `json:"enabled"`              // 是否启用
 	Domains   []string      `json:"domains"`              // 证书域名列表
 	RenewMode string        `json:"renew_mode,omitempty"` // 续签模式: local | pull（优先于全局配置）
+	API       APIConfig     `json:"api"`                  // 证书级别的 API 配置
 	Bindings  []SiteBinding `json:"bindings"`             // 站点绑定
 	Metadata  CertMetadata  `json:"metadata,omitempty"`
+}
+
+// GetAPI 获取 API 配置（环境变量优先覆盖所有证书）
+func (c *CertConfig) GetAPI() APIConfig {
+	api := c.API
+
+	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
+		if err := validateToken(envToken); err != nil {
+			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIToken, err)
+		} else {
+			api.Token = envToken
+		}
+	}
+	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
+		if err := validateAPIURL(envURL); err != nil {
+			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIURL, err)
+		} else {
+			api.URL = envURL
+		}
+	}
+
+	return api
 }
 
 // CertMetadata 证书元数据

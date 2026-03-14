@@ -504,9 +504,7 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 	}
 
 	// 初始化 API 配置
-	if err := cm.SetAPI(config.APIConfig{URL: apiURL, Token: token}); err != nil {
-		t.Fatalf("设置 API 配置失败: %v", err)
-	}
+	// API 配置直接写入证书级别（见下方 cert 定义）
 
 	// 获取证书信息确定 OrderID
 	f := fetcher.New(30 * time.Second)
@@ -533,6 +531,7 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 		OrderID:  certData.OrderID,
 		Enabled:  true,
 		Domains:  strings.Split(certData.Domains, ","),
+		API:      config.APIConfig{URL: apiURL, Token: token},
 		Bindings: []config.SiteBinding{
 			{
 				SiteName:   "test-site",
@@ -734,7 +733,7 @@ func TestIntegration_PreparePullRenew(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
-	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+	// API 配置在证书级别设置
 
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
@@ -805,7 +804,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
-	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+	// API 配置在证书级别设置
 
 	// 先获取订单信息
 	f := fetcher.New(30 * time.Second)
@@ -830,6 +829,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 		OrderID:  infoData.OrderID,
 		Enabled:  true,
 		Domains:  strings.Split(infoData.Domains, ","),
+		API:      config.APIConfig{URL: apiURL, Token: token},
 		Metadata: config.CertMetadata{
 			CertExpiresAt: time.Now().Add(7 * 24 * time.Hour), // 7 天后过期（触发续签）
 		},
@@ -876,7 +876,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 		t.Fatalf("创建配置管理器失败: %v", err)
 	}
 
-	_ = cm.SetAPI(config.APIConfig{URL: apiURL, Token: token})
+	// API 配置在证书级别设置
 
 	// 设置本地私钥模式
 	cfg, _ := cm.Load()
@@ -921,6 +921,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 		OrderID:  infoData.OrderID,
 		Enabled:  true,
 		Domains:  strings.Split(infoData.Domains, ","),
+		API:      config.APIConfig{URL: apiURL, Token: token},
 		Metadata: config.CertMetadata{
 			CertExpiresAt: time.Now().Add(7 * 24 * time.Hour), // 触发续签
 		},

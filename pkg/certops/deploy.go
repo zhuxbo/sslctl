@@ -25,13 +25,13 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		return nil, fmt.Errorf("获取证书配置失败: %w", err)
 	}
 
-	cfg, err := s.cfgManager.Load()
-	if err != nil {
-		return nil, fmt.Errorf("加载配置失败: %w", err)
+	api := cert.GetAPI()
+	if api.URL == "" || api.Token == "" {
+		return nil, fmt.Errorf("证书 %s 的 API 配置不完整", certName)
 	}
 
 	// 从 API 获取证书
-	certData, err := s.fetcher.QueryOrder(ctx, cfg.API.URL, cfg.API.Token, cert.OrderID)
+	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
 		return nil, fmt.Errorf("获取证书失败: %w", err)
 	}
@@ -78,7 +78,7 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 	}
 
 	// 发送部署回调（非关键路径，失败仅记录日志）
-	s.sendDeployCallback(ctx, cert, result, cfg)
+	s.sendDeployCallback(ctx, cert, result)
 
 	// 如果所有绑定都部署失败，返回错误
 	if enabledCount > 0 && successCount == 0 && result.Error != nil {
@@ -114,7 +114,7 @@ func (s *Service) DeployAllCerts(ctx context.Context) ([]*DeployResult, error) {
 
 // sendDeployCallback 向 API 发送部署结果回调
 // 非关键路径，失败仅记录日志不影响部署结果
-func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult, cfg *config.Config) {
+func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult) {
 	status := "success"
 	msg := ""
 	if !result.Success {
@@ -142,7 +142,7 @@ func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfi
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cfg, callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
 }
 
 // deployToBinding 部署证书到绑定（带备份和回滚）
