@@ -112,7 +112,9 @@ log_info "发布目录: $RELEASE_DIR"
 log_info "Key ID: $KEY_ID"
 
 # 使用 Go 签名并更新 releases.json
-go run - "$KEY_FILE" "$RELEASES_FILE" "$VERSION" "$KEY_ID" << 'GOEOF'
+SIGN_GO=$(mktemp /tmp/sign-XXXXXX.go)
+trap 'rm -f "$SIGN_GO"' EXIT
+cat > "$SIGN_GO" << 'GOEOF'
 package main
 
 import (
@@ -131,7 +133,7 @@ type VersionInfo struct {
 }
 
 type ReleaseInfo struct {
-	LatestStable string                    `json:"latest_stable"`
+	LatestMain string                    `json:"latest_main"`
 	LatestDev    string                    `json:"latest_dev"`
 	Channels     json.RawMessage           `json:"channels,omitempty"`
 	Versions     map[string]VersionInfo    `json:"versions,omitempty"`
@@ -187,7 +189,7 @@ func main() {
 	}
 
 	// 确定通道
-	channel := "stable"
+	channel := "main"
 	if strings.Contains(version, "-") {
 		channel = "dev"
 	}
@@ -238,9 +240,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "替换 releases.json 失败: %v\n", err)
 		os.Exit(1)
 	}
+	// 确保 Web 服务器可读
+	os.Chmod(releasesFile, 0644)
 
 	fmt.Println("签名完成，releases.json 已更新")
 }
 GOEOF
+go run "$SIGN_GO" "$KEY_FILE" "$RELEASES_FILE" "$VERSION" "$KEY_ID"
 
 log_success "签名完成"

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
@@ -23,7 +22,7 @@ import (
 )
 
 // Run 运行 setup 命令
-func Run(args []string, version, buildTime string, debug bool) {
+func Run(args []string, debug bool) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	apiURL := fs.String("url", "", "证书 API 基础地址")
 	token := fs.String("token", "", "API 认证 Token")
@@ -59,8 +58,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	// 检查是否已有配置（重复运行时保留 Schedule 等用户自定义设置）
-	if existingCfg, loadErr := cfgManager.Load(); loadErr == nil && existingCfg.API.URL != "" {
-		fmt.Println("检测到已有配置，将更新 API 和证书配置（保留 Schedule 等设置）")
+	if existingCfg, loadErr := cfgManager.Load(); loadErr == nil && len(existingCfg.Certificates) > 0 {
+		fmt.Println("检测到已有配置，将更新证书配置（保留 Schedule 等设置）")
 	}
 
 	// 初始化日志
@@ -82,7 +81,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	ctx := context.Background()
 
 	// 1. 检测 Web 服务器
-	fmt.Println("步骤 1/6: 检测 Web 服务器...")
+	fmt.Println("步骤 1/7: 检测 Web 服务器...")
 	serverType := webserver.DetectWebServerType()
 	if serverType == "" {
 		fmt.Fprintln(os.Stderr, "未检测到 Nginx 或 Apache 服务")
@@ -91,7 +90,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	fmt.Printf("  检测到: %s\n", serverType)
 
 	// 2. 获取证书信息
-	fmt.Println("\n步骤 2/6: 获取证书信息...")
+	fmt.Println("\n步骤 2/7: 获取证书信息...")
 	f := fetcher.New(30 * time.Second)
 	certData, err := f.QueryOrder(ctx, *apiURL, *token, *orderID)
 	if err != nil {
@@ -104,19 +103,35 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
-	// 解析域名列表
-	certDomains := parseDomains(certData.Domains)
-	if len(certDomains) == 0 && certData.Domain != "" {
-		certDomains = []string{certData.Domain}
+	// 从证书中解析域名（比 API 返回的域名更准确）
+	certValidator := validator.New("")
+	parsedCert, err := certValidator.ValidateCert(certData.Cert)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "证书验证失败: %v\n", err)
+		os.Exit(1)
 	}
-	if len(certDomains) == 0 && certData.CommonName != "" {
-		certDomains = []string{certData.CommonName}
+
+	// 从证书 SAN 提取域名（按 CA/B Forum 规范，SAN 为必须字段）
+	certDomains := parsedCert.DNSNames
+	if len(certDomains) == 0 {
+		fmt.Fprintln(os.Stderr, "证书缺少 SAN (Subject Alternative Name)，无法提取域名")
+		os.Exit(1)
 	}
+
+	// 如果 API 返回了私钥，立即验证匹配
+	if certData.PrivateKey != "" {
+		if err := certValidator.ValidateCertKeyPair(certData.Cert, certData.PrivateKey); err != nil {
+			fmt.Fprintf(os.Stderr, "  API 返回的私钥与证书不匹配: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("  ✓ API 私钥验证通过")
+	}
+
 	fmt.Printf("  订单 ID: %d\n", certData.OrderID)
 	fmt.Printf("  证书域名: %s\n", strings.Join(certDomains, ", "))
 
 	// 3. 扫描站点并匹配
-	fmt.Println("\n步骤 3/6: 扫描站点...")
+	fmt.Println("\n步骤 3/7: 扫描站点...")
 	sites := scanSites(serverType, log)
 	if len(sites) == 0 {
 		fmt.Fprintln(os.Stderr, "未发现站点配置")
@@ -129,22 +144,20 @@ func Run(args []string, version, buildTime string, debug bool) {
 	fullMatch, partialMatch, _ := m.MatchSites(sites)
 
 	var bindings []config.SiteBinding
+	var needSSLInstall []*matcher.ScannedSiteInfo
 
 	// 处理完全匹配
 	for _, smr := range fullMatch {
 		site := smr.Site
 		fmt.Printf("\n  ✓ 完全匹配: %s\n", site.ServerName)
 		if !site.HasSSL {
-			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
-			result, err := installSSLConfig(site, cfgManager)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
-				continue
+			fmt.Printf("    站点未启用 SSL，部署时将安装 HTTPS 配置\n")
+			if !*yes {
+				if !confirm("    是否安装 HTTPS 配置?") {
+					continue
+				}
 			}
-			if result.Modified {
-				fmt.Printf("    ✓ SSL 配置已安装（备份: %s）\n", result.BackupPath)
-				updateSiteAfterInstall(site, cfgManager)
-			}
+			needSSLInstall = append(needSSLInstall, site)
 		}
 		bindings = append(bindings, createBinding(site, cfgManager))
 	}
@@ -163,16 +176,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 		}
 
 		if !site.HasSSL {
-			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
-			result, err := installSSLConfig(site, cfgManager)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
-				continue
+			fmt.Printf("    站点未启用 SSL，部署时将安装 HTTPS 配置\n")
+			if !*yes {
+				if !confirm("    是否安装 HTTPS 配置?") {
+					continue
+				}
 			}
-			if result.Modified {
-				fmt.Printf("    ✓ SSL 配置已安装（备份: %s）\n", result.BackupPath)
-				updateSiteAfterInstall(site, cfgManager)
-			}
+			needSSLInstall = append(needSSLInstall, site)
 		}
 		bindings = append(bindings, createBinding(site, cfgManager))
 	}
@@ -182,7 +192,22 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
-	// 4. 确认部署
+	// 4. 验证私钥
+	fmt.Println("\n步骤 4/7: 验证私钥...")
+	privateKey, err := getAndValidatePrivateKey(bindings, certData, certValidator)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("  ✓ 私钥验证通过")
+
+	// 验证中间证书
+	if certData.IntermediateCert == "" {
+		fmt.Fprintln(os.Stderr, "中间证书为空，无法部署")
+		os.Exit(1)
+	}
+
+	// 确认部署
 	if !*yes {
 		fmt.Printf("\n将部署证书到 %d 个站点:\n", len(bindings))
 		for _, b := range bindings {
@@ -195,39 +220,69 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	// 5. 部署证书
-	fmt.Println("\n步骤 4/6: 部署证书...")
+	fmt.Println("\n步骤 5/7: 部署证书...")
 	certName := fmt.Sprintf("order-%d", *orderID)
 
-	// 创建证书配置
+	// 创建证书配置（API 配置写入证书级别）
 	certConfig := &config.CertConfig{
 		CertName: certName,
 		OrderID:  *orderID,
 		Enabled:  true,
 		Domains:  certDomains,
+		API: config.APIConfig{
+			URL:   *apiURL,
+			Token: *token,
+		},
 		Bindings: bindings,
 	}
 
-	// 获取私钥：优先使用 API 返回，否则从站点现有路径读取
-	privateKey, err := certops.GetPrivateKeyFromBindings(bindings, certData.PrivateKey)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "获取私钥失败: %v\n", err)
-		os.Exit(1)
-	}
-	if certData.PrivateKey == "" && len(bindings) > 0 && bindings[0].Paths.PrivateKey != "" {
-		fmt.Printf("  使用本地私钥: %s\n", bindings[0].Paths.PrivateKey)
-	}
+	// 为未启用 SSL 的站点安装 HTTPS 配置（先写入证书文件，再安装配置，避免 nginx -t 失败）
+	for _, site := range needSSLInstall {
+		var binding *config.SiteBinding
+		for i := range bindings {
+			if bindings[i].SiteName == site.ServerName {
+				binding = &bindings[i]
+				break
+			}
+		}
+		if binding == nil || !binding.Enabled {
+			continue
+		}
 
-	// 验证私钥与证书匹配
-	v := validator.New("")
-	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
-		fmt.Fprintf(os.Stderr, "私钥与证书不匹配: %v\n", err)
-		os.Exit(1)
-	}
+		// 先写入证书和私钥文件
+		certDir := filepath.Dir(binding.Paths.Certificate)
+		if err := util.EnsureDir(certDir, 0700); err != nil {
+			fmt.Fprintf(os.Stderr, "    %s: 创建目录失败: %v\n", site.ServerName, err)
+			binding.Enabled = false
+			continue
+		}
 
-	// 验证中间证书
-	if certData.IntermediateCert == "" {
-		fmt.Fprintln(os.Stderr, "中间证书为空，无法部署")
-		os.Exit(1)
+		fullchain := certData.Cert
+		if certData.IntermediateCert != "" {
+			fullchain += "\n" + certData.IntermediateCert
+		}
+		if err := os.WriteFile(binding.Paths.Certificate, []byte(fullchain), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "    %s: 写入证书失败: %v\n", site.ServerName, err)
+			binding.Enabled = false
+			continue
+		}
+		if err := os.WriteFile(binding.Paths.PrivateKey, []byte(privateKey), 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "    %s: 写入私钥失败: %v\n", site.ServerName, err)
+			binding.Enabled = false
+			continue
+		}
+
+		// 安装 SSL 配置（此时 nginx -t 可以加载已写入的证书文件）
+		result, err := installSSLConfig(site, cfgManager)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "    %s: 安装 SSL 配置失败: %v\n", site.ServerName, err)
+			binding.Enabled = false
+			continue
+		}
+		if result.Modified {
+			fmt.Printf("    ✓ %s: SSL 配置已安装（备份: %s）\n", site.ServerName, result.BackupPath)
+			updateSiteAfterInstall(site, cfgManager)
+		}
 	}
 
 	// 部署到每个绑定
@@ -255,25 +310,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 
 	// 保存配置
-	fmt.Println("\n步骤 5/6: 保存配置...")
+	fmt.Println("\n步骤 6/7: 保存配置...")
 
-	// 验证证书获取过期时间
-	cert, err := v.ValidateCert(certData.Cert)
-	if err == nil {
-		certConfig.Metadata.CertExpiresAt = cert.NotAfter
-		certConfig.Metadata.CertSerial = fmt.Sprintf("%X", cert.SerialNumber)
-	}
+	// 使用步骤 2 已解析的证书设置元数据
+	certConfig.Metadata.CertExpiresAt = parsedCert.NotAfter
+	certConfig.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
 	certConfig.Metadata.LastDeployAt = time.Now()
-
-	// 初始化或更新配置
-	// 先保存 API 配置（Load 返回副本，直接修改不会持久化）
-	if err := cfgManager.SetAPI(config.APIConfig{
-		URL:   *apiURL,
-		Token: *token,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "保存 API 配置失败: %v\n", err)
-		os.Exit(1)
-	}
 
 	if *localKey {
 		certConfig.RenewMode = config.RenewModeLocal
@@ -285,9 +327,9 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 	fmt.Printf("  配置已保存: %s\n", cfgManager.GetConfigPath())
 
-	// 6. 安装守护服务
+	// 7. 安装守护服务
 	if !*noService {
-		fmt.Println("\n步骤 6/6: 安装守护服务...")
+		fmt.Println("\n步骤 7/7: 安装守护服务...")
 		if err := installService(); err != nil {
 			fmt.Fprintf(os.Stderr, "  安装服务失败: %v\n", err)
 			fmt.Println("  可稍后使用 'sslctl service repair' 修复")
@@ -295,7 +337,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			fmt.Println("  ✓ 服务已安装并启动")
 		}
 	} else {
-		fmt.Println("\n步骤 6/6: 跳过服务安装 (--no-service)")
+		fmt.Println("\n步骤 7/7: 跳过服务安装 (--no-service)")
 	}
 
 	fmt.Println("\n========================================")
@@ -452,21 +494,6 @@ func installService() error {
 	return svcMgr.Start()
 }
 
-// parseDomains 解析域名列表
-func parseDomains(domainsStr string) []string {
-	if domainsStr == "" {
-		return nil
-	}
-	var domains []string
-	for _, d := range strings.Split(domainsStr, ",") {
-		d = strings.TrimSpace(d)
-		if d != "" {
-			domains = append(domains, d)
-		}
-	}
-	return domains
-}
-
 // installSSLConfig 为未启用 SSL 的站点安装 HTTPS 配置
 func installSSLConfig(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) (*webserver.InstallResult, error) {
 	// 确定证书路径
@@ -507,11 +534,62 @@ func updateSiteAfterInstall(site *matcher.ScannedSiteInfo, cm *config.ConfigMana
 	site.KeyPath = filepath.Join(certDir, "key.pem")
 }
 
+// getAndValidatePrivateKey 获取并验证私钥与证书匹配
+// 优先使用 API 返回的私钥，否则检查本地私钥文件
+func getAndValidatePrivateKey(bindings []config.SiteBinding, certData *fetcher.CertData, v *validator.Validator) (string, error) {
+	// API 返回了私钥
+	if certData.PrivateKey != "" {
+		if err := v.ValidateCertKeyPair(certData.Cert, certData.PrivateKey); err != nil {
+			return "", fmt.Errorf("API 返回的私钥与证书不匹配: %v", err)
+		}
+		return certData.PrivateKey, nil
+	}
+
+	// API 未返回私钥，检查本地私钥
+	fmt.Println("  API 未返回私钥，检查本地私钥...")
+
+	// 从绑定中获取私钥路径
+	keyPath := ""
+	for _, b := range bindings {
+		if b.Enabled && b.Paths.PrivateKey != "" {
+			keyPath = b.Paths.PrivateKey
+			break
+		}
+	}
+	if keyPath == "" && len(bindings) > 0 {
+		keyPath = bindings[0].Paths.PrivateKey
+	}
+	if keyPath == "" {
+		return "", fmt.Errorf("缺少私钥: API 未返回私钥，且未找到本地私钥路径")
+	}
+
+	// 检查本地私钥文件是否存在
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("本地私钥文件不存在: %s\n  请确认 API 配置中启用了私钥返回，或手动放置私钥文件", keyPath)
+	}
+
+	fmt.Printf("  本地私钥: %s\n", keyPath)
+
+	// 读取私钥
+	keyData, err := util.SafeReadFile(keyPath, config.MaxPrivateKeySize)
+	if err != nil {
+		return "", fmt.Errorf("读取本地私钥失败: %v", err)
+	}
+
+	// 验证私钥与证书匹配
+	privateKey := string(keyData)
+	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
+		return "", fmt.Errorf("本地私钥与证书不匹配: %s\n  可能原因: 证书已续签但本地私钥未更新\n  请检查私钥文件或在 API 端启用私钥返回", keyPath)
+	}
+
+	return privateKey, nil
+}
+
 // confirm 确认提示
 func confirm(prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s [y/N]: ", prompt)
+	fmt.Printf("%s [Y/n]: ", prompt)
 	response, _ := reader.ReadString('\n')
 	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes"
+	return response != "n" && response != "no"
 }

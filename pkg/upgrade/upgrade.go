@@ -16,7 +16,7 @@ var installFunc = Install
 
 // Options 升级选项
 type Options struct {
-	Channel        string // 更新通道 (stable/dev)
+	Channel        string // 更新通道 (main/dev)
 	TargetVersion  string // 指定版本
 	Force          bool   // 强制重新安装
 	CheckOnly      bool   // 仅检查更新
@@ -106,7 +106,7 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 }
 
 // validChannels 允许的发布通道白名单
-var validChannels = map[string]bool{"stable": true, "dev": true}
+var validChannels = map[string]bool{"main": true, "dev": true}
 
 // downloadVerifyInstall 下载、验证签名/校验和、安装
 // baseURL 为下载基础 URL，格式如 https://release.cnssl.com/sslctl

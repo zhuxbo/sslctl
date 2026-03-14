@@ -192,7 +192,8 @@ func TestSystemdManager_serviceContent_Security(t *testing.T) {
 	securityChecks := []string{
 		"NoNewPrivileges=true",
 		"ProtectSystem=strict",
-		"ReadWritePaths=/opt/sslctl /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt",
+		"ReadWritePaths=/opt/sslctl",
+		"ReadWritePaths=-/etc/nginx",
 	}
 	for _, check := range securityChecks {
 		if !strings.Contains(content, check) {

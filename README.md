@@ -43,7 +43,7 @@ sslctl setup --url https://api.example.com --token your-token --order 12345
 自动完成：
 1. 检测 Web 服务器（Nginx/Apache）
 2. 获取证书信息并匹配站点
-3. 自动为未启用 SSL 的站点安装 HTTPS 配置（备份原配置，失败自动回滚）
+3. 为未启用 SSL 的站点安装 HTTPS 配置（需确认，备份原配置，失败自动回滚）
 4. 部署证书到匹配的站点
 5. 安装守护服务（自动续签）
 
@@ -166,8 +166,8 @@ sslctl --debug deploy --site example.com
 
 | 变量 | 说明 |
 |------|------|
-| `SSLCTL_API_TOKEN` | API Token（优先级高于配置文件） |
-| `SSLCTL_API_URL` | API URL（优先级高于配置文件） |
+| `SSLCTL_API_TOKEN` | API Token（覆盖所有证书的 API 配置） |
+| `SSLCTL_API_URL` | API URL（覆盖所有证书的 API 配置） |
 | `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 |
 
 使用示例：
@@ -182,15 +182,11 @@ sslctl status
 
 ```json
 {
-  "version": "1.0",
-  "api": {
-    "url": "https://api.example.com",
-    "token": "your-deploy-token"
-  },
   "release_url": "https://release.cnssl.com/sslctl",
   "schedule": {
     "check_interval_hours": 6,
-    "renew_before_days": 13
+    "renew_before_days": 13,
+    "renew_mode": "pull"
   },
   "certificates": [
     {
@@ -198,6 +194,10 @@ sslctl status
       "order_id": 12345,
       "enabled": true,
       "domains": ["*.example.com", "example.com"],
+      "api": {
+        "url": "https://api.example.com",
+        "token": "your-deploy-token"
+      },
       "renew_mode": "pull",
       "bindings": [
         {
@@ -214,6 +214,20 @@ sslctl status
   ]
 }
 ```
+
+> **注意**：API 配置在证书级别，每个证书可以使用不同的 API 来源。
+
+### schedule 字段说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `check_interval_hours` | int | 6 | 守护进程检查间隔（小时），0 使用默认值 |
+| `renew_before_days` | int | pull:13, local:15 | 提前续期天数，0 使用默认值 |
+| `renew_mode` | string | `pull` | 全局续签模式，证书级别可覆盖 |
+
+### config.json.lock
+
+保存配置时自动创建的文件锁（flock），防止多个 sslctl 进程同时写入 `config.json` 导致数据损坏。无需手动管理。
 
 ## 续签模式
 

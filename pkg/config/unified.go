@@ -4,7 +4,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,7 +81,7 @@ func (cm *ConfigManager) ensureDirs() error {
 
 // Load 加载配置
 // 重要：返回配置的深拷贝副本，对返回值的修改不会影响内部缓存。
-// 如需持久化修改，必须显式调用 Save() 或使用 SetAPI()/UpdateCert() 等方法。
+// 如需持久化修改，必须显式调用 Save() 或使用 UpdateCert() 等方法。
 func (cm *ConfigManager) Load() (*Config, error) {
 	cm.mu.RLock()
 	if cm.config != nil {
@@ -176,8 +175,6 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 		if os.IsNotExist(err) {
 			// 返回默认配置
 			cm.config = &Config{
-				Version:      "2.0",
-				API:          APIConfig{},
 				Schedule:     defaultSchedule(),
 				Certificates: []CertConfig{},
 			}
@@ -194,30 +191,6 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	cm.config = &cfg
 	cm.cachedAt = time.Now()
-
-	// 环境变量优先级高于配置文件（带完整校验）
-	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
-		// Token 完整校验：长度 + 格式
-		if err := validateToken(envToken); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIToken, err)
-		} else {
-			if cm.config.API.Token != "" && cm.config.API.Token != envToken {
-				log.Printf("[config] API Token 被环境变量覆盖")
-			}
-			cm.config.API.Token = envToken
-		}
-	}
-	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
-		// URL 完整校验：格式 + SSRF 防护
-		if err := validateAPIURL(envURL); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，忽略", EnvAPIURL, err)
-		} else {
-			if cm.config.API.URL != "" && cm.config.API.URL != envURL {
-				log.Printf("[config] API URL 被环境变量覆盖")
-			}
-			cm.config.API.URL = envURL
-		}
-	}
 
 	return cm.config, nil
 }
@@ -378,10 +351,29 @@ func (cm *ConfigManager) AddCert(cert *CertConfig) error {
 		return err
 	}
 
-	// 检查是否已存在
+	// 收集新证书绑定的站点名
+	newSites := make(map[string]bool)
+	for _, b := range cert.Bindings {
+		newSites[b.SiteName] = true
+	}
+
+	// 移除其他证书中对相同站点的绑定（一个站点只能绑定一个证书）
 	for i := range cfg.Certificates {
 		if cfg.Certificates[i].CertName == cert.CertName {
-			// 更新现有配置
+			continue
+		}
+		var kept []SiteBinding
+		for _, b := range cfg.Certificates[i].Bindings {
+			if !newSites[b.SiteName] {
+				kept = append(kept, b)
+			}
+		}
+		cfg.Certificates[i].Bindings = kept
+	}
+
+	// 检查是否已存在同名证书
+	for i := range cfg.Certificates {
+		if cfg.Certificates[i].CertName == cert.CertName {
 			cfg.Certificates[i] = *cert
 			return cm.saveLocked(cfg)
 		}
@@ -452,20 +444,6 @@ func (cm *ConfigManager) ListEnabledCerts() ([]CertConfig, error) {
 		}
 	}
 	return enabled, nil
-}
-
-// SetAPI 设置 API 配置
-// 注意：此方法在持有锁的情况下重新加载配置，确保不会覆盖其他并发修改
-func (cm *ConfigManager) SetAPI(api APIConfig) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	cfg, err := cm.loadLocked()
-	if err != nil {
-		return err
-	}
-	cfg.API = api
-	return cm.saveLocked(cfg)
 }
 
 // GetWorkDir 获取工作目录
@@ -543,23 +521,6 @@ func validateToken(token string) error {
 		return fmt.Errorf("token contains invalid characters (allowed: A-Za-z0-9-_.)")
 	}
 	return nil
-}
-
-// InitConfig 初始化配置（一键部署使用）
-func (cm *ConfigManager) InitConfig(apiURL, token string) error {
-	cfg := &Config{
-		Version: "2.0",
-		API: APIConfig{
-			URL:   apiURL,
-			Token: token,
-		},
-		Schedule:     defaultSchedule(),
-		Certificates: []CertConfig{},
-		Metadata: ConfigMetadata{
-			CreatedAt: time.Now(),
-		},
-	}
-	return cm.Save(cfg)
 }
 
 // ConfigExists 检查配置是否存在

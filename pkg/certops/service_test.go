@@ -210,7 +210,6 @@ func TestCheckExpiry(t *testing.T) {
 			}
 
 			cfg := &config.Config{
-				Version:      "2.0",
 				Certificates: tt.certs,
 			}
 			writeTestConfig(t, dir, cfg)

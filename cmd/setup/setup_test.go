@@ -13,61 +13,6 @@ import (
 	"github.com/zhuxbo/sslctl/testdata/certs"
 )
 
-// TestParseDomains 测试域名解析
-func TestParseDomains(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		expect []string
-	}{
-		{
-			name:   "单个域名",
-			input:  "example.com",
-			expect: []string{"example.com"},
-		},
-		{
-			name:   "多个域名",
-			input:  "example.com,www.example.com,api.example.com",
-			expect: []string{"example.com", "www.example.com", "api.example.com"},
-		},
-		{
-			name:   "带空格",
-			input:  "example.com, www.example.com , api.example.com",
-			expect: []string{"example.com", "www.example.com", "api.example.com"},
-		},
-		{
-			name:   "空字符串",
-			input:  "",
-			expect: nil,
-		},
-		{
-			name:   "只有逗号",
-			input:  ",,",
-			expect: nil,
-		},
-		{
-			name:   "通配符域名",
-			input:  "*.example.com,example.com",
-			expect: []string{"*.example.com", "example.com"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseDomains(tt.input)
-			if len(result) != len(tt.expect) {
-				t.Errorf("parseDomains(%q) = %v, want %v", tt.input, result, tt.expect)
-				return
-			}
-			for i, d := range result {
-				if d != tt.expect[i] {
-					t.Errorf("parseDomains(%q)[%d] = %s, want %s", tt.input, i, d, tt.expect[i])
-				}
-			}
-		})
-	}
-}
-
 // TestCreateBinding_Nginx 测试创建 Nginx 绑定
 func TestCreateBinding_Nginx(t *testing.T) {
 	tmpDir := t.TempDir()

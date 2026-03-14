@@ -31,16 +31,16 @@ func NewService(cfgManager *config.ConfigManager, log *logger.Logger) *Service {
 
 // sendCallback 统一发送回调
 // 非关键路径，失败仅记录日志
-func (s *Service) sendCallback(ctx context.Context, cfg *config.Config, req *fetcher.CallbackRequest) {
-	if cfg.API.URL == "" || cfg.API.Token == "" {
+func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *fetcher.CallbackRequest) {
+	if api.URL == "" || api.Token == "" {
 		return
 	}
 
 	var err error
-	if cfg.API.CallbackURL != "" {
-		err = s.fetcher.Callback(ctx, cfg.API.CallbackURL, cfg.API.Token, req)
+	if api.CallbackURL != "" {
+		err = s.fetcher.Callback(ctx, api.CallbackURL, api.Token, req)
 	} else {
-		err = s.fetcher.CallbackNew(ctx, cfg.API.URL, cfg.API.Token, req)
+		err = s.fetcher.CallbackNew(ctx, api.URL, api.Token, req)
 	}
 
 	if err != nil {

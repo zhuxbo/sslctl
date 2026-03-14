@@ -1,5 +1,4 @@
 {
-  "version": "2.0",
   "api": {
     "url": "https://api.example.com",
     "token": "test-token-12345"

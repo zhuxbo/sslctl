@@ -76,8 +76,8 @@ func TestGetDownloadFilename(t *testing.T) {
 func TestGetDownloadURL(t *testing.T) {
 	filename := GetDownloadFilename()
 
-	url := GetDownloadURL("https://release.example.com/sslctl", "stable", "v1.0.0")
-	expected := "https://release.example.com/sslctl/stable/v1.0.0/" + filename
+	url := GetDownloadURL("https://release.example.com/sslctl", "main", "v1.0.0")
+	expected := "https://release.example.com/sslctl/main/v1.0.0/" + filename
 	if url != expected {
 		t.Errorf("url = %q, want %q", url, expected)
 	}

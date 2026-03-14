@@ -427,18 +427,20 @@ func parseServerBlocks(lines []string, defaultConfigFile string, opts parseOptio
 			continue
 		}
 
-		// 检测 server 块开始 - 方式2续: 上一行是 server，这一行是 {
-		if pendingServer && openBraceOnlyRe.MatchString(line) {
-			inServerBlock = true
-			braceCount = 1
-			inLocation = false
-			locationBraceCount = 0
-			pendingServer = false
-			current = &rawBlock{configFile: currentFile}
-			continue
-		}
-
+		// 检测 server 块开始 - 方式2续: server 之后等待 {（跳过空行）
 		if pendingServer {
+			if trimmed == "" {
+				continue
+			}
+			if openBraceOnlyRe.MatchString(line) {
+				inServerBlock = true
+				braceCount = 1
+				inLocation = false
+				locationBraceCount = 0
+				pendingServer = false
+				current = &rawBlock{configFile: currentFile}
+				continue
+			}
 			pendingServer = false
 		}
 

@@ -259,12 +259,12 @@ cmd := exec.Command("sh", "-c", userInput)
 
 ```go
 cfg, _ := cm.Load()
-cfg.API.Token = "new-token"  // 仅修改副本
+cfg.Certificates[0].API.Token = "new-token"  // 仅修改副本
 
 // 需要显式保存
 cm.Save(cfg)
 // 或使用专用方法
-cm.SetAPI(config.APIConfig{...})
+cm.UpdateCert(&cert)
 ```
 
 ### 日志脱敏

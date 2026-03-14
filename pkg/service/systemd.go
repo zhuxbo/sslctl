@@ -41,7 +41,11 @@ StandardOutput=journal
 StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/sslctl /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt
+ReadWritePaths=/opt/sslctl
+ReadWritePaths=-/etc/nginx
+ReadWritePaths=-/etc/apache2
+ReadWritePaths=-/etc/httpd
+ReadWritePaths=-/etc/letsencrypt
 
 [Install]
 WantedBy=multi-user.target

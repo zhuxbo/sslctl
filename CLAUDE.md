@@ -74,6 +74,7 @@ sslctl uninstall                  # 卸载
 
 统一配置文件：`/opt/sslctl/config.json`
 
+- API 配置在**证书级别**（每个证书独立的 `api` 字段），不再有全局 API
 - `release_url`：升级发布地址（由 install.sh/install.ps1 安装时写入，升级模块从此读取，未配置时升级命令报错）
 
 证书存储目录：`/opt/sslctl/certs/{site_name}/`
@@ -82,8 +83,8 @@ sslctl uninstall                  # 卸载
 
 | 变量                      | 说明                             |
 |---------------------------|----------------------------------|
-| `SSLCTL_API_TOKEN`   | API Token（优先级高于配置文件）  |
-| `SSLCTL_API_URL`     | API URL（优先级高于配置文件）    |
+| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）  |
+| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）    |
 | `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出  |
 
 ## 测试
@@ -146,7 +147,7 @@ docker/test/
 - 命令执行白名单 + 超时控制（`internal/executor`，默认 30 秒超时，支持 Context 取消）
 - SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
 - 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
-- SSL 配置自动安装（setup 流程自动为 HTTP 站点安装 HTTPS 配置，备份原配置、配置测试失败自动回滚）
+- SSL 配置自动安装（setup 流程为未启用 SSL 的站点安装 HTTPS 配置，需用户确认，备份原配置、配置测试失败自动回滚；支持 `server\n{` 多行格式）
 - 文件操作安全（符号链接防护、TOCTOU 保护、AtomicWrite O_EXCL 防护）
 - 备份源文件符号链接检查（`pkg/backup` computeFileHash 拒绝符号链接）
 - 备份恢复安全（Restore 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份）
@@ -165,7 +166,7 @@ docker/test/
 - 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环已内置 key-1 公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；已配置公钥时拒绝安装未签名版本，防止降级攻击）
 - 升级安装符号链接防护（`copyFile` 写入前检查目标路径，拒绝覆盖符号链接）
 - 升级签名密钥轮换（密钥不匹配时提示用 `install.sh` 重装；`ErrKeyNotFound`/`ErrNoPublicKeys` 统一处理）
-- 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 stable/dev，防止路径遍历）
+- 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 main/dev，防止路径遍历）
 - systemd 服务安全限制（NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单）
 - 日志 JSON 输出模式（`SSLCTL_LOG_FORMAT=json`，敏感信息过滤在两种模式下均生效）
 - 部署/续签结果 API 回调（`pkg/certops`，非关键路径，失败仅记录日志，状态枚举统一使用 `success`/`failure`/`pending`）

@@ -32,7 +32,7 @@ func TestNormalizeVersion(t *testing.T) {
 
 func TestResolveTarget(t *testing.T) {
 	info := &ReleaseInfo{
-		LatestStable: "v1.0.0",
+		LatestMain: "v1.0.0",
 		LatestDev:    "v1.1.0-beta",
 	}
 
@@ -51,7 +51,7 @@ func TestResolveTarget(t *testing.T) {
 			channel:       "",
 			info:          info,
 			wantVersion:   "v1.2.0",
-			wantChannel:   "stable",
+			wantChannel:   "main",
 		},
 		{
 			name:          "指定 dev 版本自动检测通道",
@@ -70,11 +70,11 @@ func TestResolveTarget(t *testing.T) {
 			wantChannel:   "dev",
 		},
 		{
-			name:        "默认通道取 stable",
+			name:        "默认通道取 main",
 			channel:     "",
 			info:        info,
 			wantVersion: "v1.0.0",
-			wantChannel: "stable",
+			wantChannel: "main",
 		},
 		{
 			name:        "指定 dev 通道",
@@ -84,9 +84,9 @@ func TestResolveTarget(t *testing.T) {
 			wantChannel: "dev",
 		},
 		{
-			name:        "stable 为空回退 dev",
+			name:        "main 为空回退 dev",
 			channel:     "",
-			info:        &ReleaseInfo{LatestStable: "", LatestDev: "v2.0.0-dev"},
+			info:        &ReleaseInfo{LatestMain: "", LatestDev: "v2.0.0-dev"},
 			wantVersion: "v2.0.0-dev",
 			wantChannel: "dev",
 		},
@@ -230,7 +230,7 @@ func TestCompareVersions(t *testing.T) {
 
 func TestFetchReleaseInfo_Success(t *testing.T) {
 	expected := &ReleaseInfo{
-		LatestStable: "v1.0.0",
+		LatestMain: "v1.0.0",
 		LatestDev:    "v1.1.0-beta",
 		Versions: map[string]VersionInfo{
 			"v1.0.0": {
@@ -251,8 +251,8 @@ func TestFetchReleaseInfo_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.LatestStable != expected.LatestStable {
-		t.Errorf("LatestStable = %q, want %q", info.LatestStable, expected.LatestStable)
+	if info.LatestMain != expected.LatestMain {
+		t.Errorf("LatestMain = %q, want %q", info.LatestMain, expected.LatestMain)
 	}
 	if info.LatestDev != expected.LatestDev {
 		t.Errorf("LatestDev = %q, want %q", info.LatestDev, expected.LatestDev)

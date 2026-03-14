@@ -23,7 +23,7 @@ type VersionInfo struct {
 
 // ReleaseInfo 发布信息
 type ReleaseInfo struct {
-	LatestStable string                 `json:"latest_stable"`
+	LatestMain string                 `json:"latest_main"`
 	LatestDev    string                 `json:"latest_dev"`
 	Versions     map[string]VersionInfo `json:"versions,omitempty"`
 }
@@ -76,15 +76,15 @@ func ResolveTarget(targetVersion, channel string, info *ReleaseInfo) (string, st
 		} else if strings.Contains(target, "-") {
 			ch = "dev"
 		} else {
-			ch = "stable"
+			ch = "main"
 		}
 	} else {
 		if channel == "dev" {
 			target = info.LatestDev
 			ch = "dev"
 		} else {
-			target = info.LatestStable
-			ch = "stable"
+			target = info.LatestMain
+			ch = "main"
 			if target == "" {
 				target = info.LatestDev
 				ch = "dev"

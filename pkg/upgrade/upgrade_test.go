@@ -15,7 +15,7 @@ import (
 
 func TestExecute_AlreadyLatest(t *testing.T) {
 	info := &ReleaseInfo{
-		LatestStable: "v1.0.0",
+		LatestMain: "v1.0.0",
 		LatestDev:    "v1.1.0-beta",
 	}
 
@@ -27,7 +27,7 @@ func TestExecute_AlreadyLatest(t *testing.T) {
 
 	result, err := executeWithClient(Options{
 		CurrentVersion: "v1.0.0",
-		Channel:        "stable",
+		Channel:        "main",
 	}, nil, server.URL+"/releases.json", server.Client())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -39,7 +39,7 @@ func TestExecute_AlreadyLatest(t *testing.T) {
 
 func TestExecute_CheckOnly(t *testing.T) {
 	info := &ReleaseInfo{
-		LatestStable: "v2.0.0",
+		LatestMain: "v2.0.0",
 		LatestDev:    "v2.1.0-beta",
 	}
 
@@ -51,7 +51,7 @@ func TestExecute_CheckOnly(t *testing.T) {
 
 	result, err := executeWithClient(Options{
 		CurrentVersion: "v1.0.0",
-		Channel:        "stable",
+		Channel:        "main",
 		CheckOnly:      true,
 	}, nil, server.URL+"/releases.json", server.Client())
 	if err != nil {
@@ -67,7 +67,7 @@ func TestExecute_CheckOnly(t *testing.T) {
 
 func TestExecute_Force(t *testing.T) {
 	info := &ReleaseInfo{
-		LatestStable: "v1.0.0",
+		LatestMain: "v1.0.0",
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,7 @@ func TestExecute_Force(t *testing.T) {
 
 	result, err := executeWithClient(Options{
 		CurrentVersion: "v1.0.0",
-		Channel:        "stable",
+		Channel:        "main",
 		CheckOnly:      true,
 		Force:          true,
 	}, nil, server.URL+"/releases.json", server.Client())
@@ -129,7 +129,7 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 	checksum := "sha256:" + hex.EncodeToString(hash[:])
 
 	info := &ReleaseInfo{
-		LatestStable: "v2.0.0",
+		LatestMain: "v2.0.0",
 		Versions: map[string]VersionInfo{
 			"v2.0.0": {
 				Checksums:  map[string]string{filename: checksum},
@@ -150,7 +150,7 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 
 	_, err := executeWithClient(Options{
 		CurrentVersion: "v1.0.0",
-		Channel:        "stable",
+		Channel:        "main",
 	}, nil, server.URL+"/releases.json", server.Client())
 	if err == nil {
 		t.Fatal("expected error for unknown key")
@@ -174,7 +174,7 @@ func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
 	sigStr, checksum := signAndChecksum(t, priv, "key-1", gzData)
 
 	info := &ReleaseInfo{
-		LatestStable: "v2.0.0",
+		LatestMain: "v2.0.0",
 		Versions: map[string]VersionInfo{
 			"v2.0.0": {
 				Checksums:  map[string]string{filename: checksum},
@@ -195,7 +195,7 @@ func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
 
 	_, err := executeWithClient(Options{
 		CurrentVersion: "v1.0.0",
-		Channel:        "stable",
+		Channel:        "main",
 	}, nil, server.URL+"/releases.json", server.Client())
 	if err == nil {
 		t.Fatal("expected error for no public keys")
@@ -221,14 +221,14 @@ func TestDownloadVerifyInstall_InvalidChannel(t *testing.T) {
 }
 
 func TestValidChannels(t *testing.T) {
-	// stable 和 dev 应该通过通道校验
-	for _, ch := range []string{"stable", "dev"} {
+	// main 和 dev 应该通过通道校验
+	for _, ch := range []string{"main", "dev"} {
 		if !validChannels[ch] {
 			t.Errorf("channel %q should be valid", ch)
 		}
 	}
 	// 非法通道
-	for _, ch := range []string{"", "../hack", "nightly", "stable/../../etc"} {
+	for _, ch := range []string{"", "../hack", "nightly", "main/../../etc"} {
 		if validChannels[ch] {
 			t.Errorf("channel %q should be invalid", ch)
 		}
