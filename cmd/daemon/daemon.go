@@ -120,6 +120,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 // checkAndDeploy 检查并部署证书
 func checkAndDeploy(parentCtx context.Context, svc *certops.Service, log *logger.Logger) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("检查任务 panic: %v", r)
+		}
+	}()
+
 	// 为每次检查任务设置 30 分钟超时，防止 API 卡死阻塞整个守护进程
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
 	defer cancel()
