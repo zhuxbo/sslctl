@@ -369,6 +369,9 @@ Group=root
 WorkingDirectory=/opt/sslctl
 StandardOutput=journal
 StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/sslctl /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt
 
 [Install]
 WantedBy=multi-user.target

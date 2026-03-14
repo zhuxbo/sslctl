@@ -99,7 +99,16 @@ bash build/release.sh --test                     # 测试 SSH 连接
 
 ### 配置文件
 
-- `build/release.conf` — 远程服务器 SSH 配置（权限应为 600）
+- `build/release.conf` — 远程服务器 SSH 配置 + 签名密钥配置（权限应为 600）
+  - `SERVERS` — 远程发布服务器列表
+  - `SSH_USER` / `SSH_KEY` — SSH 认证
+  - `SIGN_KEY` — 签名私钥路径（如 `build/keys/release-key.pem`）
+  - `SIGN_KEY_ID` — 签名密钥 ID（如 `key-1`，对应 `installer.go` 中的公钥 ID）
+- `build/keys/` — 密钥对存储目录（已加入 `.gitignore`，不提交到仓库）
+  - `release-key.pem` — Ed25519 私钥（离线保管）
+  - `release-key.pub` — 公钥（base64 格式）
+
+公钥已通过 `init()` 函数内置到 `pkg/upgrade/installer.go`，密钥轮换时需同时更新代码中的公钥并发布过渡版本。
 
 配置文件不提交到仓库，从 `.example` 文件复制并填写。
 

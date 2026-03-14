@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,10 +114,12 @@ type Logger struct {
 	mu       sync.Mutex
 	file     *os.File
 	minLevel Level
+	jsonMode bool // JSON 输出模式
 }
 
 // New 创建日志记录器
 // 日志级别通过 LOG_LEVEL 环境变量配置，支持: debug, info, warn, error
+// 日志格式通过 SSLCTL_LOG_FORMAT 环境变量配置：json 启用 JSON 输出，默认为文本格式
 func New(logDir, siteName string) (*Logger, error) {
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
@@ -126,6 +129,7 @@ func New(logDir, siteName string) (*Logger, error) {
 		logDir:   logDir,
 		siteName: siteName,
 		minLevel: getLevelFromEnv(),
+		jsonMode: os.Getenv("SSLCTL_LOG_FORMAT") == "json",
 	}
 
 	if err := l.openLogFile(); err != nil {
@@ -133,6 +137,11 @@ func New(logDir, siteName string) (*Logger, error) {
 	}
 
 	return l, nil
+}
+
+// SetJSONMode 设置 JSON 输出模式
+func (l *Logger) SetJSONMode(enabled bool) {
+	l.jsonMode = enabled
 }
 
 // openLogFile 打开或创建日志文件
@@ -188,11 +197,27 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 		_ = l.openLogFile()
 	}
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now()
 	message := fmt.Sprintf(format, args...)
-	// 过滤敏感信息
+	// 过滤敏感信息（两种模式下均生效）
 	message = sanitize(message)
-	logLine := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level.String(), message)
+
+	var logLine string
+	if l.jsonMode {
+		entry := map[string]string{
+			"time":  now.Format(time.RFC3339),
+			"level": level.String(),
+			"msg":   message,
+		}
+		if l.siteName != "" {
+			entry["site"] = l.siteName
+		}
+		jsonBytes, _ := json.Marshal(entry)
+		logLine = string(jsonBytes) + "\n"
+	} else {
+		timestamp := now.Format("2006-01-02 15:04:05")
+		logLine = fmt.Sprintf("[%s] [%s] %s\n", timestamp, level.String(), message)
+	}
 
 	// 写入文件
 	if l.file != nil {

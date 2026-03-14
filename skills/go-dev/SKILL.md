@@ -152,16 +152,16 @@ go tool cover -html=coverage.out         # 生成 HTML 报告
 | pkg/errors     | 100.0% |
 | pkg/matcher    | 94.7%  |
 | pkg/csr        | 93.5%  |
-| pkg/upgrade    | 79.0%  |
 | pkg/config     | 76.1%  |
 | pkg/validator  | 75.5%  |
 | pkg/backup     | 75.3%  |
-| pkg/fetcher    | 73.9%  |
-| pkg/logger     | 72.1%  |
-| pkg/webserver  | 63.5%  |
-| pkg/certops    | 46.1%  |
-| pkg/util       | 37.5%  |
-| **总计**       | **48.2%** |
+| pkg/fetcher    | 75.3%  |
+| pkg/upgrade    | 71.2%  |
+| pkg/logger     | 69.0%  |
+| pkg/webserver  | 66.4%  |
+| pkg/certops    | 49.0%  |
+| pkg/util       | 40.8%  |
+| **总计**       | **59.8%** |
 
 ### 测试目录结构
 
@@ -269,11 +269,13 @@ cm.SetAPI(config.APIConfig{...})
 
 ### 日志脱敏
 
-`pkg/logger` 自动过滤敏感信息：
+`pkg/logger` 自动过滤敏感信息（text 和 JSON 两种模式下均生效）：
 
 - PEM 私钥 → `***REDACTED PRIVATE KEY***`
 - Bearer Token → `Bearer ***REDACTED***`
 - password/secret/token 参数 → `param=***REDACTED***`
+
+JSON 模式通过 `SSLCTL_LOG_FORMAT=json` 环境变量启用，或调用 `SetJSONMode(true)`。
 
 ### SSRF 防护
 
@@ -326,6 +328,7 @@ safePath, err := util.JoinUnderDir(baseDir, userInput)
 - 强制 HTTPS 协议
 - TLS 1.2+ 最低版本
 - 5 分钟超时 + 100MB 大小限制
+- Ed25519 签名验证（密钥环已内置 key-1 公钥，已配置公钥时拒绝未签名版本）
 - SHA256 校验和验证
 
 ### 域名匹配

@@ -36,6 +36,8 @@ server {
 - `ssl_certificate_key`: 私钥路径
 - `listen`: 端口和 SSL 标志
 
+四个解析函数（`parseConfigFile`、`parseHTTPConfigFile`、`parseAllConfigFile`、`scanWithNginxT`）共用统一的 `parseServerBlocks()` 引擎，通过 `parseOptions` 参数化差异（如 nginx -T 模式的文件跟踪）。正则表达式在包级别编译一次。
+
 ### 重载服务
 
 所有重载命令通过 `internal/executor` 包执行，使用白名单机制：

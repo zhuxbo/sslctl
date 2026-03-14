@@ -209,6 +209,35 @@ func TestCopyFile_SrcNotExist(t *testing.T) {
 	}
 }
 
+func TestCopyFile_DstIsSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建源文件
+	srcPath := filepath.Join(tmpDir, "src")
+	if err := os.WriteFile(srcPath, []byte("source content"), 0644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+
+	// 创建目标文件和指向它的符号链接
+	realDst := filepath.Join(tmpDir, "real-dst")
+	if err := os.WriteFile(realDst, []byte("real target"), 0644); err != nil {
+		t.Fatalf("write real dst: %v", err)
+	}
+	symlinkDst := filepath.Join(tmpDir, "symlink-dst")
+	if err := os.Symlink(realDst, symlinkDst); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	// copyFile 应该拒绝符号链接目标
+	err := copyFile(srcPath, symlinkDst)
+	if err == nil {
+		t.Fatal("expected error for symlink destination")
+	}
+	if !strings.Contains(err.Error(), "符号链接") {
+		t.Errorf("error should mention symlink, got: %v", err)
+	}
+}
+
 func TestDownloadBinaryWithClient_Success(t *testing.T) {
 	gzData := makeGzipData(t, []byte("binary data"))
 

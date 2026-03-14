@@ -84,18 +84,32 @@ systemctl start sslctl
 ```ini
 # /etc/systemd/system/sslctl.service
 [Unit]
-Description=CertDeploy Certificate Management
-After=network.target
+Description=SSL Certificate Manager
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/sslctl nginx daemon
+ExecStart=/usr/local/bin/sslctl daemon
 Restart=always
-RestartSec=10
+RestartSec=30
+User=root
+Group=root
+WorkingDirectory=/opt/sslctl
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/sslctl /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+安全限制说明：
+- `NoNewPrivileges=true` — 防止提权
+- `ProtectSystem=strict` — 文件系统只读
+- `ReadWritePaths` — 仅允许写入工作目录和 Web 服务器配置目录
 
 ### 管理命令
 
@@ -130,9 +144,19 @@ sudo journalctl -u sslctl -f
 - 生产模式：`/opt/sslctl/logs/sslctl.log`
 - Debug 模式：`/opt/sslctl/logs/debug-{date}.log`
 
+### JSON 日志模式
+
+设置 `SSLCTL_LOG_FORMAT=json` 启用 JSON 输出，适合 ELK/Loki 聚合：
+
+```json
+{"level":"INFO","msg":"证书部署成功: domain=example.com","site":"sslctl","time":"2026-03-14T15:00:00+08:00"}
+```
+
+敏感信息过滤在两种模式下均生效。
+
 ### 日志轮转
 
-建议配置 logrotate：
+内置自动轮转（保留 30 天/10 个文件），也可配置 logrotate：
 
 ```
 /opt/sslctl/logs/*.log {
@@ -151,9 +175,10 @@ sudo journalctl -u sslctl -f
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `SSLCTL_DEBUG` | 启用 debug 模式 | 0 |
-| `SSLCTL_DIR` | 工作目录 | /opt/sslctl |
-| `LOG_LEVEL` | 日志级别 | info |
+| `SSLCTL_API_TOKEN` | API Token（优先级高于配置文件） | - |
+| `SSLCTL_API_URL` | API URL（优先级高于配置文件） | - |
+| `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 | text |
+| `LOG_LEVEL` | 日志级别（debug/info/warn/error） | info |
 
 ---
 
@@ -257,7 +282,8 @@ sslctl                    Manager API                    CA
 - **日志目录安全**：日志目录权限设置为 0700（防止日志泄露）
 - **配置文件锁**：并发写入保护（跨平台支持）
 - **部署回滚**：部署失败自动回滚到备份
-- **升级校验**：下载二进制时验证 SHA256 校验和
+- **升级校验**：下载二进制时验证 Ed25519 签名 + SHA256 校验和，已配置公钥时拒绝未签名版本
+- **systemd 安全加固**：NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单
 - **日志轮转**：自动清理旧日志文件（保留 30 天/10 个）
 - **重试限制**：CSR 签发重试次数上限（10 次）
 - **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换

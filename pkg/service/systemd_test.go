@@ -187,6 +187,18 @@ func TestSystemdManager_serviceContent_Security(t *testing.T) {
 	if !strings.Contains(content, "Group=root") {
 		t.Error("服务文件应配置 Group=root")
 	}
+
+	// 验证安全限制配置
+	securityChecks := []string{
+		"NoNewPrivileges=true",
+		"ProtectSystem=strict",
+		"ReadWritePaths=/opt/sslctl /etc/nginx /etc/apache2 /etc/httpd /etc/letsencrypt",
+	}
+	for _, check := range securityChecks {
+		if !strings.Contains(content, check) {
+			t.Errorf("服务文件应包含安全配置: %s", check)
+		}
+	}
 }
 
 // TestSystemdManager_serviceContent_Logging 测试日志配置

@@ -49,3 +49,4 @@ version.json
 release-key.pem
 release-key.pub
 public_key.go
+build/keys/

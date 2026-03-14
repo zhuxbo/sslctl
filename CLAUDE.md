@@ -84,6 +84,7 @@ sslctl uninstall                  # 卸载
 |---------------------------|----------------------------------|
 | `SSLCTL_API_TOKEN`   | API Token（优先级高于配置文件）  |
 | `SSLCTL_API_URL`     | API URL（优先级高于配置文件）    |
+| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出  |
 
 ## 测试
 
@@ -161,10 +162,12 @@ docker/test/
 - 配置扫描防护（Nginx/Apache 扫描器文件数量限制 1000 + 文件大小限制 10MB）
 - Docker 挂载路径精确匹配（防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`）
 - 升级解压防护（gzip 解压大小限制，防止 gzip 炸弹攻击）
-- 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环支持多公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；空密钥环时拒绝验证而非静默跳过；已配置公钥时拒绝安装未签名版本，防止降级攻击）
+- 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环已内置 key-1 公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；已配置公钥时拒绝安装未签名版本，防止降级攻击）
 - 升级安装符号链接防护（`copyFile` 写入前检查目标路径，拒绝覆盖符号链接）
 - 升级签名密钥轮换（密钥不匹配时提示用 `install.sh` 重装；`ErrKeyNotFound`/`ErrNoPublicKeys` 统一处理）
 - 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 stable/dev，防止路径遍历）
+- systemd 服务安全限制（NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单）
+- 日志 JSON 输出模式（`SSLCTL_LOG_FORMAT=json`，敏感信息过滤在两种模式下均生效）
 - 部署/续签结果 API 回调（`pkg/certops`，非关键路径，失败仅记录日志，状态枚举统一使用 `success`/`failure`/`pending`）
 
 ## CSR 生成

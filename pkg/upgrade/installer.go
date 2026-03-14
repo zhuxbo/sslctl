@@ -106,6 +106,11 @@ func (e *ErrNoPublicKeys) Error() string {
 // 公钥更新时需要重新编译发布
 var releasePublicKeys = map[string]ed25519.PublicKey{}
 
+// init 注册发布签名公钥（由 build/generate-keys.sh 生成）
+func init() {
+	releasePublicKeys["key-1"] = ed25519.PublicKey{0x3d, 0xca, 0xc7, 0x05, 0xf4, 0xce, 0xe9, 0x86, 0xa0, 0x8d, 0x8c, 0xd5, 0xb5, 0x90, 0x42, 0xe3, 0x1f, 0x37, 0xbf, 0x5a, 0x4c, 0x36, 0x50, 0x65, 0xa4, 0xd2, 0x2d, 0x50, 0xe0, 0x26, 0x23, 0x8a}
+}
+
 // SetReleasePublicKeys 设置发布签名公钥环（仅用于测试）
 func SetReleasePublicKeys(keys map[string]ed25519.PublicKey) {
 	releasePublicKeys = keys
@@ -250,11 +255,11 @@ func installTo(gzData []byte, binPath string) (string, error) {
 // GetBinaryPath 获取二进制安装路径
 func GetBinaryPath() string {
 	if runtime.GOOS == "windows" {
-		// Windows: 使用当前可执行文件路径或 %LOCALAPPDATA%\sslctl
+		// Windows: 使用当前可执行文件路径，fallback 到统一目录 C:\sslctl
 		if exePath, err := os.Executable(); err == nil {
 			return exePath
 		}
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "sslctl", "sslctl.exe")
+		return `C:\sslctl\sslctl.exe`
 	}
 	return "/usr/local/bin/sslctl"
 }

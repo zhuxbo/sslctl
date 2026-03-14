@@ -168,6 +168,7 @@ sslctl --debug deploy --site example.com
 |------|------|
 | `SSLCTL_API_TOKEN` | API Token（优先级高于配置文件） |
 | `SSLCTL_API_URL` | API URL（优先级高于配置文件） |
+| `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 |
 
 使用示例：
 ```bash
