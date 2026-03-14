@@ -324,3 +324,51 @@ func TestInstallService(t *testing.T) {
 	// installService 需要 root 权限，这里只验证函数存在
 	_ = installService
 }
+
+// TestInstallSSLConfig_Nginx 测试自动安装 SSL 配置
+func TestInstallSSLConfig_Nginx(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
+
+	site := &matcher.ScannedSiteInfo{
+		ServerName: "example.com",
+		ConfigFile: "/etc/nginx/conf.d/example.conf",
+		HasSSL:     false,
+		ServerType: config.ServerTypeNginx,
+	}
+
+	result, err := installSSLConfig(site, cfgManager)
+	if err != nil {
+		t.Fatalf("installSSLConfig() error = %v", err)
+	}
+
+	if !result.Modified {
+		t.Error("installSSLConfig() Modified 应为 true")
+	}
+
+	if result.BackupPath == "" {
+		t.Error("installSSLConfig() BackupPath 不应为空")
+	}
+}
+
+// TestInstallSSLConfig_Apache 测试 Apache 自动安装 SSL 配置
+func TestInstallSSLConfig_Apache(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
+
+	site := &matcher.ScannedSiteInfo{
+		ServerName: "example.com",
+		ConfigFile: "/etc/apache2/sites-available/example.conf",
+		HasSSL:     false,
+		ServerType: config.ServerTypeApache,
+	}
+
+	result, err := installSSLConfig(site, cfgManager)
+	if err != nil {
+		t.Fatalf("installSSLConfig() error = %v", err)
+	}
+
+	if !result.Modified {
+		t.Error("installSSLConfig() Modified 应为 true")
+	}
+}

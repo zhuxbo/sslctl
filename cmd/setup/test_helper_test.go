@@ -32,6 +32,16 @@ func init() {
 			chainPath: chainPath,
 		}
 	})
+
+	// 注册 Nginx 安装器
+	webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+		return &mockInstaller{configPath: configPath}
+	})
+
+	// 注册 Apache 安装器
+	webserver.RegisterInstaller(webserver.TypeApache, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+		return &mockInstaller{configPath: configPath}
+	})
 }
 
 // mockScanner 测试用 mock 扫描器
@@ -43,6 +53,17 @@ func (m *mockScanner) Scan() ([]webserver.Site, error)       { return nil, nil }
 func (m *mockScanner) ScanLocal() ([]webserver.Site, error)  { return nil, nil }
 func (m *mockScanner) ScanDocker() ([]webserver.Site, error) { return nil, nil }
 func (m *mockScanner) ServerType() webserver.ServerType      { return m.serverType }
+
+// mockInstaller 测试用 mock 安装器
+type mockInstaller struct {
+	configPath string
+}
+
+func (m *mockInstaller) Install() (*webserver.InstallResult, error) {
+	return &webserver.InstallResult{BackupPath: m.configPath + ".bak", Modified: true}, nil
+}
+
+func (m *mockInstaller) Rollback(backupPath string) error { return nil }
 
 // mockDeployer 测试用 mock 部署器
 type mockDeployer struct {

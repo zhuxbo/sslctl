@@ -135,8 +135,16 @@ func Run(args []string, version, buildTime string, debug bool) {
 		site := smr.Site
 		fmt.Printf("\n  ✓ 完全匹配: %s\n", site.ServerName)
 		if !site.HasSSL {
-			fmt.Printf("    警告: 站点未启用 SSL，需要先安装 HTTPS 配置\n")
-			continue
+			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
+			result, err := installSSLConfig(site, cfgManager)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
+				continue
+			}
+			if result.Modified {
+				fmt.Printf("    ✓ SSL 配置已安装（备份: %s）\n", result.BackupPath)
+				updateSiteAfterInstall(site, cfgManager)
+			}
 		}
 		bindings = append(bindings, createBinding(site, cfgManager))
 	}
@@ -155,8 +163,16 @@ func Run(args []string, version, buildTime string, debug bool) {
 		}
 
 		if !site.HasSSL {
-			fmt.Printf("    警告: 站点未启用 SSL，需要先安装 HTTPS 配置\n")
-			continue
+			fmt.Printf("    站点未启用 SSL，自动安装 HTTPS 配置...\n")
+			result, err := installSSLConfig(site, cfgManager)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "    安装 SSL 配置失败: %v\n", err)
+				continue
+			}
+			if result.Modified {
+				fmt.Printf("    ✓ SSL 配置已安装（备份: %s）\n", result.BackupPath)
+				updateSiteAfterInstall(site, cfgManager)
+			}
 		}
 		bindings = append(bindings, createBinding(site, cfgManager))
 	}
@@ -364,6 +380,14 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 		},
 	}
 
+	// Apache 需要设置证书链路径
+	if site.ServerType == config.ServerTypeApache {
+		if binding.Paths.ChainFile == "" {
+			certDir, _ := cm.EnsureSiteCertsDir(site.ServerName)
+			binding.Paths.ChainFile = filepath.Join(certDir, "chain.pem")
+		}
+	}
+
 	// 设置重载命令
 	if site.ServerType == config.ServerTypeNginx {
 		binding.Reload = config.ReloadConfig{
@@ -441,6 +465,46 @@ func parseDomains(domainsStr string) []string {
 		}
 	}
 	return domains
+}
+
+// installSSLConfig 为未启用 SSL 的站点安装 HTTPS 配置
+func installSSLConfig(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) (*webserver.InstallResult, error) {
+	// 确定证书路径
+	certDir, err := cm.EnsureSiteCertsDir(site.ServerName)
+	if err != nil {
+		return nil, fmt.Errorf("创建证书目录失败: %w", err)
+	}
+	certPath := filepath.Join(certDir, "cert.pem")
+	keyPath := filepath.Join(certDir, "key.pem")
+	chainPath := filepath.Join(certDir, "chain.pem")
+
+	// 确定 testCmd（根据站点类型而非全局检测类型）
+	testCmd := "nginx -t"
+	if site.ServerType == config.ServerTypeApache {
+		testCmd = "apache2ctl -t"
+	}
+
+	// 创建安装器
+	wsType := webserver.ServerType(site.ServerType)
+	installer, err := webserver.NewInstaller(wsType, site.ConfigFile, certPath, keyPath, chainPath, site.ServerName, testCmd)
+	if err != nil {
+		return nil, fmt.Errorf("创建安装器失败: %w", err)
+	}
+
+	// 执行安装
+	return installer.Install()
+}
+
+// updateSiteAfterInstall 安装 SSL 配置后更新站点信息
+func updateSiteAfterInstall(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) {
+	certDir, err := cm.EnsureSiteCertsDir(site.ServerName)
+	if err != nil {
+		// EnsureSiteCertsDir 在 installSSLConfig 中已成功调用过，这里不应失败
+		return
+	}
+	site.HasSSL = true
+	site.CertPath = filepath.Join(certDir, "cert.pem")
+	site.KeyPath = filepath.Join(certDir, "key.pem")
 }
 
 // confirm 确认提示

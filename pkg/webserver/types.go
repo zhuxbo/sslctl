@@ -55,9 +55,27 @@ type Deployer interface {
 	Rollback(backupCertPath, backupKeyPath, backupChainPath string) error
 }
 
+// Installer SSL 配置安装器接口
+type Installer interface {
+	// Install 安装 SSL 配置
+	Install() (*InstallResult, error)
+	// Rollback 回滚到备份
+	Rollback(backupPath string) error
+}
+
+// InstallResult 安装结果
+type InstallResult struct {
+	BackupPath string // 备份路径
+	Modified   bool   // 是否修改了配置
+}
+
 // ScannerFactory 扫描器工厂函数类型
 type ScannerFactory func() Scanner
 
 // DeployerFactory 部署器工厂函数类型
 // 参数：certPath, keyPath, chainPath, testCmd, reloadCmd
 type DeployerFactory func(certPath, keyPath, chainPath, testCmd, reloadCmd string) Deployer
+
+// InstallerFactory 安装器工厂函数类型
+// 参数: configPath, certPath, keyPath, chainPath, serverName, testCmd
+type InstallerFactory func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) Installer

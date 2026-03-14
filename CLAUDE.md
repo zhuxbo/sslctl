@@ -145,6 +145,7 @@ docker/test/
 - 命令执行白名单 + 超时控制（`internal/executor`，默认 30 秒超时，支持 Context 取消）
 - SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
 - 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
+- SSL 配置自动安装（setup 流程自动为 HTTP 站点安装 HTTPS 配置，备份原配置、配置测试失败自动回滚）
 - 文件操作安全（符号链接防护、TOCTOU 保护、AtomicWrite O_EXCL 防护）
 - 备份源文件符号链接检查（`pkg/backup` computeFileHash 拒绝符号链接）
 - 备份恢复安全（Restore 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份）
@@ -160,13 +161,10 @@ docker/test/
 - 配置扫描防护（Nginx/Apache 扫描器文件数量限制 1000 + 文件大小限制 10MB）
 - Docker 挂载路径精确匹配（防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`）
 - 升级解压防护（gzip 解压大小限制，防止 gzip 炸弹攻击）
-- 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环支持多公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID，兼容旧格式；空密钥环时拒绝验证而非静默跳过；已配置公钥时拒绝安装未签名版本，防止降级攻击）
+- 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环支持多公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；空密钥环时拒绝验证而非静默跳过；已配置公钥时拒绝安装未签名版本，防止降级攻击）
 - 升级安装符号链接防护（`copyFile` 写入前检查目标路径，拒绝覆盖符号链接）
-- 升级签名密钥轮换（`ErrKeyNotFound` 专用错误类型，未知 key ID 提示重新安装而非"文件被篡改"）
+- 升级签名密钥轮换（密钥不匹配时提示用 `install.sh` 重装；`ErrKeyNotFound`/`ErrNoPublicKeys` 统一处理）
 - 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 stable/dev，防止路径遍历）
-- 升级链式升级深度防篡改（`getUpgradeDepth` 对非法环境变量值返回最大深度，防止绕过限制）
-- 升级链式升级（`releases.json` 的 `upgrade_path` 字段，跨多次密钥轮换时自动经过过渡版本逐步升级，`syscall.Exec` 进程替换，最大 5 步深度限制，保留用户 `--channel`/`--version`/`--force` 参数）
-- 升级最低客户端版本检查（`releases.json` 的 `min_client_version` 字段，配合 `upgrade_path` 实现平滑密钥轮换；`--check` 模式不触发链式升级）
 - 部署/续签结果 API 回调（`pkg/certops`，非关键路径，失败仅记录日志，状态枚举统一使用 `success`/`failure`/`pending`）
 
 ## CSR 生成

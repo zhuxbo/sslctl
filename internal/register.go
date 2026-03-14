@@ -4,9 +4,11 @@ package internal
 
 import (
 	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
+	apacheInstaller "github.com/zhuxbo/sslctl/internal/apache/installer"
 	apacheScanner "github.com/zhuxbo/sslctl/internal/apache/scanner"
 	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
 	nginxDeployer "github.com/zhuxbo/sslctl/internal/nginx/deployer"
+	nginxInstaller "github.com/zhuxbo/sslctl/internal/nginx/installer"
 	nginxScanner "github.com/zhuxbo/sslctl/internal/nginx/scanner"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
@@ -44,6 +46,21 @@ func init() {
 				TestCommand:   testCmd,
 				ReloadCommand: reloadCmd,
 			}),
+		}
+	})
+
+	// 注册 Nginx 安装器
+	webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, _, serverName, testCmd string) webserver.Installer {
+		// Nginx 安装器不需要 chainPath 参数
+		return &nginxInstallerAdapter{
+			installer: nginxInstaller.NewNginxInstaller(configPath, certPath, keyPath, serverName, testCmd),
+		}
+	})
+
+	// 注册 Apache 安装器
+	webserver.RegisterInstaller(webserver.TypeApache, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+		return &apacheInstallerAdapter{
+			installer: apacheInstaller.NewApacheInstaller(configPath, certPath, keyPath, chainPath, serverName, testCmd),
 		}
 	})
 }
@@ -186,4 +203,44 @@ func (a *apacheScannerAdapter) ScanDocker() ([]webserver.Site, error) {
 
 func (a *apacheScannerAdapter) ServerType() webserver.ServerType {
 	return webserver.TypeApache
+}
+
+// nginxInstallerAdapter Nginx 安装器适配器
+type nginxInstallerAdapter struct {
+	installer *nginxInstaller.NginxInstaller
+}
+
+func (a *nginxInstallerAdapter) Install() (*webserver.InstallResult, error) {
+	result, err := a.installer.Install()
+	if err != nil {
+		return nil, err
+	}
+	return &webserver.InstallResult{
+		BackupPath: result.BackupPath,
+		Modified:   result.Modified,
+	}, nil
+}
+
+func (a *nginxInstallerAdapter) Rollback(backupPath string) error {
+	return a.installer.Rollback(backupPath)
+}
+
+// apacheInstallerAdapter Apache 安装器适配器
+type apacheInstallerAdapter struct {
+	installer *apacheInstaller.ApacheInstaller
+}
+
+func (a *apacheInstallerAdapter) Install() (*webserver.InstallResult, error) {
+	result, err := a.installer.Install()
+	if err != nil {
+		return nil, err
+	}
+	return &webserver.InstallResult{
+		BackupPath: result.BackupPath,
+		Modified:   result.Modified,
+	}, nil
+}
+
+func (a *apacheInstallerAdapter) Rollback(backupPath string) error {
+	return a.installer.Rollback(backupPath)
 }

@@ -21,6 +21,16 @@ func init() {
 	RegisterDeployer(TypeApache, func(certPath, keyPath, chainPath, testCmd, reloadCmd string) Deployer {
 		return &mockDeployer{}
 	})
+
+	// 注册 Nginx 安装器
+	RegisterInstaller(TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) Installer {
+		return &mockInstaller{}
+	})
+
+	// 注册 Apache 安装器
+	RegisterInstaller(TypeApache, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) Installer {
+		return &mockInstaller{}
+	})
 }
 
 // mockScanner 测试用 mock 扫描器
@@ -32,6 +42,14 @@ func (m *mockScanner) Scan() ([]Site, error)      { return nil, nil }
 func (m *mockScanner) ScanLocal() ([]Site, error) { return nil, nil }
 func (m *mockScanner) ScanDocker() ([]Site, error) { return nil, nil }
 func (m *mockScanner) ServerType() ServerType     { return m.serverType }
+
+// mockInstaller 测试用 mock 安装器
+type mockInstaller struct{}
+
+func (m *mockInstaller) Install() (*InstallResult, error) {
+	return &InstallResult{BackupPath: "/tmp/backup.bak", Modified: true}, nil
+}
+func (m *mockInstaller) Rollback(backupPath string) error { return nil }
 
 // mockDeployer 测试用 mock 部署器
 type mockDeployer struct{}
@@ -307,6 +325,71 @@ func TestNewScanner_InvalidType(t *testing.T) {
 // TestNewDeployer_InvalidType 测试无效类型
 func TestNewDeployer_InvalidType(t *testing.T) {
 	_, err := NewDeployer(ServerType("invalid"), "", "", "", "", "")
+	if err == nil {
+		t.Error("无效类型应返回错误")
+	}
+}
+
+// TestNewInstaller_Nginx 测试创建 Nginx 安装器
+func TestNewInstaller_Nginx(t *testing.T) {
+	installer, err := NewInstaller(TypeNginx, "/etc/nginx/conf.d/example.conf", "/etc/ssl/cert.pem", "/etc/ssl/key.pem", "", "example.com", "nginx -t")
+	if err != nil {
+		t.Fatalf("NewInstaller(TypeNginx) error = %v", err)
+	}
+	if installer == nil {
+		t.Error("NewInstaller(TypeNginx) 返回 nil")
+	}
+
+	result, err := installer.Install()
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if !result.Modified {
+		t.Error("Install() Modified 应为 true")
+	}
+}
+
+// TestNewInstaller_Apache 测试创建 Apache 安装器
+func TestNewInstaller_Apache(t *testing.T) {
+	installer, err := NewInstaller(TypeApache, "/etc/apache2/sites-available/example.conf", "/etc/ssl/cert.pem", "/etc/ssl/key.pem", "/etc/ssl/chain.pem", "example.com", "apache2ctl -t")
+	if err != nil {
+		t.Fatalf("NewInstaller(TypeApache) error = %v", err)
+	}
+	if installer == nil {
+		t.Error("NewInstaller(TypeApache) 返回 nil")
+	}
+}
+
+// TestNewInstaller_NotRegistered 测试未注册类型返回错误
+func TestNewInstaller_NotRegistered(t *testing.T) {
+	_, err := NewInstaller(TypeUnknown, "", "", "", "", "", "")
+	if err == nil {
+		t.Error("NewInstaller(TypeUnknown) 应返回错误")
+	}
+}
+
+// TestNewInstaller_DockerFallback 测试 Docker 类型回退到普通安装器
+func TestNewInstaller_DockerFallback(t *testing.T) {
+	installer, err := NewInstaller(TypeDockerNginx, "/etc/nginx/conf.d/example.conf", "/etc/ssl/cert.pem", "/etc/ssl/key.pem", "", "example.com", "nginx -t")
+	if err != nil {
+		t.Fatalf("NewInstaller(TypeDockerNginx) error = %v", err)
+	}
+	if installer == nil {
+		t.Error("NewInstaller(TypeDockerNginx) 返回 nil")
+	}
+
+	installer, err = NewInstaller(TypeDockerApache, "/etc/apache2/sites-available/example.conf", "/etc/ssl/cert.pem", "/etc/ssl/key.pem", "/etc/ssl/chain.pem", "example.com", "apache2ctl -t")
+	if err != nil {
+		t.Fatalf("NewInstaller(TypeDockerApache) error = %v", err)
+	}
+	if installer == nil {
+		t.Error("NewInstaller(TypeDockerApache) 返回 nil")
+	}
+}
+
+// TestNewInstaller_InvalidType 测试无效类型
+func TestNewInstaller_InvalidType(t *testing.T) {
+	_, err := NewInstaller(ServerType("invalid"), "", "", "", "", "", "")
 	if err == nil {
 		t.Error("无效类型应返回错误")
 	}
