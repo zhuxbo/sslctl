@@ -23,7 +23,7 @@ import (
 )
 
 // Run 运行 setup 命令
-func Run(args []string, version, buildTime string, debug bool) {
+func Run(args []string, debug bool) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	apiURL := fs.String("url", "", "证书 API 基础地址")
 	token := fs.String("token", "", "API 认证 Token")
@@ -274,13 +274,6 @@ func Run(args []string, version, buildTime string, debug bool) {
 		certConfig.Metadata.CertSerial = fmt.Sprintf("%X", cert.SerialNumber)
 	}
 	certConfig.Metadata.LastDeployAt = time.Now()
-
-	// 初始化或更新配置
-	// 更新版本号
-	if cfg, err := cfgManager.Load(); err == nil {
-		cfg.Version = version
-		_ = cfgManager.Save(cfg)
-	}
 
 	// 先保存 API 配置（Load 返回副本，直接修改不会持久化）
 	if err := cfgManager.SetAPI(config.APIConfig{

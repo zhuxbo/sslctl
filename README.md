@@ -182,7 +182,6 @@ sslctl status
 
 ```json
 {
-  "version": "1.0",
   "api": {
     "url": "https://api.example.com",
     "token": "your-deploy-token"
@@ -190,7 +189,8 @@ sslctl status
   "release_url": "https://release.cnssl.com/sslctl",
   "schedule": {
     "check_interval_hours": 6,
-    "renew_before_days": 13
+    "renew_before_days": 13,
+    "renew_mode": "pull"
   },
   "certificates": [
     {
@@ -214,6 +214,18 @@ sslctl status
   ]
 }
 ```
+
+### schedule 字段说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `check_interval_hours` | int | 6 | 守护进程检查间隔（小时），0 使用默认值 |
+| `renew_before_days` | int | pull:13, local:15 | 提前续期天数，0 使用默认值 |
+| `renew_mode` | string | `pull` | 全局续签模式，证书级别可覆盖 |
+
+### config.json.lock
+
+保存配置时自动创建的文件锁（flock），防止多个 sslctl 进程同时写入 `config.json` 导致数据损坏。无需手动管理。
 
 ## 续签模式
 

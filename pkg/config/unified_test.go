@@ -63,10 +63,6 @@ func TestConfigManager_LoadDefault(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Version != "2.0" {
-		t.Errorf("default config Version = %s, want 2.0", cfg.Version)
-	}
-
 	if cfg.Schedule.RenewMode != RenewModePull {
 		t.Errorf("default RenewMode = %s, want %s", cfg.Schedule.RenewMode, RenewModePull)
 	}
@@ -86,7 +82,6 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 
 	// 创建测试配置
 	cfg := &Config{
-		Version: "2.0",
 		API: APIConfig{
 			URL:   "https://api.example.com",
 			Token: "test-token",
@@ -282,31 +277,12 @@ func TestConfigManager_SetAPI(t *testing.T) {
 	}
 }
 
-// TestConfigManager_InitConfig 测试初始化配置
-func TestConfigManager_InitConfig(t *testing.T) {
-	dir := t.TempDir()
-	cm, _ := NewConfigManagerWithDir(dir)
-
-	if err := cm.InitConfig("https://api.test.com", "init-token"); err != nil {
-		t.Fatalf("InitConfig() error = %v", err)
-	}
-
-	cfg, _ := cm.Load()
-	if cfg.API.URL != "https://api.test.com" {
-		t.Errorf("API.URL = %s, want https://api.test.com", cfg.API.URL)
-	}
-	if cfg.API.Token != "init-token" {
-		t.Errorf("API.Token = %s, want init-token", cfg.API.Token)
-	}
-}
-
 // TestConfigManager_EnvOverride 测试环境变量覆盖
 func TestConfigManager_EnvOverride(t *testing.T) {
 	dir := t.TempDir()
 
 	// 先保存一个配置
 	cfg := &Config{
-		Version: "2.0",
 		API: APIConfig{
 			URL:   "https://file-api.com",
 			Token: "file-token-that-is-long-enough-for-validation",
@@ -343,7 +319,7 @@ func TestConfigManager_Metadata(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewConfigManagerWithDir(dir)
 
-	cfg := &Config{Version: "2.0"}
+	cfg := &Config{}
 	before := time.Now()
 
 	if err := cm.Save(cfg); err != nil {
@@ -401,7 +377,7 @@ func TestConfigManager_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 
 	// 写入无效 JSON
-	invalidJSON := []byte(`{"version": "2.0", invalid json}`)
+	invalidJSON := []byte(`{"api": invalid json}`)
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), invalidJSON, 0600)
 
 	cm, _ := NewConfigManagerWithDir(dir)
@@ -887,8 +863,7 @@ func TestConfigManager_FilePermissions(t *testing.T) {
 
 	// 保存配置
 	cfg := &Config{
-		Version: "2.0",
-		API:     APIConfig{Token: "secret-token"},
+		API: APIConfig{Token: "secret-token"},
 	}
 	if err := cm.Save(cfg); err != nil {
 		t.Fatal(err)
@@ -1673,7 +1648,6 @@ func TestSaveLocked_SymlinkTarget(t *testing.T) {
 
 	// 先正常保存一次
 	cfg := &Config{
-		Version:      "2.0",
 		Certificates: []CertConfig{},
 	}
 	if err := cm.Save(cfg); err != nil {
@@ -1713,7 +1687,7 @@ func TestConfigManager_UpdateMetadata(t *testing.T) {
 	}
 
 	// 先保存一个初始配置
-	cfg := &Config{Version: "2.0"}
+	cfg := &Config{}
 	if err := cm.Save(cfg); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -1749,7 +1723,7 @@ func TestConfigManager_UpdateMetadata_Multiple(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewConfigManagerWithDir(dir)
 
-	cfg := &Config{Version: "2.0"}
+	cfg := &Config{}
 	_ = cm.Save(cfg)
 
 	// 第一次更新
@@ -1779,7 +1753,6 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 
 	// 初始保存
 	cfg := &Config{
-		Version:      "2.0",
 		API:          APIConfig{URL: "https://example.com/api", Token: strings.Repeat("a", 32)},
 		Certificates: []CertConfig{},
 	}
@@ -1801,7 +1774,6 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 
 	// 外部修改配置文件
 	newCfg := &Config{
-		Version:      "2.0",
 		API:          APIConfig{URL: "https://modified.com/api", Token: strings.Repeat("b", 32)},
 		Certificates: []CertConfig{},
 	}

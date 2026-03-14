@@ -11,7 +11,6 @@ import (
 
 // TestConfig 测试用配置结构（简化版，避免循环导入）
 type TestConfig struct {
-	Version      string              `json:"version"`
 	API          TestAPIConfig       `json:"api"`
 	Schedule     TestScheduleConfig  `json:"schedule"`
 	Certificates []TestCertConfig    `json:"certificates"`
@@ -58,7 +57,6 @@ type TestConfigMetadata struct {
 // DefaultTestConfig 默认测试配置
 func DefaultTestConfig() *TestConfig {
 	return &TestConfig{
-		Version: "2.0",
 		API: TestAPIConfig{
 			URL:   "https://api.test.com",
 			Token: "test-token",
@@ -99,7 +97,7 @@ func WriteConfigFile(t *testing.T, dir string, cfg *TestConfig) string {
 func WriteInvalidConfigFile(t *testing.T, dir string) string {
 	t.Helper()
 	configPath := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"version": "2.0", invalid}`), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"api": invalid}`), 0600); err != nil {
 		t.Fatalf("failed to write invalid config file: %v", err)
 	}
 	return configPath

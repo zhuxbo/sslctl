@@ -89,7 +89,7 @@ func main() {
 	case "rollback":
 		runRollback(subArgs)
 	case "setup":
-		setup.Run(subArgs, version, buildTime, debug)
+		setup.Run(subArgs, debug)
 	case "uninstall":
 		runUninstall(subArgs)
 	case "version", "-v", "--version":

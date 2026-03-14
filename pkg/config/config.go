@@ -9,7 +9,6 @@ import (
 
 // Config 统一配置结构（config.json）
 type Config struct {
-	Version      string         `json:"version"`
 	API          APIConfig      `json:"api"`
 	ReleaseURL   string         `json:"release_url,omitempty"`
 	Schedule     ScheduleConfig `json:"schedule"`

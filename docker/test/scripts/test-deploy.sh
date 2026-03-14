@@ -56,43 +56,6 @@ setup_test_site() {
         -out "$cert_path" \
         -subj "/CN=${site_name}/O=OldCert/C=CN" 2>/dev/null
 
-    # 创建站点配置
-    local site_config
-    site_config=$(cat << EOF
-{
-  "version": "1.0",
-  "site_name": "$site_name",
-  "enabled": true,
-  "server_type": "$SERVER_TYPE",
-  "api": {
-    "url": "${SSLCTL_API_URL:-http://127.0.0.1:18080/api/deploy}",
-    "refer_id": "${SSLCTL_API_TOKEN:-mock-test-token}",
-    "order_id": "${ORDER_ID:-1001}"
-  },
-  "domains": ["$site_name"],
-  "paths": {
-    "certificate": "$cert_path",
-    "private_key": "$key_path",
-    "config_file": "$config_path"
-  },
-  "reload": {
-    "test_command": "$([ "$SERVER_TYPE" = "nginx" ] && echo "nginx -t" || echo "apachectl -t")",
-    "reload_command": "$([ "$SERVER_TYPE" = "nginx" ] && echo "nginx -s reload" || echo "apachectl graceful")"
-  },
-  "validation": {
-    "verify_domain": false,
-    "test_https": false,
-    "ignore_domain_mismatch": true
-  },
-  "backup": {
-    "enabled": true,
-    "keep_versions": 3
-  }
-}
-EOF
-)
-
-    echo "$site_config" | docker exec -i "$CONTAINER" tee "/opt/sslctl/sites/${site_name}.json" >/dev/null
 }
 
 # ==============================================================================
@@ -332,7 +295,7 @@ main() {
     log_info "=========================================="
 
     # 确保目录存在
-    docker exec "$CONTAINER" mkdir -p /opt/sslctl/sites /opt/sslctl/backup
+    docker exec "$CONTAINER" mkdir -p /opt/sslctl/backup
 
     # 运行测试
     test_deploy_single || true

@@ -312,7 +312,6 @@ else
     # 首次安装，创建最小配置
     cat > "$CONFIG_FILE" << CFGEOF
 {
-  "version": "1.0",
   "release_url": "$RELEASE_URL"
 }
 CFGEOF

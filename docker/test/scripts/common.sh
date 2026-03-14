@@ -539,67 +539,6 @@ print_summary() {
 # 配置文件生成
 # ==============================================================================
 
-# 生成站点配置
-generate_site_config() {
-    local site_name="$1"
-    local server_type="$2"
-    local api_url="$3"
-    local api_token="$4"
-    local order_id="$5"
-    local domains="$6"
-    local cert_path="$7"
-    local key_path="$8"
-    local config_path="$9"
-
-    local reload_test reload_cmd
-    if [ "$server_type" = "nginx" ]; then
-        reload_test="nginx -t"
-        reload_cmd="nginx -s reload"
-    else
-        reload_test="apachectl -t"
-        reload_cmd="apachectl graceful"
-    fi
-
-    cat << EOF
-{
-  "version": "1.0",
-  "site_name": "$site_name",
-  "enabled": true,
-  "server_type": "$server_type",
-  "api": {
-    "url": "$api_url",
-    "refer_id": "$api_token",
-    "order_id": "$order_id",
-    "callback_url": ""
-  },
-  "domains": $(echo "$domains" | jq -R 'split(",")'),
-  "paths": {
-    "certificate": "$cert_path",
-    "private_key": "$key_path",
-    "config_file": "$config_path"
-  },
-  "reload": {
-    "test_command": "$reload_test",
-    "reload_command": "$reload_cmd"
-  },
-  "schedule": {
-    "check_interval_hours": 12,
-    "renew_before_days": 30
-  },
-  "validation": {
-    "verify_domain": false,
-    "test_https": false,
-    "ignore_domain_mismatch": true
-  },
-  "backup": {
-    "enabled": true,
-    "keep_versions": 3
-  },
-  "metadata": {}
-}
-EOF
-}
-
 # 生成 Nginx 站点配置
 generate_nginx_site() {
     local domain="$1"

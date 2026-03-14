@@ -176,7 +176,6 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 		if os.IsNotExist(err) {
 			// 返回默认配置
 			cm.config = &Config{
-				Version:      "2.0",
 				API:          APIConfig{},
 				Schedule:     defaultSchedule(),
 				Certificates: []CertConfig{},
@@ -562,23 +561,6 @@ func validateToken(token string) error {
 		return fmt.Errorf("token contains invalid characters (allowed: A-Za-z0-9-_.)")
 	}
 	return nil
-}
-
-// InitConfig 初始化配置（一键部署使用）
-func (cm *ConfigManager) InitConfig(apiURL, token string) error {
-	cfg := &Config{
-		Version: "2.0",
-		API: APIConfig{
-			URL:   apiURL,
-			Token: token,
-		},
-		Schedule:     defaultSchedule(),
-		Certificates: []CertConfig{},
-		Metadata: ConfigMetadata{
-			CreatedAt: time.Now(),
-		},
-	}
-	return cm.Save(cfg)
 }
 
 // ConfigExists 检查配置是否存在
