@@ -1,0 +1,28 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - unused
+    - ineffassign
+
+linters-settings:
+  gosec:
+    excludes:
+      # G101: 误报环境变量名常量为硬编码凭据
+      - G101
+      # G204: 项目通过 executor 白名单 + exec.Command 直接执行（非 shell）控制安全
+      - G204
+      # G306: 服务脚本需要 0755、systemd/nginx/apache 配置需要 0644
+      - G306
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck

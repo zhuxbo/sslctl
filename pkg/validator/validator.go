@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
 // Validator 证书校验器

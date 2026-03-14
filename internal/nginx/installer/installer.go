@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/internal/executor"
 )
 
 // NginxInstaller Nginx HTTPS 安装器
@@ -24,9 +24,6 @@ type NginxInstaller struct {
 
 // NewNginxInstaller 创建 Nginx 安装器
 func NewNginxInstaller(configPath, certPath, keyPath, serverName, testCommand string) *NginxInstaller {
-	if testCommand == "" {
-		testCommand = "nginx -t"
-	}
 	return &NginxInstaller{
 		configPath:  configPath,
 		certPath:    certPath,
@@ -71,14 +68,14 @@ func (i *NginxInstaller) Install() (*InstallResult, error) {
 	}
 
 	// 5. 写入新配置
-	if err := os.WriteFile(i.configPath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(i.configPath, []byte(newContent), 0600); err != nil {
 		return nil, fmt.Errorf("写入配置失败: %w", err)
 	}
 
 	// 6. 测试配置
 	if err := i.testConfig(); err != nil {
 		// 回滚
-		if rollbackErr := os.WriteFile(i.configPath, []byte(originalContent), 0644); rollbackErr != nil {
+		if rollbackErr := os.WriteFile(i.configPath, []byte(originalContent), 0600); rollbackErr != nil {
 			return nil, fmt.Errorf("配置测试失败且回滚失败: test=%v, rollback=%v", err, rollbackErr)
 		}
 		return nil, fmt.Errorf("配置测试失败，已回滚: %w", err)
@@ -160,7 +157,7 @@ func (i *NginxInstaller) backup(content string) (string, error) {
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("%s.%s.bak", filepath.Base(i.configPath), timestamp))
 
-	if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(backupPath, []byte(content), 0600); err != nil {
 		return "", err
 	}
 
@@ -263,7 +260,10 @@ func (i *NginxInstaller) getIndent(line string) string {
 
 // testConfig 测试 Nginx 配置
 func (i *NginxInstaller) testConfig() error {
-	return util.RunCommand(i.testCommand)
+	if i.testCommand == "" {
+		return nil
+	}
+	return executor.Run(i.testCommand)
 }
 
 // Rollback 回滚到备份
@@ -292,7 +292,7 @@ func findConfigWithServerName(configPath, serverName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	configDir := filepath.Dir(configPath)
 	serverNameRe := regexp.MustCompile(`(?i)^\s*server_name\s+([^;]+);`)

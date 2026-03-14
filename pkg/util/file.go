@@ -5,42 +5,84 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-// AtomicWrite 原子写入文件
+// AtomicWrite 原子写入文件（带符号链接防护）
+// 参考 config/unified.go saveLocked 的成熟模式
 func AtomicWrite(path string, content []byte, perm os.FileMode) error {
 	tmpPath := path + ".tmp"
 
-	// 写入临时文件
-	if err := os.WriteFile(tmpPath, content, perm); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
+	// 先清理遗留临时文件（可能是上次失败遗留的）
+	_ = os.Remove(tmpPath)
+
+	// O_CREATE|O_WRONLY|O_EXCL: 创建新文件，如果已存在则失败（O_EXCL 不跟随符号链接）
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, perm)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	_, writeErr := tmpFile.Write(content)
+	closeErr := tmpFile.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to write temp file: %w", writeErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+
+	// 验证临时文件不是符号链接（防止 TOCTOU）
+	if info, err := os.Lstat(tmpPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("security: temp file is a symlink")
+	}
+
+	// 验证目标路径不是符号链接（防止通过符号链接覆盖任意文件）
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("security: target path is a symlink, refusing to write")
 	}
 
 	// 原子替换(rename 是原子操作)
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
 	return nil
 }
 
-// CopyFile 复制文件
+// CopyFile 复制文件（带符号链接保护）
 func CopyFile(src, dst string) error {
+	// 先检查源文件是否为符号链接（Lstat 不跟随符号链接）
+	srcLstat, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to lstat source file: %w", err)
+	}
+	if srcLstat.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source is a symbolic link, not allowed for security")
+	}
+	if !srcLstat.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file")
+	}
+
 	// 打开源文件
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
-	// 获取源文件信息
+	// 通过文件描述符再次验证（防止 TOCTOU）
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source changed to non-regular file (TOCTOU detected)")
 	}
 
 	// 创建目标文件
@@ -48,7 +90,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	// 复制内容
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
@@ -63,6 +105,50 @@ func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// SafeReadFile 安全读取文件（带符号链接和 TOCTOU 保护）
+// 用于读取敏感文件（如证书、私钥），拒绝符号链接以防止路径劫持
+func SafeReadFile(path string, maxSize int64) ([]byte, error) {
+	// 先检查是否为符号链接（Lstat 不跟随符号链接）
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lstat file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symbolic links not allowed for security")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	if maxSize > 0 && info.Size() > maxSize {
+		return nil, fmt.Errorf("file too large (max %d bytes)", maxSize)
+	}
+
+	// 打开文件
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// 通过文件描述符再次验证（防止 TOCTOU）- 使用 inode 比较
+	fdInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file descriptor: %w", err)
+	}
+	if !fdInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("file changed to non-regular (TOCTOU detected)")
+	}
+
+	// 使用 inode 比较（比 Size/ModTime 更可靠）
+	if !sameInode(info, fdInfo) {
+		return nil, fmt.Errorf("file changed between check and open (TOCTOU detected)")
+	}
+
+	// 读取文件内容
+	return io.ReadAll(file)
+}
+
 
 // EnsureDir 确保目录存在
 func EnsureDir(dir string, perm os.FileMode) error {
@@ -123,17 +209,3 @@ func JoinUnderDir(baseDir, path string) (string, error) {
 	return full, nil
 }
 
-// RunCommand 执行命令
-func RunCommand(command string) error {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty command")
-	}
-
-	cmd := exec.Command(parts[0], parts[1:]...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("command failed: %s\noutput: %s", err, string(output))
-	}
-	return nil
-}

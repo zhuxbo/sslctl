@@ -5,11 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// defaultDockerTimeout Docker 操作默认超时（当调用方未设置 context deadline 时生效）
+const defaultDockerTimeout = 60 * time.Second
+
+// ensureTimeout 确保 context 有超时限制
+func ensureTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); !ok {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return ctx, func() {}
+}
+
+// truncateOutput 截断命令输出用于错误消息（限制 200 字符，过滤换行）
+func truncateOutput(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
+}
 
 // Client Docker 客户端
 type Client struct {
@@ -69,8 +91,29 @@ func (c *Client) IsComposeMode() bool {
 	return c.useCompose
 }
 
+// allowedExecCommands 容器内允许执行的命令白名单
+// 仅允许 Web 服务器相关的测试和重载命令
+var allowedExecCommands = map[string]struct{}{
+	"nginx":     {},
+	"apachectl": {},
+	"apache2":   {},
+	"httpd":     {},
+	"cat":       {}, // 读取配置文件
+	"test":      {}, // 测试文件存在
+	"ls":        {}, // 列出目录
+}
+
 // Exec 在容器内执行命令
+// 注意：命令会经过白名单验证，只允许特定的 Web 服务器相关命令
 func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
+	// 安全校验：验证命令是否在白名单中
+	if err := validateExecCommand(cmd); err != nil {
+		return "", err
+	}
+
 	var execCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {
@@ -92,8 +135,89 @@ func (c *Client) Exec(ctx context.Context, cmd string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
+// validateExecCommand 验证命令是否安全
+// 检查命令的可执行文件是否在白名单中，并验证参数不包含危险字符
+// 允许的 shell 特性：重定向（2>&1）、条件执行（&&）用于测试命令
+func validateExecCommand(cmd string) error {
+	if cmd == "" {
+		return fmt.Errorf("empty command not allowed")
+	}
+
+	// 长度限制：防止缓冲区溢出
+	if len(cmd) > 4096 {
+		return fmt.Errorf("command too long (max 4096 characters)")
+	}
+
+	// 解析命令，获取可执行文件名
+	// 注意：对于 "test -f file && echo ok" 这种形式，取第一个命令
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return fmt.Errorf("invalid command format")
+	}
+
+	// 获取命令名（去除路径）
+	executable := filepath.Base(parts[0])
+
+	// 检查是否在白名单中
+	if _, ok := allowedExecCommands[executable]; !ok {
+		return fmt.Errorf("command not allowed: %s (allowed: nginx, apachectl, apache2, httpd, cat, test, ls)", executable)
+	}
+
+	// 检查危险的命令注入模式
+	// 注意：允许 "&&" 用于 "test -f file && echo ok" 这种安全模式
+	//       允许 "2>&1" 用于重定向 stderr
+	//       允许单引号用于 ShellQuote 包裹的安全参数（如 cat '/path/to/file'）
+	//       但禁止命令替换和命令链接等危险模式
+	dangerousPatterns := []string{
+		";",  // 命令分隔符
+		"||", // 或运算符
+		"|",  // 管道
+		"`",  // 反引号命令替换
+		"$(", // 命令替换
+		"${", // 变量替换
+		"\n", // 换行符
+		"\r", // 回车符
+	}
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(cmd, pattern) {
+			return fmt.Errorf("dangerous pattern in command: %s", pattern)
+		}
+	}
+
+	// 对于包含 && 的命令，验证后续命令也在白名单中
+	if strings.Contains(cmd, "&&") {
+		cmdParts := strings.Split(cmd, "&&")
+		for _, part := range cmdParts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			subParts := strings.Fields(part)
+			if len(subParts) == 0 {
+				continue
+			}
+			subExec := filepath.Base(subParts[0])
+			// 允许 echo 用于 "test -f file && echo ok" 模式
+			if _, ok := allowedExecCommands[subExec]; !ok && subExec != "echo" {
+				return fmt.Errorf("command in chain not allowed: %s", subExec)
+			}
+		}
+	}
+
+	return nil
+}
+
 // CopyToContainer 复制文件到容器
+// 对目标路径进行安全校验，防止命令注入
 func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) error {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
+	// 安全校验：验证容器内目标路径
+	if !isValidContainerPath(dstPath) {
+		return fmt.Errorf("invalid container path: contains dangerous characters")
+	}
+
 	var cpCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {
@@ -113,13 +237,22 @@ func (c *Client) CopyToContainer(ctx context.Context, srcPath, dstPath string) e
 
 	output, err := cpCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker cp failed: %v, output: %s", err, string(output))
+		return fmt.Errorf("docker cp failed: %w, output: %s", err, truncateOutput(string(output)))
 	}
 	return nil
 }
 
 // CopyFromContainer 从容器复制文件
+// 对源路径进行安全校验，防止命令注入
 func (c *Client) CopyFromContainer(ctx context.Context, srcPath, dstPath string) error {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
+	// 安全校验：验证容器内源路径
+	if !isValidContainerPath(srcPath) {
+		return fmt.Errorf("invalid container path: contains dangerous characters")
+	}
+
 	var cpCmd *exec.Cmd
 
 	if c.useCompose && c.composeFile != "" {
@@ -135,13 +268,16 @@ func (c *Client) CopyFromContainer(ctx context.Context, srcPath, dstPath string)
 
 	output, err := cpCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker cp failed: %v, output: %s", err, string(output))
+		return fmt.Errorf("docker cp failed: %w, output: %s", err, truncateOutput(string(output)))
 	}
 	return nil
 }
 
 // GetContainerInfo 获取容器信息
 func (c *Client) GetContainerInfo(ctx context.Context) (*ContainerInfo, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
 	containerID := c.containerID
 
 	// 如果是 compose 模式，先获取容器 ID
@@ -245,11 +381,14 @@ func (c *Client) FindMountForPath(mounts []MountInfo, containerPath string) *Mou
 		}
 
 		// 检查容器路径是否在挂载目录下
-		if strings.HasPrefix(containerPath, m.Destination) {
+		// 精确匹配：路径必须完全等于挂载点，或以挂载点+"/"为前缀
+		// 特殊处理根挂载点 "/"：任何绝对路径都匹配
+		dest := m.Destination
+		if containerPath == dest || (dest == "/" && strings.HasPrefix(containerPath, "/")) || strings.HasPrefix(containerPath, dest+"/") {
 			// 选择最长匹配
-			if len(m.Destination) > bestLen {
+			if len(dest) > bestLen {
 				bestMatch = m
-				bestLen = len(m.Destination)
+				bestLen = len(dest)
 			}
 		}
 	}
@@ -284,4 +423,118 @@ func CheckComposeAvailable() bool {
 
 	cmd := exec.CommandContext(ctx, "docker-compose", "version")
 	return cmd.Run() == nil
+}
+
+// CopyFilesForBackup 从容器复制证书文件用于备份
+// 返回临时目录路径，调用者负责清理
+func (c *Client) CopyFilesForBackup(ctx context.Context, certPath, keyPath string) (tmpCertPath, tmpKeyPath string, err error) {
+	tmpDir, err := os.MkdirTemp("", "sslctl-backup-")
+	if err != nil {
+		return "", "", fmt.Errorf("create temp dir failed: %w", err)
+	}
+	// 设置安全权限
+	if err := os.Chmod(tmpDir, 0700); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("set temp dir permission failed: %w", err)
+	}
+
+	tmpCertPath = filepath.Join(tmpDir, "cert.pem")
+	tmpKeyPath = filepath.Join(tmpDir, "key.pem")
+
+	if err := c.CopyFromContainer(ctx, certPath, tmpCertPath); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("copy cert from container failed: %w", err)
+	}
+
+	if err := c.CopyFromContainer(ctx, keyPath, tmpKeyPath); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", "", fmt.Errorf("copy key from container failed: %w", err)
+	}
+
+	return tmpCertPath, tmpKeyPath, nil
+}
+
+// isValidContainerPath 验证容器内路径是否安全
+// 拒绝包含命令注入字符的路径
+// 注意：允许空格，因为使用 exec.Command 直接执行（非 shell），空格不会导致命令注入
+func isValidContainerPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	// 长度限制：防止缓冲区溢出和异常路径
+	if len(path) > 4096 {
+		return false
+	}
+	// 路径必须是绝对路径
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	// 检查路径穿越
+	if strings.Contains(path, "..") {
+		return false
+	}
+	// 检查危险字符（不包括空格，因为使用 exec.Command 而非 shell）
+	// 这些字符在 shell 中有特殊含义，可能导致命令注入
+	dangerousChars := []string{";", "&", "|", "$", "`", "(", ")", "{", "}", "<", ">", "!", "\n", "\r", "'", "\"", "\\", "*", "?", "[", "]"}
+	for _, char := range dangerousChars {
+		if strings.Contains(path, char) {
+			return false
+		}
+	}
+	return true
+}
+
+// ExecAux 执行辅助命令（mkdir/chmod），使用严格验证
+// 不使用 sh -c，直接传递命令参数
+func (c *Client) ExecAux(ctx context.Context, cmd string, args ...string) (string, error) {
+	ctx, cancel := ensureTimeout(ctx, defaultDockerTimeout)
+	defer cancel()
+
+	// 白名单命令
+	allowedAuxCommands := map[string]struct{}{
+		"mkdir": {},
+		"chmod": {},
+	}
+
+	if _, ok := allowedAuxCommands[cmd]; !ok {
+		return "", fmt.Errorf("command not allowed: %s", cmd)
+	}
+
+	// 验证所有参数
+	for _, arg := range args {
+		// 跳过 flag 参数（如 -p, 644）
+		if strings.HasPrefix(arg, "-") || (len(arg) <= 4 && isNumeric(arg)) {
+			continue
+		}
+		// 验证路径参数
+		if !isValidContainerPath(arg) {
+			return "", fmt.Errorf("invalid path argument: %s", arg)
+		}
+	}
+
+	var execCmd *exec.Cmd
+	cmdArgs := append([]string{cmd}, args...)
+
+	if c.useCompose && c.composeFile != "" {
+		fullArgs := append([]string{"-f", c.composeFile, "exec", "-T", c.serviceName}, cmdArgs...)
+		execCmd = exec.CommandContext(ctx, "docker-compose", fullArgs...)
+	} else if c.containerID != "" {
+		fullArgs := append([]string{"exec", c.containerID}, cmdArgs...)
+		execCmd = exec.CommandContext(ctx, "docker", fullArgs...)
+	} else {
+		return "", fmt.Errorf("no container specified")
+	}
+
+	output, err := execCmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+// isNumeric 检查字符串是否为纯数字
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
 }

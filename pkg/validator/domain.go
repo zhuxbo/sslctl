@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cnssl/cert-deploy/pkg/errors"
+	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
 // DomainValidator 域名验证器

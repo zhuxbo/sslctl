@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cnssl/cert-deploy/pkg/util"
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // DeployerOptions 部署器选项
@@ -98,26 +98,9 @@ func (d *Deployer) Deploy(ctx context.Context, cert, intermediate, key string) e
 		}
 	}
 
-	// 4. 测试配置
-	if d.testCommand != "" {
-		if !allowedContainerCommands[d.testCommand] {
-			return fmt.Errorf("command not in whitelist: %s", d.testCommand)
-		}
-		output, err := d.client.Exec(ctx, d.testCommand)
-		if err != nil {
-			return fmt.Errorf("配置测试失败: %v, output: %s", err, output)
-		}
-	}
-
-	// 5. 重载 Nginx
-	if d.reloadCommand != "" {
-		if !allowedContainerCommands[d.reloadCommand] {
-			return fmt.Errorf("command not in whitelist: %s", d.reloadCommand)
-		}
-		output, err := d.client.Exec(ctx, d.reloadCommand)
-		if err != nil {
-			return fmt.Errorf("重载失败: %v, output: %s", err, output)
-		}
+	// 4. 测试配置并重载
+	if err := d.testAndReload(ctx); err != nil {
+		return err
 	}
 
 	return nil
@@ -134,7 +117,8 @@ func (d *Deployer) DetectDeployMode(ctx context.Context) (string, error) {
 	// 获取容器信息
 	info, err := d.client.GetContainerInfo(ctx)
 	if err != nil {
-		return "copy", nil // 默认 copy 模式
+		fmt.Fprintf(os.Stderr, "warning: 获取容器信息失败，降级到 copy 模式: %v\n", err)
+		return "copy", nil
 	}
 
 	// 检查证书路径是否有可写挂载
@@ -144,9 +128,11 @@ func (d *Deployer) DetectDeployMode(ctx context.Context) (string, error) {
 		keyMount := d.client.FindMountForPath(info.Mounts, d.keyPath)
 		if keyMount != nil {
 			d.hostKeyPath = d.client.ResolveHostPath(d.keyPath, keyMount)
+			d.volumeMode = true
+			return "volume", nil
 		}
-		d.volumeMode = true
-		return "volume", nil
+		// key 路径无挂载，回退到 copy 模式
+		d.hostCertPath = ""
 	}
 
 	return "copy", nil
@@ -182,12 +168,24 @@ func (d *Deployer) deployToHost(fullchain, key string) error {
 
 // deployToContainer 复制到容器（docker cp 模式）
 func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string) error {
-	// 创建临时目录
-	tmpDir, err := os.MkdirTemp("", "cert-deploy-")
+	// 0. 安全校验：提前验证容器内路径，防止命令注入
+	if err := validateContainerPath(d.certPath); err != nil {
+		return fmt.Errorf("invalid certificate path: %w", err)
+	}
+	if err := validateContainerPath(d.keyPath); err != nil {
+		return fmt.Errorf("invalid private key path: %w", err)
+	}
+
+	// 1. 创建临时目录
+	tmpDir, err := os.MkdirTemp("", "sslctl-")
 	if err != nil {
 		return fmt.Errorf("create temp dir failed: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	// 设置安全权限
+	if err := os.Chmod(tmpDir, 0700); err != nil {
+		return fmt.Errorf("set temp dir permission failed: %w", err)
+	}
 
 	certFile := filepath.Join(tmpDir, "fullchain.pem")
 	keyFile := filepath.Join(tmpDir, "privkey.pem")
@@ -200,18 +198,22 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("write temp key file failed: %w", err)
 	}
 
-	// 确保容器内目录存在
+	// 2. 确保容器内目录存在（使用安全的 ExecAux 方法）
 	certDir := getDir(d.certPath)
 	keyDir := getDir(d.keyPath)
 
 	if certDir != "" {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", certDir))
+		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", certDir); err != nil {
+			return fmt.Errorf("create cert directory in container failed: %w", err)
+		}
 	}
 	if keyDir != "" && keyDir != certDir {
-		_, _ = d.client.Exec(ctx, fmt.Sprintf("mkdir -p %s", keyDir))
+		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", keyDir); err != nil {
+			return fmt.Errorf("create key directory in container failed: %w", err)
+		}
 	}
 
-	// 复制到容器
+	// 3. 复制到容器
 	if err := d.client.CopyToContainer(ctx, certFile, d.certPath); err != nil {
 		return fmt.Errorf("copy certificate to container failed: %w", err)
 	}
@@ -219,9 +221,13 @@ func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string)
 		return fmt.Errorf("copy private key to container failed: %w", err)
 	}
 
-	// 设置容器内文件权限
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 644 %s", d.certPath))
-	_, _ = d.client.Exec(ctx, fmt.Sprintf("chmod 600 %s", d.keyPath))
+	// 4. 设置容器内文件权限（使用安全的 ExecAux 方法）
+	if _, err := d.client.ExecAux(ctx, "chmod", "644", d.certPath); err != nil {
+		return fmt.Errorf("set certificate permission failed: %w", err)
+	}
+	if _, err := d.client.ExecAux(ctx, "chmod", "600", d.keyPath); err != nil {
+		return fmt.Errorf("set private key permission failed: %w", err)
+	}
 
 	return nil
 }
@@ -255,28 +261,33 @@ func (d *Deployer) Rollback(ctx context.Context, backupCertPath, backupKeyPath s
 		}
 	}
 
-	// 测试配置
+	// 测试配置并重载
+	if err := d.testAndReload(ctx); err != nil {
+		return fmt.Errorf("回滚后验证失败: %w", err)
+	}
+
+	return nil
+}
+
+// testAndReload 测试配置并重载服务
+// 命令须先通过 allowedContainerCommands 白名单检查
+func (d *Deployer) testAndReload(ctx context.Context) error {
 	if d.testCommand != "" {
 		if !allowedContainerCommands[d.testCommand] {
 			return fmt.Errorf("command not in whitelist: %s", d.testCommand)
 		}
-		output, err := d.client.Exec(ctx, d.testCommand)
-		if err != nil {
-			return fmt.Errorf("config test failed after rollback: %v, output: %s", err, output)
+		if _, err := d.client.Exec(ctx, d.testCommand); err != nil {
+			return fmt.Errorf("配置测试失败: %w", err)
 		}
 	}
-
-	// 重载服务
 	if d.reloadCommand != "" {
 		if !allowedContainerCommands[d.reloadCommand] {
 			return fmt.Errorf("command not in whitelist: %s", d.reloadCommand)
 		}
-		output, err := d.client.Exec(ctx, d.reloadCommand)
-		if err != nil {
-			return fmt.Errorf("reload failed after rollback: %v, output: %s", err, output)
+		if _, err := d.client.Exec(ctx, d.reloadCommand); err != nil {
+			return fmt.Errorf("重载失败: %w", err)
 		}
 	}
-
 	return nil
 }
 
@@ -335,7 +346,21 @@ func ValidateCommand(cmd string) bool {
 	return allowedContainerCommands[strings.TrimSpace(cmd)]
 }
 
-// AddAllowedCommand 添加允许的命令（用于扩展）
-func AddAllowedCommand(cmd string) {
-	allowedContainerCommands[cmd] = true
+// getDir 获取路径的目录部分
+func getDir(path string) string {
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
 }
+
+// validateContainerPath 验证容器内路径是否安全
+// 委托给 isValidContainerPath（client.go），保持验证逻辑统一
+func validateContainerPath(path string) error {
+	if !isValidContainerPath(path) {
+		return fmt.Errorf("invalid container path: empty, non-absolute, too long, contains path traversal or dangerous characters")
+	}
+	return nil
+}
+

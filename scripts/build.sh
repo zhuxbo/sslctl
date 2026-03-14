@@ -1,5 +1,5 @@
 #!/bin/bash
-# cert-deploy 本地构建测试脚本
+# sslctl 本地构建测试脚本
 #
 # 用途: 本地测试构建，验证代码是否能正常编译
 # 发布请使用 GitHub Actions (推送 tag 自动触发)
@@ -46,23 +46,12 @@ mkdir -p dist
 
 # Linux
 info "  构建 Linux..."
-GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-nginx-linux-amd64 ./cmd/nginx
-GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-apache-linux-amd64 ./cmd/apache
-GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-nginx-linux-arm64 ./cmd/nginx
-GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-apache-linux-arm64 ./cmd/apache
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-linux-amd64 ./cmd
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-linux-arm64 ./cmd
 
 # Windows
 info "  构建 Windows..."
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-nginx-windows-amd64.exe ./cmd/nginx
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-apache-windows-amd64.exe ./cmd/apache
-GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-iis-windows-amd64.exe ./cmd/iis
-
-# macOS
-info "  构建 macOS..."
-GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-nginx-darwin-amd64 ./cmd/nginx
-GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-apache-darwin-amd64 ./cmd/apache
-GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-nginx-darwin-arm64 ./cmd/nginx
-GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/cert-deploy-apache-darwin-arm64 ./cmd/apache
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/sslctl-windows-amd64.exe ./cmd
 
 info "✓ 构建完成"
 echo ""

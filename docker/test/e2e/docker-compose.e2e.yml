@@ -1,0 +1,219 @@
+# sslctl E2E 测试编排文件
+# 串行执行测试，避免内存不足
+
+services:
+  # ============================================================================
+  # Nginx E2E 测试容器
+  # ============================================================================
+
+  nginx-ubuntu:
+    build:
+      context: ./nginx-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: ubuntu
+    container_name: sslctl-e2e-nginx-ubuntu
+    hostname: nginx-ubuntu
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - nginx
+      - ubuntu
+      - all
+
+  nginx-debian:
+    build:
+      context: ./nginx-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: debian
+    container_name: sslctl-e2e-nginx-debian
+    hostname: nginx-debian
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - nginx
+      - debian
+      - all
+
+  nginx-alpine:
+    build:
+      context: ./nginx-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: alpine
+    container_name: sslctl-e2e-nginx-alpine
+    hostname: nginx-alpine
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - nginx
+      - alpine
+      - all
+
+  nginx-rocky:
+    build:
+      context: ./nginx-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: rocky
+    container_name: sslctl-e2e-nginx-rocky
+    hostname: nginx-rocky
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - nginx
+      - rocky
+      - all
+
+  # ============================================================================
+  # Apache E2E 测试容器
+  # ============================================================================
+
+  apache-ubuntu:
+    build:
+      context: ./apache-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: ubuntu
+    container_name: sslctl-e2e-apache-ubuntu
+    hostname: apache-ubuntu
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - apache
+      - ubuntu
+      - all
+
+  apache-debian:
+    build:
+      context: ./apache-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: debian
+    container_name: sslctl-e2e-apache-debian
+    hostname: apache-debian
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - apache
+      - debian
+      - all
+
+  apache-alpine:
+    build:
+      context: ./apache-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: alpine
+    container_name: sslctl-e2e-apache-alpine
+    hostname: apache-alpine
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - apache
+      - alpine
+      - all
+
+  apache-rocky:
+    build:
+      context: ./apache-e2e
+      dockerfile: Dockerfile
+      args:
+        DISTRO: rocky
+    container_name: sslctl-e2e-apache-rocky
+    hostname: apache-rocky
+    environment:
+      - SSLCTL_API_URL=${SSLCTL_API_URL:-https://manager.test.pzo.cn/api/deploy}
+      - SSLCTL_API_TOKEN=${SSLCTL_API_TOKEN}
+      - TEST_ORDER_ID=${TEST_ORDER_ID:-}
+      - TEST_DOMAINS=${TEST_DOMAINS:-test.example.com}
+    volumes:
+      - ../reports:/reports
+      - ./shared:/shared:ro
+    networks:
+      - e2e-net
+    profiles:
+      - apache
+      - rocky
+      - all
+
+  # ============================================================================
+  # Mock API 服务（用于离线测试）
+  # ============================================================================
+
+  mock-api:
+    build:
+      context: ../mock-api
+      dockerfile: Dockerfile
+    container_name: sslctl-e2e-mock-api
+    hostname: mock-api
+    ports:
+      - "18080:8080"
+    volumes:
+      - ../reports:/reports
+    networks:
+      - e2e-net
+    profiles:
+      - mock
+      - all
+
+networks:
+  e2e-net:
+    driver: bridge

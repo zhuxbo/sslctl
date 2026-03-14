@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // SSLSite Docker 容器内的 SSL 站点
@@ -89,7 +91,7 @@ func (s *Scanner) DetectNginxConfig(ctx context.Context) (string, error) {
 	}
 
 	for _, p := range commonPaths {
-		_, err := s.client.Exec(ctx, fmt.Sprintf("test -f %s && echo ok", p))
+		_, err := s.client.Exec(ctx, fmt.Sprintf("test -f %s && echo ok", util.ShellQuote(p)))
 		if err == nil {
 			return p, nil
 		}
@@ -119,7 +121,7 @@ func (s *Scanner) scanConfigFile(ctx context.Context, configPath string, info *C
 	sites = append(sites, fileSites...)
 
 	// 查找 include 指令
-	includes := s.findIncludes(content, configPath)
+	includes := s.findIncludes(ctx, content, configPath)
 
 	// 递归扫描 include 的文件
 	for _, inc := range includes {
@@ -134,7 +136,7 @@ func (s *Scanner) scanConfigFile(ctx context.Context, configPath string, info *C
 
 // readContainerFile 读取容器内文件
 func (s *Scanner) readContainerFile(ctx context.Context, filePath string) (string, error) {
-	output, err := s.client.Exec(ctx, fmt.Sprintf("cat %s", filePath))
+	output, err := s.client.Exec(ctx, fmt.Sprintf("cat %s", util.ShellQuote(filePath)))
 	if err != nil {
 		return "", err
 	}
@@ -142,7 +144,7 @@ func (s *Scanner) readContainerFile(ctx context.Context, filePath string) (strin
 }
 
 // findIncludes 查找配置文件中的 include 指令
-func (s *Scanner) findIncludes(content, configPath string) []string {
+func (s *Scanner) findIncludes(ctx context.Context, content, configPath string) []string {
 	configDir := getDir(configPath)
 	var includes []string
 
@@ -162,17 +164,20 @@ func (s *Scanner) findIncludes(content, configPath string) []string {
 			pattern = configDir + "/" + pattern
 		}
 
-		// 简单处理 glob（不完整，仅供参考）
+		// 处理 glob 模式
 		if strings.Contains(pattern, "*") {
-			// 将 glob 转换为常见文件
 			if strings.HasSuffix(pattern, "/*.conf") {
 				dir := strings.TrimSuffix(pattern, "/*.conf")
-				// 添加常见配置目录
-				commonFiles := []string{
-					dir + "/default.conf",
-					dir + "/ssl.conf",
+				// 使用 ls 命令列出目录中的 .conf 文件
+				output, err := s.client.Exec(ctx, fmt.Sprintf("ls -1 %s/*.conf 2>/dev/null", util.ShellQuote(dir)))
+				if err == nil && output != "" {
+					for _, f := range strings.Split(output, "\n") {
+						f = strings.TrimSpace(f)
+						if f != "" {
+							includes = append(includes, f)
+						}
+					}
 				}
-				includes = append(includes, commonFiles...)
 			}
 		} else {
 			includes = append(includes, pattern)
@@ -190,6 +195,7 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 	braceCount := 0
 	inLocation := false
 	locationBraceCount := 0
+	pendingLocation := false
 
 	// 正则表达式
 	serverBlockRe := regexp.MustCompile(`^\s*server\s*\{`)
@@ -214,6 +220,7 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 			braceCount = 1
 			inLocation = false
 			locationBraceCount = 0
+			pendingLocation = false
 			currentSite = &SSLSite{
 				ContainerID:   info.ID,
 				ContainerName: info.Name,
@@ -227,9 +234,18 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 		}
 
 		// 检测 location 块开始
-		if locationRe.MatchString(line) && strings.Contains(line, "{") {
+		if locationRe.MatchString(line) {
+			if strings.Contains(line, "{") {
+				inLocation = true
+				locationBraceCount = 1
+			} else {
+				pendingLocation = true
+			}
+		}
+		if pendingLocation && !locationRe.MatchString(line) && strings.Contains(line, "{") {
 			inLocation = true
-			locationBraceCount = 1
+			locationBraceCount = 0 // 由下方追踪代码统一累加，避免重复计数
+			pendingLocation = false
 		}
 
 		// 统计大括号
@@ -273,6 +289,16 @@ func (s *Scanner) parseConfig(content, configPath string, info *ContainerInfo) [
 			}
 			if currentSite.ServerName == "" && len(names) > 0 {
 				currentSite.ServerName = names[0]
+				// 如果 ServerName 是从 alias 提升的，需要从 alias 中移除避免重复
+				if len(currentSite.ServerAlias) > 0 {
+					filtered := currentSite.ServerAlias[:0]
+					for _, a := range currentSite.ServerAlias {
+						if a != currentSite.ServerName {
+							filtered = append(filtered, a)
+						}
+					}
+					currentSite.ServerAlias = filtered
+				}
 			}
 		}
 
@@ -378,13 +404,4 @@ func (s *Scanner) FindByDomain(ctx context.Context, domain string) (*SSLSite, er
 	}
 
 	return nil, nil
-}
-
-// getDir 获取路径的目录部分
-func getDir(path string) string {
-	idx := strings.LastIndex(path, "/")
-	if idx == -1 {
-		return "."
-	}
-	return path[:idx]
 }

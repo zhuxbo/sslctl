@@ -29,9 +29,24 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# 工作目录（运行时生成）
-cert-deploy/
+# 构建的二进制文件
+/sslctl
 
-# Test artifacts
-docker/test/*/cert-deploy-*
-docker/test/*/sites/
+# 工作目录（运行时生成）
+sslctl/
+
+# Test artifacts (dynamically built by test scripts)
+docker/test/**/sslctl
+docker/test/**/mock-api
+docker/test/mock-api/mock-api-linux-*
+docker/test/reports/test-report*.md
+build/test-report.md
+
+# 版本文件（构建时生成）
+version.json
+
+# 签名密钥（由 build/generate-keys.sh 生成）
+release-key.pem
+release-key.pub
+public_key.go
+build/keys/

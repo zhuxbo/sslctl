@@ -1,0 +1,35 @@
+{
+  "version": "2.0",
+  "api": {
+    "url": "https://api.example.com",
+    "token": "test-token-12345"
+  },
+  "schedule": {
+    "check_interval_hours": 6,
+    "renew_before_days": 13,
+    "renew_mode": "pull"
+  },
+  "certificates": [
+    {
+      "cert_name": "order-12345",
+      "order_id": 12345,
+      "enabled": true,
+      "domains": ["example.com", "*.example.com"],
+      "bindings": [
+        {
+          "site_name": "example.com",
+          "server_type": "nginx",
+          "enabled": true,
+          "paths": {
+            "certificate": "/opt/sslctl/certs/example.com/cert.pem",
+            "private_key": "/opt/sslctl/certs/example.com/key.pem"
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T12:00:00Z"
+  }
+}
