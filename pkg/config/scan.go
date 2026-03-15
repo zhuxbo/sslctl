@@ -17,8 +17,6 @@ type ScanResult struct {
 
 // ScannedSite 扫描到的站点
 type ScannedSite struct {
-	// 站点标识
-	ID   string `json:"id"`   // 使用域名（ServerName），可能为 _
 	Name string `json:"name"` // 显示名称（容器名或本地）
 
 	// 来源信息
@@ -84,14 +82,21 @@ func LoadScanResult() (*ScanResult, error) {
 	return &result, nil
 }
 
-// FindSiteByID 根据 ID 查找站点
-func (r *ScanResult) FindSiteByID(id string) *ScannedSite {
+// FindSiteByServerName 根据 ServerName 查找站点
+// 同 ServerName 多条目时，优先返回有 CertificatePath 的（已启用 SSL）
+func (r *ScanResult) FindSiteByServerName(serverName string) *ScannedSite {
+	var fallback *ScannedSite
 	for i := range r.Sites {
-		if r.Sites[i].ID == id {
-			return &r.Sites[i]
+		if r.Sites[i].ServerName == serverName {
+			if r.Sites[i].CertificatePath != "" {
+				return &r.Sites[i]
+			}
+			if fallback == nil {
+				fallback = &r.Sites[i]
+			}
 		}
 	}
-	return nil
+	return fallback
 }
 
 // FindSiteByIndex 根据索引查找站点（1-based）

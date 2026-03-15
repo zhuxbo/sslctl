@@ -72,7 +72,7 @@ type CertMetadata struct {
 
 // SiteBinding 站点绑定配置
 type SiteBinding struct {
-	SiteName   string       `json:"site_name"`        // 站点名称
+	ServerName string       `json:"server_name"`      // 站点名称（域名）
 	ServerType string       `json:"server_type"`      // nginx, apache, docker-nginx, docker-apache
 	Enabled    bool         `json:"enabled"`          // 是否启用
 	Paths      BindingPaths `json:"paths"`            // 路径配置

@@ -23,7 +23,7 @@ func TestDeployToBinding_Nginx(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -79,7 +79,7 @@ func TestDeployToBinding_Apache(t *testing.T) {
 	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeApache,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -119,7 +119,7 @@ func TestDeployToBinding_UnsupportedType(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: "unsupported",
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -148,7 +148,7 @@ func TestDeployToBinding_CreateDirectory(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -181,7 +181,7 @@ func TestDeployToBinding_DockerNginx(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeDockerNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -214,7 +214,7 @@ func TestDeployToBinding_DockerApache(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeDockerApache,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -279,7 +279,6 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 		{
 			name: "本地 Nginx 站点",
 			site: &config.ScannedSite{
-				ID:              "example.com",
 				ServerName:      "example.com",
 				Source:          "local",
 				ConfigFile:      "/etc/nginx/sites-enabled/example.conf",
@@ -292,7 +291,6 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 		{
 			name: "本地 Apache 站点",
 			site: &config.ScannedSite{
-				ID:              "apache-site.com",
 				ServerName:      "apache-site.com",
 				Source:          "local",
 				ConfigFile:      "/etc/apache2/sites-enabled/apache-site.conf",
@@ -305,7 +303,6 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 		{
 			name: "Docker Nginx 站点",
 			site: &config.ScannedSite{
-				ID:            "docker-site.com",
 				ServerName:    "docker-site.com",
 				Source:        "docker",
 				ContainerName: "nginx-container",
@@ -320,7 +317,6 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 		{
 			name: "Docker Apache 站点",
 			site: &config.ScannedSite{
-				ID:            "docker-apache.com",
 				ServerName:    "docker-apache.com",
 				Source:        "docker",
 				ContainerName: "httpd-container",
@@ -339,8 +335,8 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 				t.Errorf("ServerType = %s, want %s", binding.ServerType, tt.wantServerType)
 			}
 
-			if binding.SiteName != tt.site.ServerName {
-				t.Errorf("SiteName = %s, want %s", binding.SiteName, tt.site.ServerName)
+			if binding.ServerName != tt.site.ServerName {
+				t.Errorf("ServerName = %s, want %s", binding.ServerName, tt.site.ServerName)
 			}
 
 			if !binding.Enabled {
@@ -375,7 +371,7 @@ func TestGetSiteBindingForLocal_ConfigPriority(t *testing.T) {
 		Enabled:  true,
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "config-site.com",
+				ServerName: "config-site.com",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -408,7 +404,6 @@ func TestGetSiteBindingForLocal_ScanFallback(t *testing.T) {
 	scanResult := &config.ScanResult{
 		Sites: []config.ScannedSite{
 			{
-				ID:              "scan-site.com",
 				ServerName:      "scan-site.com",
 				Source:          "local",
 				ConfigFile:      "/etc/nginx/sites-enabled/scan-site.conf",
@@ -431,8 +426,8 @@ func TestGetSiteBindingForLocal_ScanFallback(t *testing.T) {
 		t.Fatalf("getSiteBindingForLocal() error = %v", err)
 	}
 
-	if binding.SiteName != "scan-site.com" {
-		t.Errorf("SiteName = %s, want scan-site.com", binding.SiteName)
+	if binding.ServerName != "scan-site.com" {
+		t.Errorf("ServerName = %s, want scan-site.com", binding.ServerName)
 	}
 
 	if binding.ServerType != config.ServerTypeNginx {
@@ -473,7 +468,7 @@ func TestGetSiteBindingForLocal_DisabledBinding(t *testing.T) {
 		Enabled:  true,
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "disabled-site.com",
+				ServerName: "disabled-site.com",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    false, // 禁用
 				Paths: config.BindingPaths{

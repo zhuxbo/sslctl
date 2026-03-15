@@ -37,7 +37,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "用法: sslctl deploy --cert <name>\n")
-		fmt.Fprintf(os.Stderr, "      sslctl deploy --cert <name> --site <site_name>\n")
+		fmt.Fprintf(os.Stderr, "      sslctl deploy --cert <name> --site <server_name>\n")
 		fmt.Fprintf(os.Stderr, "      sslctl deploy --all\n")
 		fmt.Fprintf(os.Stderr, "      sslctl deploy local --cert <file> --key <file> --site <name>\n\n选项:\n")
 		fs.PrintDefaults()
@@ -189,7 +189,7 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 			continue
 		}
 
-		fmt.Printf("  部署到: %s\n", binding.SiteName)
+		fmt.Printf("  部署到: %s\n", binding.ServerName)
 
 		if err := deployToBinding(binding, certData, privateKey, log); err != nil {
 			fmt.Printf("    失败: %v\n", err)
@@ -282,10 +282,10 @@ func bindSiteToCert(ctx context.Context, cfgManager *config.ConfigManager, cert 
 		site.CertificatePath = binding.Paths.Certificate
 	}
 
-	// 4. 更新或添加绑定（用 binding.SiteName 匹配，避免 ID 与 ServerName 不一致时重复追加）
+	// 4. 更新或添加绑定（用 binding.ServerName 匹配，避免重复追加）
 	updated := false
 	for i := range cert.Bindings {
-		if cert.Bindings[i].SiteName == binding.SiteName {
+		if cert.Bindings[i].ServerName == binding.ServerName {
 			cert.Bindings[i] = *binding
 			updated = true
 			break
@@ -310,7 +310,7 @@ func findSiteForBinding(cfgManager *config.ConfigManager, siteName string) (*con
 	// 优先从扫描结果
 	scanResult, _ := config.LoadScanResult()
 	if scanResult != nil {
-		if site := scanResult.FindSiteByID(siteName); site != nil {
+		if site := scanResult.FindSiteByServerName(siteName); site != nil {
 			binding := buildBindingFromScanResult(site, cfgManager)
 			return site, binding, nil
 		}
@@ -525,7 +525,7 @@ func runLocal(args []string, debug bool) {
 
 	// 检查站点是否启用
 	if !binding.Enabled {
-		fmt.Fprintf(os.Stderr, "错误: 站点 %s 已被禁用\n", binding.SiteName)
+		fmt.Fprintf(os.Stderr, "错误: 站点 %s 已被禁用\n", binding.ServerName)
 		os.Exit(1)
 	}
 
@@ -535,7 +535,7 @@ func runLocal(args []string, debug bool) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("部署本地证书到站点: %s (%s)\n", binding.SiteName, binding.ServerType)
+	fmt.Printf("部署本地证书到站点: %s (%s)\n", binding.ServerName, binding.ServerType)
 
 	// 构造 CertData 并部署
 	certDataStruct := &fetcher.CertData{
@@ -599,7 +599,7 @@ func getSiteBindingForLocal(cfgManager *config.ConfigManager, siteName string) (
 		return nil, fmt.Errorf("站点未找到，且无法加载扫描结果: %w", err)
 	}
 
-	site := scanResult.FindSiteByID(siteName)
+	site := scanResult.FindSiteByServerName(siteName)
 	if site == nil {
 		return nil, fmt.Errorf("站点 %s 不存在于配置或扫描结果中", siteName)
 	}
@@ -632,7 +632,7 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   site.ServerName,
+		ServerName: site.ServerName,
 		ServerType: serverType,
 		Enabled:    true,
 		Paths: config.BindingPaths{

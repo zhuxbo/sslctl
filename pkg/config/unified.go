@@ -362,7 +362,7 @@ func (cm *ConfigManager) AddCert(cert *CertConfig) error {
 	// 收集新证书绑定的站点名
 	newSites := make(map[string]bool)
 	for _, b := range cert.Bindings {
-		newSites[b.SiteName] = true
+		newSites[b.ServerName] = true
 	}
 
 	// 移除其他证书中对相同站点的绑定（一个站点只能绑定一个证书）
@@ -372,7 +372,7 @@ func (cm *ConfigManager) AddCert(cert *CertConfig) error {
 		}
 		var kept []SiteBinding
 		for _, b := range cfg.Certificates[i].Bindings {
-			if !newSites[b.SiteName] {
+			if !newSites[b.ServerName] {
 				kept = append(kept, b)
 			}
 		}
@@ -547,7 +547,7 @@ func (cm *ConfigManager) GetSiteBinding(siteName string) (*SiteBinding, error) {
 
 	for i := range cfg.Certificates {
 		for j := range cfg.Certificates[i].Bindings {
-			if cfg.Certificates[i].Bindings[j].SiteName == siteName {
+			if cfg.Certificates[i].Bindings[j].ServerName == siteName {
 				// 返回深拷贝
 				binding := cfg.Certificates[i].Bindings[j]
 				if binding.Docker != nil {

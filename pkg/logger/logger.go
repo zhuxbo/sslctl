@@ -111,7 +111,7 @@ func getLevelFromEnv() Level {
 // Logger 日志记录器
 type Logger struct {
 	logDir   string
-	siteName string
+	name     string
 	mu       sync.Mutex
 	file     *os.File
 	minLevel atomic.Int32
@@ -121,14 +121,14 @@ type Logger struct {
 // New 创建日志记录器
 // 日志级别通过 LOG_LEVEL 环境变量配置，支持: debug, info, warn, error
 // 日志格式通过 SSLCTL_LOG_FORMAT 环境变量配置：json 启用 JSON 输出，默认为文本格式
-func New(logDir, siteName string) (*Logger, error) {
+func New(logDir, name string) (*Logger, error) {
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	l := &Logger{
 		logDir:   logDir,
-		siteName: siteName,
+		name:   name,
 	}
 	l.minLevel.Store(int32(getLevelFromEnv()))
 	l.jsonMode.Store(os.Getenv("SSLCTL_LOG_FORMAT") == "json")
@@ -149,7 +149,7 @@ func (l *Logger) SetJSONMode(enabled bool) {
 func (l *Logger) openLogFile() error {
 	// 按日期命名日志文件
 	date := time.Now().Format("2006-01-02")
-	filename := fmt.Sprintf("%s-%s.log", l.siteName, date)
+	filename := fmt.Sprintf("%s-%s.log", l.name, date)
 	logPath := filepath.Join(l.logDir, filename)
 
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
@@ -177,7 +177,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 
 	// 检查是否需要切换日志文件（日期变化）
 	date := time.Now().Format("2006-01-02")
-	expectedFilename := fmt.Sprintf("%s-%s.log", l.siteName, date)
+	expectedFilename := fmt.Sprintf("%s-%s.log", l.name, date)
 	if l.file != nil {
 		currentFilename := filepath.Base(l.file.Name())
 		if currentFilename != expectedFilename {
@@ -210,8 +210,8 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 			"level": level.String(),
 			"msg":   message,
 		}
-		if l.siteName != "" {
-			entry["site"] = l.siteName
+		if l.name != "" {
+			entry["module"] = l.name
 		}
 		jsonBytes, _ := json.Marshal(entry)
 		logLine = string(jsonBytes) + "\n"
@@ -304,7 +304,7 @@ func NewNopLogger() *Logger {
 
 // cleanOldLogs 清理旧日志文件
 func (l *Logger) cleanOldLogs() {
-	pattern := filepath.Join(l.logDir, l.siteName+"-*.log")
+	pattern := filepath.Join(l.logDir, l.name+"-*.log")
 	files, err := filepath.Glob(pattern)
 	if err != nil || len(files) < MaxLogBackups {
 		return

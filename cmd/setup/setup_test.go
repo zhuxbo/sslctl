@@ -31,8 +31,8 @@ func TestCreateBinding_Nginx(t *testing.T) {
 
 	binding := createBinding(site, cfgManager)
 
-	if binding.SiteName != "example.com" {
-		t.Errorf("SiteName = %s, want example.com", binding.SiteName)
+	if binding.ServerName != "example.com" {
+		t.Errorf("ServerName = %s, want example.com", binding.ServerName)
 	}
 
 	if binding.ServerType != config.ServerTypeNginx {
@@ -123,7 +123,7 @@ func TestDeployCert_Nginx(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -169,7 +169,7 @@ func TestDeployCert_Apache(t *testing.T) {
 	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeApache,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -207,7 +207,7 @@ func TestDeployCert_Apache_Fullchain(t *testing.T) {
 	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeApache,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -257,7 +257,7 @@ func TestDeployCert_CreateDirectory(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{

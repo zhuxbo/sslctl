@@ -138,7 +138,7 @@ func TestRollbackFromBackup(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: filepath.Join(targetDir, "cert.pem"),
@@ -193,7 +193,7 @@ func TestDeployToBinding_UnsupportedServerType(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: "unsupported-type",
 		Paths: config.BindingPaths{
 			Certificate: filepath.Join(tmpDir, "cert.pem"),
@@ -230,7 +230,7 @@ func TestDeployToBinding_InvalidCert(t *testing.T) {
 	svc := NewService(cm, log)
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: filepath.Join(tmpDir, "cert.pem"),
@@ -281,7 +281,7 @@ func TestDeployToBinding_MismatchedKeyPair(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: filepath.Join(tmpDir, "cert.pem"),
@@ -477,7 +477,7 @@ func TestDeployToBinding_Nginx_Success(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "ssl", "key.pem")
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -531,7 +531,7 @@ func TestDeployToBinding_Apache_Success(t *testing.T) {
 	chainPath := filepath.Join(tmpDir, "ssl", "chain.pem")
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeApache,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -599,7 +599,7 @@ func TestDeployToBinding_WithBackup(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -655,7 +655,7 @@ func TestDeployToBinding_DockerNginx(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "ssl", "key.pem")
 
 	binding := &config.SiteBinding{
-		SiteName:   "docker-site",
+		ServerName: "docker-site",
 		ServerType: config.ServerTypeDockerNginx,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -696,7 +696,7 @@ func TestDeployToBinding_DockerApache(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "ssl", "key.pem")
 
 	binding := &config.SiteBinding{
-		SiteName:   "docker-site",
+		ServerName: "docker-site",
 		ServerType: config.ServerTypeDockerApache,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -737,7 +737,7 @@ func TestDeployToBinding_WithIntermediateCert(t *testing.T) {
 	keyPath := filepath.Join(tmpDir, "ssl", "key.pem")
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeNginx,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -818,7 +818,7 @@ func TestRollbackFromBackup_WithChainFile(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "test-site",
+		ServerName: "test-site",
 		ServerType: config.ServerTypeApache,
 		Paths: config.BindingPaths{
 			Certificate: certPath,
@@ -918,7 +918,7 @@ func TestSendDeployCallback_SuccessResult(t *testing.T) {
 		Domains:  []string{"example.com", "www.example.com"},
 		API:      config.APIConfig{URL: callbackServer.URL, Token: "test-token"},
 		Bindings: []config.SiteBinding{
-			{SiteName: "site1", ServerType: config.ServerTypeNginx, Enabled: true},
+			{ServerName: "site1", ServerType: config.ServerTypeNginx, Enabled: true},
 		},
 	}
 	result := &DeployResult{CertName: "test-cert", Success: true}

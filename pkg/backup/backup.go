@@ -42,7 +42,7 @@ func computeFileHash(path string) (string, error) {
 
 // Metadata 备份元数据
 type Metadata struct {
-	SiteName  string    `json:"site_name"`
+	ServerName string    `json:"server_name"`
 	BackupAt  time.Time `json:"backup_at"`
 	CertInfo  CertInfo  `json:"cert_info"`
 	CertPath  string    `json:"cert_path"`
@@ -179,7 +179,7 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 
 	// 5. 保存元数据
 	metadata := &Metadata{
-		SiteName:  siteName,
+		ServerName: siteName,
 		BackupAt:  time.Now(),
 		CertPath:  certPath,
 		KeyPath:   keyPath,

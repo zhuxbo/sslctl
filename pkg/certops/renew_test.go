@@ -587,8 +587,8 @@ func TestDeployCertToBindings_AllDisabled(t *testing.T) {
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		Bindings: []config.SiteBinding{
-			{SiteName: "site1", Enabled: false},
-			{SiteName: "site2", Enabled: false},
+			{ServerName: "site1", Enabled: false},
+			{ServerName: "site2", Enabled: false},
 		},
 	}
 
@@ -623,7 +623,7 @@ func TestDeployCertToBindings_InvalidCert(t *testing.T) {
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		Bindings: []config.SiteBinding{
-			{SiteName: "site1", Enabled: true},
+			{ServerName: "site1", Enabled: true},
 		},
 	}
 
@@ -666,7 +666,7 @@ func TestDeployCertToBindings_MismatchedKey(t *testing.T) {
 	cert := &config.CertConfig{
 		CertName: "test-cert",
 		Bindings: []config.SiteBinding{
-			{SiteName: "site1", Enabled: true},
+			{ServerName: "site1", Enabled: true},
 		},
 	}
 
@@ -708,7 +708,7 @@ func TestDeployCertToBindings_SuccessfulDeploy(t *testing.T) {
 		CertName: "test-cert",
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "site1",
+				ServerName: "site1",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -778,7 +778,7 @@ func TestDeployCertToBindings_PartialSuccess(t *testing.T) {
 		CertName: "test-cert",
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "valid-site",
+				ServerName: "valid-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -787,7 +787,7 @@ func TestDeployCertToBindings_PartialSuccess(t *testing.T) {
 				},
 			},
 			{
-				SiteName:   "invalid-site",
+				ServerName: "invalid-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{

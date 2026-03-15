@@ -42,7 +42,7 @@ type TestCertConfig struct {
 
 // TestSiteBinding 测试用站点绑定
 type TestSiteBinding struct {
-	SiteName   string `json:"site_name"`
+	ServerName string `json:"server_name"`
 	ServerType string `json:"server_type"`
 	Enabled    bool   `json:"enabled"`
 }
@@ -146,7 +146,7 @@ func (b *TestCertConfigBuilder) WithEnabled(enabled bool) *TestCertConfigBuilder
 // WithBinding 添加站点绑定
 func (b *TestCertConfigBuilder) WithBinding(siteName, serverType string, enabled bool) *TestCertConfigBuilder {
 	b.config.Bindings = append(b.config.Bindings, TestSiteBinding{
-		SiteName:   siteName,
+		ServerName: siteName,
 		ServerType: serverType,
 		Enabled:    enabled,
 	})

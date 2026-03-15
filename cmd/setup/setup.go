@@ -211,7 +211,7 @@ func Run(args []string, debug bool) {
 	if !*yes {
 		fmt.Printf("\n将部署证书到 %d 个站点:\n", len(bindings))
 		for _, b := range bindings {
-			fmt.Printf("  - %s (%s)\n", b.SiteName, b.ServerType)
+			fmt.Printf("  - %s (%s)\n", b.ServerName, b.ServerType)
 		}
 		if !confirm("\n确认部署?") {
 			fmt.Println("已取消")
@@ -240,7 +240,7 @@ func Run(args []string, debug bool) {
 	for _, site := range needSSLInstall {
 		var binding *config.SiteBinding
 		for i := range bindings {
-			if bindings[i].SiteName == site.ServerName {
+			if bindings[i].ServerName == site.ServerName {
 				binding = &bindings[i]
 				break
 			}
@@ -290,12 +290,12 @@ func Run(args []string, debug bool) {
 	var failedSites []string
 	for i := range bindings {
 		binding := &bindings[i]
-		fmt.Printf("  部署到: %s\n", binding.SiteName)
+		fmt.Printf("  部署到: %s\n", binding.ServerName)
 
 		if err := deployToSiteBinding(ctx, binding, certData, privateKey, log); err != nil {
 			fmt.Fprintf(os.Stderr, "    部署失败: %v\n", err)
 			failCount++
-			failedSites = append(failedSites, binding.SiteName)
+			failedSites = append(failedSites, binding.ServerName)
 			binding.Enabled = false // 标记失败绑定为禁用，避免守护进程持续重试
 			continue
 		}
@@ -413,7 +413,7 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 	}
 
 	binding := config.SiteBinding{
-		SiteName:   site.ServerName,
+		ServerName: site.ServerName,
 		ServerType: site.ServerType,
 		Enabled:    true,
 		Paths: config.BindingPaths{

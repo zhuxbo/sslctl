@@ -68,11 +68,11 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 
 		err := s.deployToBinding(ctx, &binding, certData, privateKey)
 		if err != nil {
-			s.log.Error("部署到 %s 失败: %v", binding.SiteName, err)
+			s.log.Error("部署到 %s 失败: %v", binding.ServerName, err)
 			result.Success = false
 			result.Error = err
 		} else {
-			s.log.Info("证书已部署到 %s", binding.SiteName)
+			s.log.Info("证书已部署到 %s", binding.ServerName)
 			successCount++
 		}
 	}
@@ -165,7 +165,7 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 	// 1. 备份现有证书（如果存在）
 	var backupPath string
 	if util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey) {
-		result, err := s.backupMgr.Backup(binding.SiteName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
+		result, err := s.backupMgr.Backup(binding.ServerName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
 		if err != nil {
 			s.log.Warn("备份证书失败（继续部署）: %v", err)
 		} else if result != nil {

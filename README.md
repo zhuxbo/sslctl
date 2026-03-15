@@ -139,7 +139,7 @@ sslctl --debug deploy --site example.com
 /opt/sslctl/
 ├── config.json     # 统一配置文件
 ├── certs/          # 证书存储
-│   └── {site_name}/
+│   └── {server_name}/
 │       ├── cert.pem
 │       └── key.pem
 ├── pending-keys/   # 待确认私钥（本地私钥模式）
@@ -210,7 +210,7 @@ sslctl status
       "renew_mode": "pull",
       "bindings": [
         {
-          "site_name": "www.example.com",
+          "server_name": "www.example.com",
           "server_type": "nginx",
           "enabled": true,
           "paths": {

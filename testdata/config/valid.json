@@ -16,7 +16,7 @@
       "domains": ["example.com", "*.example.com"],
       "bindings": [
         {
-          "site_name": "example.com",
+          "server_name": "example.com",
           "server_type": "nginx",
           "enabled": true,
           "paths": {

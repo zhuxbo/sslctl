@@ -346,11 +346,11 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 		}
 
 		if err := s.deployToBinding(ctx, &binding, certData, privateKey); err != nil {
-			s.log.Error("部署到 %s 失败: %v", binding.SiteName, err)
+			s.log.Error("部署到 %s 失败: %v", binding.ServerName, err)
 			lastErr = err
 			continue
 		}
-		s.log.Info("证书已部署到 %s", binding.SiteName)
+		s.log.Info("证书已部署到 %s", binding.ServerName)
 		deployCount++
 	}
 

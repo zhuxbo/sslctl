@@ -313,7 +313,7 @@ sslctl                    Manager API                    CA
       "renew_mode": "pull",
       "bindings": [
         {
-          "site_name": "www.example.com",
+          "server_name": "www.example.com",
           "server_type": "nginx",
           "enabled": true,
           "paths": {

@@ -52,7 +52,7 @@ sslctl scan --ssl-only                           # 仅扫描 SSL 站点
 
 # 证书部署
 sslctl deploy --cert <name>                      # 部署指定证书
-sslctl deploy --cert <name> --site <site_name>   # 绑定站点并部署
+sslctl deploy --cert <name> --site <server_name> # 绑定站点并部署
 sslctl deploy --all                              # 部署所有证书
 
 # 本地证书部署（不依赖 API）
@@ -78,7 +78,7 @@ sslctl uninstall                                 # 卸载
 - API 配置在**证书级别**（每个证书独立的 `api` 字段），不再有全局 API
 - `release_url`：升级发布地址（由 install.sh/install.ps1 安装时写入，升级模块从此读取，未配置时升级命令报错）
 
-证书存储目录：`/opt/sslctl/certs/{site_name}/`
+证书存储目录：`/opt/sslctl/certs/{server_name}/`
 
 ## 环境变量
 

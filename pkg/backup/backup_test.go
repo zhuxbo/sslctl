@@ -269,8 +269,8 @@ func TestManager_LoadMetadata(t *testing.T) {
 		t.Fatalf("LoadMetadata() error = %v", err)
 	}
 
-	if meta.SiteName != "example.com" {
-		t.Errorf("SiteName = %s, want example.com", meta.SiteName)
+	if meta.ServerName != "example.com" {
+		t.Errorf("ServerName = %s, want example.com", meta.ServerName)
 	}
 
 	if meta.CertInfo.Subject != "CN=example.com" {

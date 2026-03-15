@@ -78,7 +78,7 @@ func applyRollbackMetadata(cfg *config.Config, siteName string, cert *x509.Certi
 // certHasSite 判断证书配置是否包含指定站点绑定
 func certHasSite(cert *config.CertConfig, siteName string) bool {
 	for _, binding := range cert.Bindings {
-		if binding.SiteName == siteName {
+		if binding.ServerName == siteName {
 			return true
 		}
 	}

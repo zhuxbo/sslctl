@@ -441,7 +441,7 @@ func TestIntegration_DeployToLocal(t *testing.T) {
 
 	// 创建绑定配置
 	binding := &config.SiteBinding{
-		SiteName:   "integration-test",
+		ServerName: "integration-test",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -534,7 +534,7 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 		API:      config.APIConfig{URL: apiURL, Token: token},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "test-site",
+				ServerName: "test-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -691,7 +691,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 	_ = os.WriteFile(keyPath, []byte("OLD-KEY"), 0600)
 
 	binding := &config.SiteBinding{
-		SiteName:   "backup-test",
+		ServerName: "backup-test",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -763,7 +763,7 @@ func TestIntegration_PreparePullRenew(t *testing.T) {
 		Domains:  strings.Split(infoData.Domains, ","),
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "test-site",
+				ServerName: "test-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -835,7 +835,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 		},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "renew-site",
+				ServerName: "renew-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -927,7 +927,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 		},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "local-site",
+				ServerName: "local-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
