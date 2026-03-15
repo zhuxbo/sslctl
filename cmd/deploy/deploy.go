@@ -2,6 +2,7 @@
 package deploy
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
+	"github.com/zhuxbo/sslctl/pkg/matcher"
 	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
@@ -29,10 +31,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
 	certName := fs.String("cert", "", "证书名称")
+	siteName := fs.String("site", "", "绑定并部署到指定站点（需配合 --cert）")
+	yes := fs.Bool("yes", false, "跳过确认提示（配合 --site 使用）")
 	all := fs.Bool("all", false, "部署所有证书")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "用法: sslctl deploy --cert <name>\n")
+		fmt.Fprintf(os.Stderr, "      sslctl deploy --cert <name> --site <site_name>\n")
 		fmt.Fprintf(os.Stderr, "      sslctl deploy --all\n")
 		fmt.Fprintf(os.Stderr, "      sslctl deploy local --cert <file> --key <file> --site <name>\n\n选项:\n")
 		fs.PrintDefaults()
@@ -44,6 +49,15 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	if *certName == "" && !*all {
 		fs.Usage()
+		os.Exit(1)
+	}
+
+	if *siteName != "" && *certName == "" {
+		fmt.Fprintln(os.Stderr, "--site 需要配合 --cert 使用")
+		os.Exit(1)
+	}
+	if *siteName != "" && *all {
+		fmt.Fprintln(os.Stderr, "--site 不能与 --all 一起使用")
 		os.Exit(1)
 	}
 
@@ -93,6 +107,15 @@ func Run(args []string, version, buildTime string, debug bool) {
 			fmt.Fprintf(os.Stderr, "证书不存在: %s\n", *certName)
 			os.Exit(1)
 		}
+
+		// 如果指定了 --site，先绑定站点到证书
+		if *siteName != "" {
+			if err := bindSiteToCert(ctx, cfgManager, cert, *siteName, f, *yes); err != nil {
+				fmt.Fprintf(os.Stderr, "绑定站点失败: %v\n", err)
+				os.Exit(1)
+			}
+		}
+
 		if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
 			fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
 			os.Exit(1)
@@ -211,6 +234,175 @@ func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, pr
 
 	// 直接返回 deployer.Deploy 的结果，保留 StructuredDeployError 类型
 	return deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
+}
+
+// bindSiteToCert 绑定站点到证书
+// 流程：查找站点 → 域名匹配校验 → SSL 安装（如需） → 保存绑定
+func bindSiteToCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, siteName string, f *fetcher.Fetcher, skipConfirm bool) error {
+	// 1. 从扫描结果查找站点（优先，包含域名等完整信息）
+	site, binding, err := findSiteForBinding(cfgManager, siteName)
+	if err != nil {
+		return err
+	}
+
+	// 2. 域名匹配校验（仅扫描结果中有域名信息时）
+	if site != nil && len(cert.Domains) > 0 {
+		m := matcher.New(cert.Domains)
+		domains := append([]string{site.ServerName}, site.ServerAlias...)
+		result := m.Match(domains)
+
+		switch result.Type {
+		case config.MatchTypeFull:
+			// 完全匹配，无需提示
+		case config.MatchTypePartial:
+			fmt.Printf("  域名部分匹配:\n")
+			fmt.Printf("    匹配: %s\n", strings.Join(result.MatchedDomains, ", "))
+			fmt.Printf("    未覆盖: %s\n", strings.Join(result.MissedDomains, ", "))
+		case config.MatchTypeNone:
+			fmt.Printf("  警告: 域名不匹配\n")
+			fmt.Printf("    证书域名: %s\n", strings.Join(cert.Domains, ", "))
+			siteDomains := site.ServerName
+			if len(site.ServerAlias) > 0 {
+				siteDomains += ", " + strings.Join(site.ServerAlias, ", ")
+			}
+			fmt.Printf("    站点域名: %s\n", siteDomains)
+			if !skipConfirm && !confirmAction("  是否继续绑定?") {
+				return fmt.Errorf("已取消")
+			}
+		}
+	}
+
+	// 3. 站点未启用 SSL 时安装 HTTPS 配置
+	if site != nil && site.CertificatePath == "" {
+		fmt.Printf("  站点 %s 未启用 SSL，正在安装 HTTPS 配置...\n", siteName)
+		if err := installSSLForSite(ctx, site, binding, cfgManager, cert, f); err != nil {
+			return fmt.Errorf("安装 SSL 配置失败: %w", err)
+		}
+		// 更新内存中的站点状态，防止后续逻辑重复判断为未启用 SSL
+		site.CertificatePath = binding.Paths.Certificate
+	}
+
+	// 4. 更新或添加绑定（用 binding.SiteName 匹配，避免 ID 与 ServerName 不一致时重复追加）
+	updated := false
+	for i := range cert.Bindings {
+		if cert.Bindings[i].SiteName == binding.SiteName {
+			cert.Bindings[i] = *binding
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		cert.Bindings = append(cert.Bindings, *binding)
+	}
+
+	// AddCert 会自动移除其他证书中对同一站点的绑定
+	if err := cfgManager.AddCert(cert); err != nil {
+		return fmt.Errorf("保存配置失败: %w", err)
+	}
+
+	fmt.Printf("已绑定站点: %s -> %s\n", siteName, cert.CertName)
+	return nil
+}
+
+// findSiteForBinding 查找站点信息用于绑定
+// 优先从扫描结果获取（包含域名等完整信息），回退到已有配置
+func findSiteForBinding(cfgManager *config.ConfigManager, siteName string) (*config.ScannedSite, *config.SiteBinding, error) {
+	// 优先从扫描结果
+	scanResult, _ := config.LoadScanResult()
+	if scanResult != nil {
+		if site := scanResult.FindSiteByID(siteName); site != nil {
+			binding := buildBindingFromScanResult(site, cfgManager)
+			return site, binding, nil
+		}
+	}
+
+	// 回退到已有配置（站点已部署过，跳过域名匹配和 SSL 检查）
+	binding, err := cfgManager.GetSiteBinding(siteName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("站点 %s 未找到，请先运行 'sslctl scan'", siteName)
+	}
+	return nil, binding, nil
+}
+
+// installSSLForSite 为未启用 SSL 的站点安装 HTTPS 配置
+// 需要先写入证书文件，否则 nginx -t / apachectl -t 会失败
+func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *config.SiteBinding, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher) error {
+	// 获取证书数据
+	api := cert.GetAPI()
+	if api.URL == "" || api.Token == "" {
+		return fmt.Errorf("证书 API 配置不完整")
+	}
+	certData, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	if err != nil {
+		return fmt.Errorf("获取证书失败: %w", err)
+	}
+	if certData.Status != "active" || certData.Cert == "" {
+		return fmt.Errorf("证书未就绪: status=%s", certData.Status)
+	}
+
+	// 获取私钥
+	privateKey, err := certops.GetPrivateKeyFromBindings(cert.Bindings, certData.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	// 写入证书和私钥文件（安装 SSL 配置前必须存在）
+	certDir := filepath.Dir(binding.Paths.Certificate)
+	if err := util.EnsureDir(certDir, 0700); err != nil {
+		return fmt.Errorf("创建证书目录失败: %w", err)
+	}
+
+	fullchain := certData.Cert
+	if certData.IntermediateCert != "" {
+		fullchain += "\n" + certData.IntermediateCert
+	}
+	if err := util.AtomicWrite(binding.Paths.Certificate, []byte(fullchain), 0644); err != nil {
+		return fmt.Errorf("写入证书失败: %w", err)
+	}
+	if err := util.AtomicWrite(binding.Paths.PrivateKey, []byte(privateKey), 0600); err != nil {
+		return fmt.Errorf("写入私钥失败: %w", err)
+	}
+
+	// 安装 SSL 配置
+	serverType := detectServerType(site)
+	testCmd := "nginx -t"
+	if serverType == config.ServerTypeApache {
+		testCmd = "apachectl -t"
+	}
+
+	installer, err := webserver.NewInstaller(
+		webserver.ServerType(serverType),
+		site.ConfigFile,
+		binding.Paths.Certificate,
+		binding.Paths.PrivateKey,
+		"", // fullchain 模式
+		site.ServerName,
+		testCmd,
+	)
+	if err != nil {
+		return err
+	}
+
+	result, err := installer.Install()
+	if err != nil {
+		return err
+	}
+	if result.Modified {
+		fmt.Printf("    SSL 配置已安装（备份: %s）\n", result.BackupPath)
+	}
+	return nil
+}
+
+// confirmAction 确认提示
+func confirmAction(prompt string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s [Y/n]: ", prompt)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response != "n" && response != "no"
 }
 
 // runLocal 运行本地证书部署子命令

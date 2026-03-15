@@ -47,27 +47,28 @@ testdata/      # 测试数据和工具
 sslctl setup --url <url> --token <token> --order <order_id>
 
 # 站点扫描
-sslctl scan                       # 扫描站点（自动检测 Web 服务器）
-sslctl scan --ssl-only            # 仅扫描 SSL 站点
+sslctl scan                                      # 扫描站点（自动检测 Web 服务器）
+sslctl scan --ssl-only                           # 仅扫描 SSL 站点
 
 # 证书部署
-sslctl deploy --cert <name>       # 部署指定证书
-sslctl deploy --all               # 部署所有证书
+sslctl deploy --cert <name>                      # 部署指定证书
+sslctl deploy --cert <name> --site <site_name>   # 绑定站点并部署
+sslctl deploy --all                              # 部署所有证书
 
 # 本地证书部署（不依赖 API）
 sslctl deploy local --cert <file> --key <file> --site <name>
 sslctl deploy local --cert <file> --key <file> --ca <file> --site <name>  # Apache
 
 # 证书回滚
-sslctl rollback --site <name>              # 回滚到最新备份
-sslctl rollback --site <name> --list       # 查看备份列表
-sslctl rollback --site <name> --version <ts>  # 回滚到指定版本
+sslctl rollback --site <name>                    # 回滚到最新备份
+sslctl rollback --site <name> --list             # 查看备份列表
+sslctl rollback --site <name> --version <ts>     # 回滚到指定版本
 
 # 服务管理
-sslctl status                     # 查看服务状态（含证书过期详情）
-sslctl service repair             # 修复服务
-sslctl upgrade                    # 升级工具
-sslctl uninstall                  # 卸载
+sslctl status                                    # 查看服务状态（含证书过期详情）
+sslctl service repair                            # 修复服务
+sslctl upgrade                                   # 升级工具
+sslctl uninstall                                 # 卸载
 ```
 
 ## 配置文件
