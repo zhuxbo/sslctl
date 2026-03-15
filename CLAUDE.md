@@ -138,7 +138,8 @@ docker/test/
 - Windows 服务管理错误处理完善（`Control`/`UpdateConfig` 返回值均已检查）
 - 测试覆盖率 48%+，核心包 `pkg/errors` 100%，`pkg/config` 76%，`pkg/backup` 75%
 - 结构化部署错误（`StructuredDeployError`）支持类型分类、阶段定位和可重试判断
-- 平台相关代码使用 Build Tag 隔离（`inode_unix.go`/`inode_windows.go`、`selinux_linux.go`）
+- 平台相关代码使用 Build Tag 隔离（`inode_unix.go`/`inode_windows.go`、`selinux_linux.go`、`console_windows.go`）
+- Windows 控制台 UTF-8 编码自动设置（`cmd/console_windows.go`，SetConsoleOutputCP + ANSI 虚拟终端支持）
 
 ## 安全机制
 

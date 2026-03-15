@@ -2,7 +2,16 @@
 # 自动检测架构，下载部署工具
 # 使用方法:
 #   直接执行: .\install.ps1 [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
-#   管道模式: irm https://raw.githubusercontent.com/zhuxbo/sslctl/main/deploy/install.ps1 | iex
+#   管道模式: irm https://release.example.com/sslctl/install.ps1 | iex
+#
+# 服务端要求:
+#   管道模式依赖服务端返回 Content-Type: text/plain; charset=utf-8，
+#   否则 PowerShell 5.1 会用系统默认编码 (GBK) 解码导致中文乱码。
+#   nginx 配置示例:
+#     location ~ \.ps1$ {
+#         types { text/plain ps1; }
+#         charset utf-8;
+#     }
 
 param(
     [switch]$Dev,
@@ -14,6 +23,13 @@ param(
 
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
+
+# 设置控制台编码为 UTF-8，解决中文乱码
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {}
 
 function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -218,7 +234,7 @@ if ($services.Count -gt 0) {
 try {
     $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServer -ErrorAction SilentlyContinue
     if ($iisFeature -and $iisFeature.State -eq 'Enabled') {
-        Write-Warn "检测到 IIS，请使用 sslctlw 项目 (https://github.com/zhuxbo/sslctlw)"
+        Write-Warn "检测到 IIS，请使用 sslctlw 工具"
     }
 } catch {}
 
@@ -356,10 +372,15 @@ if ($Path -notlike "*$InstallDir*") {
     Write-Info "已添加 $InstallDir 到系统 PATH"
 }
 
+# 同时更新当前会话 PATH（无需重启终端即可使用）
+if ($env:Path -notlike "*$InstallDir*") {
+    $env:Path = "$env:Path;$InstallDir"
+}
+
 Write-Host ""
 Write-Info "安装完成！"
 Write-Host ""
-Write-Host "使用方法 (需重新打开终端):"
+Write-Host "使用方法:"
 Write-Host "  sslctl scan                              # 扫描站点"
 Write-Host "  sslctl deploy --site example.com         # 部署证书"
 Write-Host "  sslctl status                            # 查看服务状态"
@@ -370,4 +391,4 @@ Write-Host ""
 Write-Host "配置目录: C:\sslctl\sites\"
 Write-Host "日志目录: C:\sslctl\logs\"
 Write-Host ""
-Write-Host "IIS 用户请使用: https://github.com/zhuxbo/sslctlw"
+Write-Host "IIS 用户请使用 sslctlw 工具"
