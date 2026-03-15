@@ -4,6 +4,7 @@ package setup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -193,6 +194,56 @@ func TestDeployCert_Apache(t *testing.T) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("文件未创建: %s", path)
 		}
+	}
+}
+
+// TestDeployCert_Apache_Fullchain 测试 Apache fullchain 模式部署（无 ChainFile）
+func TestDeployCert_Apache_Fullchain(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	testCert, _ := certs.GenerateValidCert("example.com", nil)
+	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
+
+	binding := &config.SiteBinding{
+		SiteName:   "example.com",
+		ServerType: config.ServerTypeApache,
+		Enabled:    true,
+		Paths: config.BindingPaths{
+			Certificate: certPath,
+			PrivateKey:  keyPath,
+			// 不设置 ChainFile — fullchain 模式
+		},
+	}
+
+	certData := &fetcher.CertData{
+		Cert:             testCert.CertPEM,
+		IntermediateCert: intermediateCert.CertPEM,
+	}
+
+	err := deployToSiteBinding(t.Context(), binding, certData, testCert.KeyPEM, nil)
+	if err != nil {
+		t.Fatalf("deployCert() error = %v", err)
+	}
+
+	// 验证证书文件包含 cert + intermediate（fullchain）
+	certData2, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+	certContent := string(certData2)
+	if !strings.Contains(certContent, testCert.CertPEM) {
+		t.Error("证书文件应包含服务器证书")
+	}
+	if !strings.Contains(certContent, intermediateCert.CertPEM) {
+		t.Error("证书文件应包含中间证书（fullchain 模式）")
+	}
+
+	// 不应创建 chain.pem
+	chainPath := filepath.Join(tmpDir, "chain.pem")
+	if _, err := os.Stat(chainPath); !os.IsNotExist(err) {
+		t.Error("fullchain 模式下不应创建独立的 chain.pem")
 	}
 }
 

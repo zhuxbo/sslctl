@@ -420,7 +420,15 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 		}
 		// 使用 AtomicWrite 安全写入（带符号链接防护）
 		if writeErr := util.AtomicWrite(targetPath, data, 0600); writeErr != nil {
+			// 清零内存中的私钥材料
+			for i := range data {
+				data[i] = 0
+			}
 			return fmt.Errorf("写入目标私钥失败: %w (pending 私钥保留在: %s，请手动恢复)", writeErr, pendingRelPath)
+		}
+		// 清零内存中的私钥材料
+		for i := range data {
+			data[i] = 0
 		}
 		// 成功后才清理 pending 私钥
 		_ = os.Remove(pendingPath)

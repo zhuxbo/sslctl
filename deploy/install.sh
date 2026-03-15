@@ -245,6 +245,40 @@ if ! curl -fsSL --connect-timeout 30 "$DOWNLOAD_URL" -o "/tmp/$FILENAME" 2>/dev/
     exit 1
 fi
 
+# SHA256 校验（从 versions.$VERSION.checksums.$FILENAME 精确提取）
+EXPECTED_HASH=""
+if command -v python3 >/dev/null 2>&1; then
+    EXPECTED_HASH=$(curl -s --connect-timeout 10 "$RELEASE_URL/releases.json" 2>/dev/null | \
+        python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    h = d.get('versions',{}).get('$VERSION',{}).get('checksums',{}).get('$FILENAME','')
+    if h.startswith('sha256:'):
+        print(h[7:])
+except: pass
+" 2>/dev/null)
+fi
+if [ -n "$EXPECTED_HASH" ]; then
+    ACTUAL_HASH=$(sha256sum "/tmp/$FILENAME" 2>/dev/null | cut -d' ' -f1)
+    [ -z "$ACTUAL_HASH" ] && ACTUAL_HASH=$(shasum -a 256 "/tmp/$FILENAME" 2>/dev/null | cut -d' ' -f1)
+    if [ -z "$ACTUAL_HASH" ]; then
+        echo_error "无法计算 SHA256，中止安装"
+        rm -f "/tmp/$FILENAME"
+        exit 1
+    fi
+    if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+        echo_error "SHA256 校验失败: 文件可能被篡改"
+        echo_error "  期望: $EXPECTED_HASH"
+        echo_error "  实际: $ACTUAL_HASH"
+        rm -f "/tmp/$FILENAME"
+        exit 1
+    fi
+    echo_info "SHA256 校验通过"
+else
+    echo_warn "无法获取校验和（需要 python3），跳过 SHA256 校验"
+fi
+
 # 解压并安装
 echo_info "安装中..."
 gunzip -f "/tmp/$FILENAME"

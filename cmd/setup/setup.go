@@ -391,6 +391,7 @@ func scanSites(serverType string, log *logger.Logger) []*matcher.ScannedSiteInfo
 			HasSSL:      site.CertificatePath != "",
 			CertPath:    site.CertificatePath,
 			KeyPath:     site.PrivateKeyPath,
+			ChainPath:   site.ChainFile,
 			ServerType:  string(site.ServerType),
 		})
 	}
@@ -422,12 +423,10 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 		},
 	}
 
-	// Apache 需要设置证书链路径
-	if site.ServerType == config.ServerTypeApache {
-		if binding.Paths.ChainFile == "" {
-			certDir, _ := cm.EnsureSiteCertsDir(site.ServerName)
-			binding.Paths.ChainFile = filepath.Join(certDir, "chain.pem")
-		}
+	// Apache：保留扫描到的 ChainFile 路径（已有 SSLCertificateChainFile 的站点）
+	// 新安装 SSL 的站点 ChainPath 为空，使用 fullchain 模式
+	if site.ChainPath != "" {
+		binding.Paths.ChainFile = site.ChainPath
 	}
 
 	// 设置重载命令
@@ -503,7 +502,10 @@ func installSSLConfig(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) (
 	}
 	certPath := filepath.Join(certDir, "cert.pem")
 	keyPath := filepath.Join(certDir, "key.pem")
-	chainPath := filepath.Join(certDir, "chain.pem")
+
+	// Apache 新安装使用 fullchain 模式（cert.pem 包含 cert+intermediate），不生成 SSLCertificateChainFile
+	// Nginx 本身就是 fullchain 模式，chainPath 无意义
+	chainPath := ""
 
 	// 确定 testCmd（根据站点类型而非全局检测类型）
 	testCmd := "nginx -t"
@@ -586,10 +588,14 @@ func getAndValidatePrivateKey(bindings []config.SiteBinding, certData *fetcher.C
 }
 
 // confirm 确认提示
+// 非终端环境（如 CI）读取失败时返回 false，需使用 --yes 参数
 func confirm(prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("%s [Y/n]: ", prompt)
-	response, _ := reader.ReadString('\n')
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
 	response = strings.ToLower(strings.TrimSpace(response))
 	return response != "n" && response != "no"
 }

@@ -32,6 +32,12 @@ type SSLSite struct {
 	VolumeMode   bool // 是否挂载卷模式
 }
 
+// 扫描限制（与本地 Nginx scanner 一致）
+const (
+	maxScanDepth = 100  // include 递归最大深度
+	maxScanFiles = 1000 // 最多扫描文件数
+)
+
 // Scanner Docker Nginx 扫描器
 type Scanner struct {
 	client       *Client
@@ -64,7 +70,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]*SSLSite, error) {
 
 	// 3. 从主配置文件开始递归扫描
 	s.scannedFiles = make(map[string]bool)
-	sites, err := s.scanConfigFile(ctx, configPath, info)
+	sites, err := s.scanConfigFile(ctx, configPath, info, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +107,15 @@ func (s *Scanner) DetectNginxConfig(ctx context.Context) (string, error) {
 }
 
 // scanConfigFile 扫描配置文件（递归处理 include）
-func (s *Scanner) scanConfigFile(ctx context.Context, configPath string, info *ContainerInfo) ([]*SSLSite, error) {
+func (s *Scanner) scanConfigFile(ctx context.Context, configPath string, info *ContainerInfo, depth int) ([]*SSLSite, error) {
+	// 深度限制
+	if depth > maxScanDepth {
+		return nil, fmt.Errorf("include depth exceeds limit (%d)", maxScanDepth)
+	}
+	// 文件数限制
+	if len(s.scannedFiles) >= maxScanFiles {
+		return nil, fmt.Errorf("scanned files exceeds limit (%d)", maxScanFiles)
+	}
 	// 避免重复扫描
 	if s.scannedFiles[configPath] {
 		return nil, nil
@@ -125,7 +139,7 @@ func (s *Scanner) scanConfigFile(ctx context.Context, configPath string, info *C
 
 	// 递归扫描 include 的文件
 	for _, inc := range includes {
-		incSites, err := s.scanConfigFile(ctx, inc, info)
+		incSites, err := s.scanConfigFile(ctx, inc, info, depth+1)
 		if err == nil {
 			sites = append(sites, incSites...)
 		}

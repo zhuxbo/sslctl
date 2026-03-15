@@ -18,6 +18,11 @@ func CheckSSRF(host string) error {
 	}
 
 	for _, ip := range ips {
+		// 检查未指定地址 (0.0.0.0, ::)
+		// Linux 上连接 0.0.0.0 等同 127.0.0.1，可绕过回环检测
+		if ip.IsUnspecified() {
+			return fmt.Errorf("unspecified address not allowed: %s", ip)
+		}
 		// 检查回环地址
 		if ip.IsLoopback() {
 			return fmt.Errorf("loopback address not allowed: %s", ip)

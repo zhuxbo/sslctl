@@ -320,7 +320,11 @@ func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, erro
 	var err error
 
 	if len(timestamp) > 0 && timestamp[0] != "" {
-		backupPath = filepath.Join(m.backupDir, siteName, timestamp[0])
+		var joinErr error
+		backupPath, joinErr = util.JoinUnderDir(m.backupDir, filepath.Join(siteName, timestamp[0]))
+		if joinErr != nil {
+			return nil, fmt.Errorf("invalid backup path: %w", joinErr)
+		}
 		if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
 			return nil, fmt.Errorf("备份不存在: %s/%s", siteName, timestamp[0])
 		}
@@ -398,12 +402,18 @@ func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, erro
 
 // DeleteBackup 删除指定备份
 func (m *Manager) DeleteBackup(siteName, timestamp string) error {
-	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
+	backupPath, err := util.JoinUnderDir(m.backupDir, filepath.Join(siteName, timestamp))
+	if err != nil {
+		return fmt.Errorf("invalid backup path: %w", err)
+	}
 	return os.RemoveAll(backupPath)
 }
 
 // DeleteAllBackups 删除站点的所有备份
 func (m *Manager) DeleteAllBackups(siteName string) error {
-	siteBackupDir := filepath.Join(m.backupDir, siteName)
+	siteBackupDir, err := util.JoinUnderDir(m.backupDir, siteName)
+	if err != nil {
+		return fmt.Errorf("invalid site name: %w", err)
+	}
 	return os.RemoveAll(siteBackupDir)
 }

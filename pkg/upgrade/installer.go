@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,14 +69,15 @@ func downloadBinaryWithClient(url string, client *http.Client) ([]byte, error) {
 	}
 
 	// 限制读取大小，防止内存耗尽
-	limitReader := io.LimitReader(resp.Body, maxDownloadSize)
+	// 多读 1 字节用于检测是否超限（与 installTo 保持一致）
+	limitReader := io.LimitReader(resp.Body, maxDownloadSize+1)
 	data, err := io.ReadAll(limitReader)
 	if err != nil {
 		return nil, fmt.Errorf("读取下载数据失败: %w", err)
 	}
 
-	// 检查是否达到大小限制
-	if int64(len(data)) >= maxDownloadSize {
+	// 检查是否超出大小限制
+	if int64(len(data)) > maxDownloadSize {
 		return nil, fmt.Errorf("下载失败: 文件大小超过限制 (%d bytes)", maxDownloadSize)
 	}
 
@@ -111,18 +113,27 @@ func init() {
 	releasePublicKeys["key-1"] = ed25519.PublicKey{0x3d, 0xca, 0xc7, 0x05, 0xf4, 0xce, 0xe9, 0x86, 0xa0, 0x8d, 0x8c, 0xd5, 0xb5, 0x90, 0x42, 0xe3, 0x1f, 0x37, 0xbf, 0x5a, 0x4c, 0x36, 0x50, 0x65, 0xa4, 0xd2, 0x2d, 0x50, 0xe0, 0x26, 0x23, 0x8a}
 }
 
+// releaseKeysMu 保护 releasePublicKeys 的并发访问（SetReleasePublicKeys/AddReleasePublicKey 仅用于测试）
+var releaseKeysMu sync.RWMutex
+
 // SetReleasePublicKeys 设置发布签名公钥环（仅用于测试）
 func SetReleasePublicKeys(keys map[string]ed25519.PublicKey) {
+	releaseKeysMu.Lock()
+	defer releaseKeysMu.Unlock()
 	releasePublicKeys = keys
 }
 
 // AddReleasePublicKey 添加单个发布签名公钥（仅用于测试）
 func AddReleasePublicKey(id string, key ed25519.PublicKey) {
+	releaseKeysMu.Lock()
+	defer releaseKeysMu.Unlock()
 	releasePublicKeys[id] = key
 }
 
 // hasReleasePublicKeys 检查是否配置了公钥
 func hasReleasePublicKeys() bool {
+	releaseKeysMu.RLock()
+	defer releaseKeysMu.RUnlock()
 	return len(releasePublicKeys) > 0
 }
 
@@ -168,7 +179,9 @@ func VerifySignature(data []byte, expected string) error {
 	}
 
 	// 按 key ID 查找公钥
+	releaseKeysMu.RLock()
 	pubKey, ok := releasePublicKeys[keyID]
+	releaseKeysMu.RUnlock()
 	if !ok {
 		return &ErrKeyNotFound{KeyID: keyID}
 	}

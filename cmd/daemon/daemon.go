@@ -73,10 +73,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	var wg sync.WaitGroup
 	taskRunning := make(chan struct{}, 1) // 防止任务重叠
 
-	// 启动时立即检查一次
+	// 启动时立即检查一次（占用 taskRunning 防止与 ticker 重叠）
+	taskRunning <- struct{}{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() { <-taskRunning }()
 		checkAndDeploy(ctx, svc, log)
 	}()
 

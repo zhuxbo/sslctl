@@ -200,6 +200,9 @@ func makeSSRFSafeDialContext(dialer *net.Dialer) func(ctx context.Context, netwo
 
 // validateIPForSSRF 校验 IP 是否安全（非内网、非回环、非云元数据）
 func validateIPForSSRF(ip net.IP) error {
+	if ip.IsUnspecified() {
+		return fmt.Errorf("unspecified address not allowed: %s", ip)
+	}
 	if ip.IsLoopback() {
 		return fmt.Errorf("loopback address not allowed: %s", ip)
 	}

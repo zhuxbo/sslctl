@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,8 +21,8 @@ var (
 	bearerTokenRegex = regexp.MustCompile(`Bearer\s+[A-Za-z0-9\-_\.]+`)
 	// 匹配常见的 token/secret 参数
 	tokenParamRegex = regexp.MustCompile(`(token|secret|password|api_key|apikey)=["']?[^"'\s&]+["']?`)
-	// 匹配 JSON 中的敏感字段
-	jsonTokenRegex = regexp.MustCompile(`"(token|secret|password|api_key|apikey|private_key)"\s*:\s*"[^"]*"`)
+	// 匹配 JSON 中的敏感字段（包含敏感词的 key 名称）
+	jsonTokenRegex = regexp.MustCompile(`"(\w*(token|secret|password|api_key|apikey|private_key)\w*)"\s*:\s*"[^"]*"`)
 	// 匹配 HTTP Basic Auth
 	basicAuthRegex = regexp.MustCompile(`Basic\s+[A-Za-z0-9+/=]+`)
 )
@@ -113,8 +114,8 @@ type Logger struct {
 	siteName string
 	mu       sync.Mutex
 	file     *os.File
-	minLevel Level
-	jsonMode bool // JSON 输出模式
+	minLevel atomic.Int32
+	jsonMode atomic.Bool // JSON 输出模式
 }
 
 // New 创建日志记录器
@@ -128,9 +129,9 @@ func New(logDir, siteName string) (*Logger, error) {
 	l := &Logger{
 		logDir:   logDir,
 		siteName: siteName,
-		minLevel: getLevelFromEnv(),
-		jsonMode: os.Getenv("SSLCTL_LOG_FORMAT") == "json",
 	}
+	l.minLevel.Store(int32(getLevelFromEnv()))
+	l.jsonMode.Store(os.Getenv("SSLCTL_LOG_FORMAT") == "json")
 
 	if err := l.openLogFile(); err != nil {
 		return nil, err
@@ -141,7 +142,7 @@ func New(logDir, siteName string) (*Logger, error) {
 
 // SetJSONMode 设置 JSON 输出模式
 func (l *Logger) SetJSONMode(enabled bool) {
-	l.jsonMode = enabled
+	l.jsonMode.Store(enabled)
 }
 
 // openLogFile 打开或创建日志文件
@@ -162,12 +163,12 @@ func (l *Logger) openLogFile() error {
 
 // SetLevel 设置最小日志级别
 func (l *Logger) SetLevel(level Level) {
-	l.minLevel = level
+	l.minLevel.Store(int32(level))
 }
 
 // log 写入日志
 func (l *Logger) log(level Level, format string, args ...interface{}) {
-	if level < l.minLevel {
+	if int32(level) < l.minLevel.Load() {
 		return
 	}
 
@@ -203,7 +204,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	message = sanitize(message)
 
 	var logLine string
-	if l.jsonMode {
+	if l.jsonMode.Load() {
 		entry := map[string]string{
 			"time":  now.Format(time.RFC3339),
 			"level": level.String(),
@@ -296,9 +297,9 @@ func (l *Logger) LogScan(configPath string, sitesFound int) {
 
 // NewNopLogger 创建一个不输出任何内容的日志记录器（用于测试）
 func NewNopLogger() *Logger {
-	return &Logger{
-		minLevel: LevelError + 1, // 高于所有级别，不输出任何日志
-	}
+	l := &Logger{}
+	l.minLevel.Store(int32(LevelError) + 1) // 高于所有级别，不输出任何日志
+	return l
 }
 
 // cleanOldLogs 清理旧日志文件

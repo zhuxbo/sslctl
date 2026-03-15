@@ -100,6 +100,14 @@ func (cm *ConfigManager) Load() (*Config, error) {
 		cm.mu.RUnlock()
 		// 需要重新加载，升级到写锁
 		cm.mu.Lock()
+		// 再次检查 mtime，可能在锁升级窗口期间已被其他 goroutine 重新加载
+		if cm.config != nil {
+			if info, err := os.Stat(cm.configPath); err == nil && !info.ModTime().After(cm.cachedAt) {
+				result := cm.copyConfig(cm.config)
+				cm.mu.Unlock()
+				return result, nil
+			}
+		}
 		cm.config = nil
 		cfg, err := cm.loadLocked()
 		if err != nil {

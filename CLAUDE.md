@@ -111,7 +111,8 @@ docker/test/
 │   ├── test-setup.sh       # setup 命令测试
 │   ├── test-deploy.sh      # deploy 命令测试
 │   ├── test-deploy-local.sh # deploy local 测试
-│   └── test-scan.sh        # scan 命令测试
+│   ├── test-scan.sh        # scan 命令测试
+│   └── test-status.sh      # status/rollback/version 测试
 ├── e2e/               # E2E 测试环境（多发行版通过 --build-arg DISTRO 选择）
 │   ├── docker-compose.e2e.yml
 │   ├── nginx-e2e/     # Nginx E2E 容器（ubuntu/debian/alpine/rocky）
@@ -146,22 +147,23 @@ docker/test/
 详见 `skills/go-dev/SKILL.md` 安全开发规范章节：
 
 - 命令执行白名单 + 超时控制（`internal/executor`，默认 30 秒超时，支持 Context 取消）
-- SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`）
+- SSRF/DNS Rebinding 防护（`pkg/fetcher`、`pkg/validator`，含 `IsUnspecified()` 检查防止 `0.0.0.0` 绕过）
 - 中间证书校验（API 部署必须包含中间证书，`deploy local` 的 `--ca` 参数仍可选）
 - SSL 配置自动安装（setup 流程为未启用 SSL 的站点安装 HTTPS 配置，需用户确认，备份原配置、配置测试失败自动回滚；支持 `server\n{` 多行格式）
 - 文件操作安全（符号链接防护、TOCTOU 保护、AtomicWrite O_EXCL 防护）
 - 备份源文件符号链接检查（`pkg/backup` computeFileHash 拒绝符号链接）
-- 备份恢复安全（Restore 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份）
+- 备份恢复安全（Restore 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份；`siteName`/`timestamp` 路径穿越防护）
 - 配置并发安全（深拷贝 + 双重锁 + mtime 检测外部修改）
 - 配置保存符号链接防护（saveLocked 拒绝写入符号链接目标）
-- 日志敏感信息过滤（私钥、Bearer Token、Basic Auth、JSON 敏感字段、URL 参数）
+- 日志敏感信息过滤（私钥、Bearer Token、Basic Auth、JSON 敏感字段含复合词匹配、URL 参数）
+- 日志记录器并发安全（`minLevel`/`jsonMode` 使用 `atomic` 类型，`SetLevel`/`SetJSONMode` 线程安全）
 - 升级模块 TLS 安全（HTTPS + TLS 1.2+）
 - 升级优雅重启（Stop + 等待停止 + Start）
-- SELinux 兼容（部署后自动恢复文件安全上下文）
+- SELinux 兼容（部署后自动恢复文件安全上下文，`restorecon` 失败时返回错误）
 - IDN/Punycode 域名支持（`pkg/matcher`）
 - 证书过期告警（守护进程周期检查，7 天/14 天阈值）
 - 重试计数自动重置（CSR 提交超 7 天后重置计数）
-- 配置扫描防护（Nginx/Apache 扫描器文件数量限制 1000 + 文件大小限制 10MB）
+- 配置扫描防护（Nginx/Apache/Docker 扫描器均有文件数量限制 1000 + 深度限制 100 + 文件大小限制 10MB）
 - Docker 挂载路径精确匹配（防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`）
 - 升级解压防护（gzip 解压大小限制，防止 gzip 炸弹攻击）
 - 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环已内置 key-1 公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；已配置公钥时拒绝安装未签名版本，防止降级攻击）

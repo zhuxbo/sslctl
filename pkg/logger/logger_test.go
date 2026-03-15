@@ -97,13 +97,13 @@ func TestLogger_SetLevel(t *testing.T) {
 	defer logger.Close()
 
 	logger.SetLevel(LevelError)
-	if logger.minLevel != LevelError {
-		t.Errorf("SetLevel() 后 minLevel = %v, 期望 %v", logger.minLevel, LevelError)
+	if Level(logger.minLevel.Load()) != LevelError {
+		t.Errorf("SetLevel() 后 minLevel = %v, 期望 %v", Level(logger.minLevel.Load()), LevelError)
 	}
 
 	logger.SetLevel(LevelDebug)
-	if logger.minLevel != LevelDebug {
-		t.Errorf("SetLevel() 后 minLevel = %v, 期望 %v", logger.minLevel, LevelDebug)
+	if Level(logger.minLevel.Load()) != LevelDebug {
+		t.Errorf("SetLevel() 后 minLevel = %v, 期望 %v", Level(logger.minLevel.Load()), LevelDebug)
 	}
 }
 

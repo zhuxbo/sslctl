@@ -361,19 +361,33 @@ func TestDownloadBinaryWithClient_EmptyBody(t *testing.T) {
 }
 
 func TestDownloadBinaryWithClient_ExactLimitSize(t *testing.T) {
-	// LimitReader 最多返回 maxDownloadSize 字节
-	// 如果恰好等于 maxDownloadSize，应该报错
+	// 修复后 LimitReader 使用 maxDownloadSize+1，恰好 maxDownloadSize 的文件应该成功
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 写入恰好 maxDownloadSize 的数据
-		// 使用 io.CopyN 避免内存分配
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", maxDownloadSize))
 		_, _ = io.CopyN(w, &zeroReader{}, maxDownloadSize)
 	}))
 	defer server.Close()
 
+	data, err := downloadBinaryWithClient(server.URL, server.Client())
+	if err != nil {
+		t.Errorf("expected success for data at exact size limit, got error: %v", err)
+	}
+	if int64(len(data)) != maxDownloadSize {
+		t.Errorf("expected %d bytes, got %d", maxDownloadSize, len(data))
+	}
+}
+
+func TestDownloadBinaryWithClient_OverLimitSize(t *testing.T) {
+	// 超过 maxDownloadSize 的文件应该报错
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", maxDownloadSize+1))
+		_, _ = io.CopyN(w, &zeroReader{}, maxDownloadSize+1)
+	}))
+	defer server.Close()
+
 	_, err := downloadBinaryWithClient(server.URL, server.Client())
 	if err == nil {
-		t.Error("expected error for data at exact size limit")
+		t.Error("expected error for data over size limit")
 	}
 }
 

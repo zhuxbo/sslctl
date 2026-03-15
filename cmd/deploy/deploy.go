@@ -82,6 +82,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		for i := range certs {
 			cert := &certs[i]
 			if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
+				fmt.Fprintf(os.Stderr, "  失败: %v\n", err)
 				log.Error("部署证书 %s 失败: %v", cert.CertName, err)
 			}
 		}
@@ -147,6 +148,17 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	}
 
 	// 部署到所有绑定
+	enabledCount := 0
+	for _, b := range cert.Bindings {
+		if b.Enabled {
+			enabledCount++
+		}
+	}
+	if enabledCount == 0 {
+		fmt.Printf("  跳过: 没有启用的站点绑定\n")
+		return cfgManager.UpdateCert(cert)
+	}
+
 	successCount := 0
 	for i := range cert.Bindings {
 		binding := &cert.Bindings[i]
@@ -462,7 +474,7 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 	} else if serverType == config.ServerTypeApache {
 		binding.Reload = config.ReloadConfig{
 			TestCommand:   "apachectl -t",
-			ReloadCommand: "systemctl reload apache2 || systemctl reload httpd",
+			ReloadCommand: "apachectl graceful",
 		}
 	}
 

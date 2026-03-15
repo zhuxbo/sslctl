@@ -98,12 +98,15 @@ func (v *Validator) ValidateKey(keyPEM string) error {
 		return errors.NewValidateError("failed to decode private key PEM block", nil)
 	}
 
-	// 支持多种私钥类型
+	// 支持多种私钥类型（不支持加密私钥，因 ValidateCertKeyPair 无法解析）
 	validTypes := []string{
 		"PRIVATE KEY",     // PKCS#8
 		"RSA PRIVATE KEY", // PKCS#1 RSA
 		"EC PRIVATE KEY",  // PKCS#1 EC
-		"ENCRYPTED PRIVATE KEY",
+	}
+
+	if block.Type == "ENCRYPTED PRIVATE KEY" {
+		return errors.NewValidateError("encrypted private key is not supported, please use unencrypted PKCS#8 or PKCS#1 format", nil)
 	}
 
 	for _, t := range validTypes {

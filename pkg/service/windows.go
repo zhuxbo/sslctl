@@ -144,7 +144,9 @@ func (m *WindowsManager) Stop() error {
 
 // Restart 重启服务
 func (m *WindowsManager) Restart() error {
-	m.Stop()
+	if err := m.Stop(); err != nil {
+		return fmt.Errorf("停止服务失败: %w", err)
+	}
 	time.Sleep(time.Second)
 	return m.Start()
 }

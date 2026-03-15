@@ -302,7 +302,7 @@ func (i *ApacheInstaller) Rollback(backupPath string) error {
 		return fmt.Errorf("读取备份文件失败: %w", err)
 	}
 
-	if err := os.WriteFile(i.configPath, content, 0644); err != nil {
+	if err := os.WriteFile(i.configPath, content, 0600); err != nil {
 		return fmt.Errorf("写入配置失败: %w", err)
 	}
 

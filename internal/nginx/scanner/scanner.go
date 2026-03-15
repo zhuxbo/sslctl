@@ -226,6 +226,7 @@ func (s *Scanner) Scan() ([]*SSLSite, error) {
 	}
 
 	// 从主配置文件开始递归扫描
+	s.scannedFiles = make(map[string]bool)
 	return s.scanConfigFile(s.mainConfigPath, 0)
 }
 

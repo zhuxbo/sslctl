@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"fmt"
 )
 
 // KeyOptions 私钥生成参数
@@ -48,6 +49,9 @@ func GenerateKeyAndCSR(keyOpt KeyOptions, csrOpt CSROptions) (string, string, st
 	var err error
 	switch keyOpt.Type {
 	case "rsa":
+		if keyOpt.Size < 2048 {
+			return "", "", "", fmt.Errorf("RSA key size must be at least 2048, got %d", keyOpt.Size)
+		}
 		priv, err = rsa.GenerateKey(rand.Reader, keyOpt.Size)
 	case "ecdsa":
 		var curve elliptic.Curve

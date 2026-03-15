@@ -157,6 +157,7 @@ type ScannedSiteInfo struct {
 	HasSSL      bool     // 是否已启用 SSL
 	CertPath    string   // 证书路径
 	KeyPath     string   // 私钥路径
+	ChainPath   string   // 证书链路径（Apache SSLCertificateChainFile）
 	Webroot     string   // Web 根目录
 	ServerType  string   // 服务器类型
 }
