@@ -53,7 +53,7 @@ func sanitize(msg string) string {
 }
 
 // Level 日志级别
-type Level int
+type Level int32
 
 const (
 	LevelDebug Level = iota
@@ -168,7 +168,7 @@ func (l *Logger) SetLevel(level Level) {
 
 // log 写入日志
 func (l *Logger) log(level Level, format string, args ...interface{}) {
-	if int32(level) < l.minLevel.Load() {
+	if level < Level(l.minLevel.Load()) {
 		return
 	}
 
