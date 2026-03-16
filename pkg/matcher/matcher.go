@@ -142,8 +142,7 @@ func MatchDomain(certDomain, targetDomain string) bool {
 	return false
 }
 
-// MatchSites 批量匹配站点
-// 返回分类后的匹配结果
+// SiteMatchResult 批量匹配站点的结果
 type SiteMatchResult struct {
 	Site      *ScannedSiteInfo     // 站点信息
 	Result    *config.MatchResult  // 匹配结果
@@ -157,6 +156,7 @@ type ScannedSiteInfo struct {
 	HasSSL      bool     // 是否已启用 SSL
 	CertPath    string   // 证书路径
 	KeyPath     string   // 私钥路径
+	ChainPath   string   // 证书链路径（Apache SSLCertificateChainFile）
 	Webroot     string   // Web 根目录
 	ServerType  string   // 服务器类型
 }

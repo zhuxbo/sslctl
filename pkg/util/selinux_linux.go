@@ -3,6 +3,7 @@
 package util
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -35,6 +36,8 @@ func RestoreFileContext(path string) error {
 	}
 
 	// 恢复文件安全上下文
-	_ = exec.Command(restorecon, "-v", path).Run()
+	if err := exec.Command(restorecon, "-v", path).Run(); err != nil {
+		return fmt.Errorf("restorecon failed for %s: %w", path, err)
+	}
 	return nil
 }

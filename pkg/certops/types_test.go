@@ -30,7 +30,6 @@ func TestScanResult(t *testing.T) {
 		Environment: "local",
 		Sites: []ScannedSite{
 			{
-				ID:         "example.com",
 				ServerName: "example.com",
 				Source:     "local",
 			},
@@ -51,8 +50,6 @@ func TestScanResult(t *testing.T) {
 // TestScannedSite 测试扫描站点结构
 func TestScannedSite(t *testing.T) {
 	site := ScannedSite{
-		ID:              "example.com",
-		Name:            "Example",
 		Source:          "docker",
 		ContainerID:     "abc123",
 		ContainerName:   "nginx-container",
@@ -67,9 +64,6 @@ func TestScannedSite(t *testing.T) {
 		VolumeMode:      true,
 	}
 
-	if site.ID != "example.com" {
-		t.Errorf("ID = %s, 期望 example.com", site.ID)
-	}
 	if site.Source != "docker" {
 		t.Errorf("Source = %s, 期望 docker", site.Source)
 	}

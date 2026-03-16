@@ -49,7 +49,9 @@ var AllowedCommands = map[string]bool{
 	"apache2ctl graceful": true,
 	"apache2ctl restart":  true,
 	// Linux - httpd (CentOS/RHEL/Fedora)
-	"httpd -t": true,
+	"httpd -t":          true,
+	"httpd -k graceful": true,
+	"httpd -k restart":  true,
 	// Linux - systemd (Ubuntu/Debian)
 	"systemctl reload apache2":  true,
 	"systemctl restart apache2": true,

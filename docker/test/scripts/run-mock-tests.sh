@@ -326,6 +326,9 @@ run_single_test() {
     log_step "运行 scan 测试..."
     bash "${SCRIPT_DIR}/test-scan.sh" "$container_name" "$server" || true
 
+    log_step "运行 status/rollback/version 测试..."
+    bash "${SCRIPT_DIR}/test-status.sh" "$container_name" "$server" || true
+
     # 清理容器
     log_step "清理容器..."
     docker rm -f "$container_name" 2>/dev/null || true

@@ -1,7 +1,10 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
+  default: none
   enable:
     - errcheck
     - govet
@@ -10,19 +13,34 @@ linters:
     - unused
     - ineffassign
 
-linters-settings:
-  gosec:
-    excludes:
-      # G101: 误报环境变量名常量为硬编码凭据
-      - G101
-      # G204: 项目通过 executor 白名单 + exec.Command 直接执行（非 shell）控制安全
-      - G204
-      # G306: 服务脚本需要 0755、systemd/nginx/apache 配置需要 0644
-      - G306
+  settings:
+    gosec:
+      excludes:
+        # G101: 误报环境变量名常量为硬编码凭据
+        - G101
+        # G115: uintptr→int 转换用于终端检测和文件锁，安全可控
+        - G115
+        # G204: 项目通过 executor 白名单 + exec.Command 直接执行（非 shell）控制安全
+        - G204
+        # G301/G302/G306: 服务脚本需要 0755、systemd/nginx/apache 配置需要 0644、临时目录需要 0700
+        - G301
+        - G302
+        - G306
+        # G304: CLI 工具核心功能需要通过变量路径读取配置/证书文件
+        - G304
+        # G703: 路径穿越污点分析，CLI 工具的配置/证书路径由用户参数传入，已通过配置层校验
+        - G703
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+      - path: docker/test/mock-api/
+        linters:
+          - gosec

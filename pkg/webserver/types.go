@@ -14,7 +14,6 @@ const (
 
 // Site 站点信息
 type Site struct {
-	Name            string     // 站点名称
 	ServerName      string     // 主域名
 	ServerAlias     []string   // 域名别名
 	ConfigFile      string     // 配置文件路径

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,8 +21,8 @@ var (
 	bearerTokenRegex = regexp.MustCompile(`Bearer\s+[A-Za-z0-9\-_\.]+`)
 	// 匹配常见的 token/secret 参数
 	tokenParamRegex = regexp.MustCompile(`(token|secret|password|api_key|apikey)=["']?[^"'\s&]+["']?`)
-	// 匹配 JSON 中的敏感字段
-	jsonTokenRegex = regexp.MustCompile(`"(token|secret|password|api_key|apikey|private_key)"\s*:\s*"[^"]*"`)
+	// 匹配 JSON 中的敏感字段（包含敏感词的 key 名称）
+	jsonTokenRegex = regexp.MustCompile(`"(\w*(token|secret|password|api_key|apikey|private_key)\w*)"\s*:\s*"[^"]*"`)
 	// 匹配 HTTP Basic Auth
 	basicAuthRegex = regexp.MustCompile(`Basic\s+[A-Za-z0-9+/=]+`)
 )
@@ -52,7 +53,7 @@ func sanitize(msg string) string {
 }
 
 // Level 日志级别
-type Level int
+type Level int32
 
 const (
 	LevelDebug Level = iota
@@ -110,27 +111,27 @@ func getLevelFromEnv() Level {
 // Logger 日志记录器
 type Logger struct {
 	logDir   string
-	siteName string
+	name     string
 	mu       sync.Mutex
 	file     *os.File
-	minLevel Level
-	jsonMode bool // JSON 输出模式
+	minLevel atomic.Int32
+	jsonMode atomic.Bool // JSON 输出模式
 }
 
 // New 创建日志记录器
 // 日志级别通过 LOG_LEVEL 环境变量配置，支持: debug, info, warn, error
 // 日志格式通过 SSLCTL_LOG_FORMAT 环境变量配置：json 启用 JSON 输出，默认为文本格式
-func New(logDir, siteName string) (*Logger, error) {
+func New(logDir, name string) (*Logger, error) {
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	l := &Logger{
 		logDir:   logDir,
-		siteName: siteName,
-		minLevel: getLevelFromEnv(),
-		jsonMode: os.Getenv("SSLCTL_LOG_FORMAT") == "json",
+		name:   name,
 	}
+	l.minLevel.Store(int32(getLevelFromEnv()))
+	l.jsonMode.Store(os.Getenv("SSLCTL_LOG_FORMAT") == "json")
 
 	if err := l.openLogFile(); err != nil {
 		return nil, err
@@ -141,14 +142,14 @@ func New(logDir, siteName string) (*Logger, error) {
 
 // SetJSONMode 设置 JSON 输出模式
 func (l *Logger) SetJSONMode(enabled bool) {
-	l.jsonMode = enabled
+	l.jsonMode.Store(enabled)
 }
 
 // openLogFile 打开或创建日志文件
 func (l *Logger) openLogFile() error {
 	// 按日期命名日志文件
 	date := time.Now().Format("2006-01-02")
-	filename := fmt.Sprintf("%s-%s.log", l.siteName, date)
+	filename := fmt.Sprintf("%s-%s.log", l.name, date)
 	logPath := filepath.Join(l.logDir, filename)
 
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
@@ -162,12 +163,12 @@ func (l *Logger) openLogFile() error {
 
 // SetLevel 设置最小日志级别
 func (l *Logger) SetLevel(level Level) {
-	l.minLevel = level
+	l.minLevel.Store(int32(level))
 }
 
 // log 写入日志
 func (l *Logger) log(level Level, format string, args ...interface{}) {
-	if level < l.minLevel {
+	if level < Level(l.minLevel.Load()) {
 		return
 	}
 
@@ -176,7 +177,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 
 	// 检查是否需要切换日志文件（日期变化）
 	date := time.Now().Format("2006-01-02")
-	expectedFilename := fmt.Sprintf("%s-%s.log", l.siteName, date)
+	expectedFilename := fmt.Sprintf("%s-%s.log", l.name, date)
 	if l.file != nil {
 		currentFilename := filepath.Base(l.file.Name())
 		if currentFilename != expectedFilename {
@@ -203,14 +204,14 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	message = sanitize(message)
 
 	var logLine string
-	if l.jsonMode {
+	if l.jsonMode.Load() {
 		entry := map[string]string{
 			"time":  now.Format(time.RFC3339),
 			"level": level.String(),
 			"msg":   message,
 		}
-		if l.siteName != "" {
-			entry["site"] = l.siteName
+		if l.name != "" {
+			entry["module"] = l.name
 		}
 		jsonBytes, _ := json.Marshal(entry)
 		logLine = string(jsonBytes) + "\n"
@@ -296,14 +297,14 @@ func (l *Logger) LogScan(configPath string, sitesFound int) {
 
 // NewNopLogger 创建一个不输出任何内容的日志记录器（用于测试）
 func NewNopLogger() *Logger {
-	return &Logger{
-		minLevel: LevelError + 1, // 高于所有级别，不输出任何日志
-	}
+	l := &Logger{}
+	l.minLevel.Store(int32(LevelError) + 1) // 高于所有级别，不输出任何日志
+	return l
 }
 
 // cleanOldLogs 清理旧日志文件
 func (l *Logger) cleanOldLogs() {
-	pattern := filepath.Join(l.logDir, l.siteName+"-*.log")
+	pattern := filepath.Join(l.logDir, l.name+"-*.log")
 	files, err := filepath.Glob(pattern)
 	if err != nil || len(files) < MaxLogBackups {
 		return

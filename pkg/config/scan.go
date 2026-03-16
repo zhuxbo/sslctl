@@ -17,26 +17,23 @@ type ScanResult struct {
 
 // ScannedSite 扫描到的站点
 type ScannedSite struct {
-	// 站点标识
-	ID   string `json:"id"`   // 使用域名（ServerName），可能为 _
-	Name string `json:"name"` // 显示名称（容器名或本地）
-
 	// 来源信息
 	Source         string `json:"source"`                    // local | docker
 	ContainerID    string `json:"container_id,omitempty"`    // Docker 容器 ID
 	ContainerName  string `json:"container_name,omitempty"`  // Docker 容器名
 	ComposeService string `json:"compose_service,omitempty"` // Compose 服务名
 
-	// 配置信息
-	ConfigFile  string   `json:"config_file"`            // 配置文件路径
+	// 站点信息
 	ServerName  string   `json:"server_name"`            // 主域名，可能为 _
 	ServerAlias []string `json:"server_alias,omitempty"` // 域名别名
 	ListenPorts []string `json:"listen_ports"`           // 监听端口
 	Webroot     string   `json:"webroot,omitempty"`      // Web 根目录
 
-	// 证书路径（容器内路径或本地路径）
-	CertificatePath string `json:"certificate_path"` // 证书路径
-	PrivateKeyPath  string `json:"private_key_path"` // 私钥路径
+	// 配置和证书路径
+	ConfigFile      string `json:"config_file"`                  // 配置文件路径
+	CertificatePath string `json:"certificate_path"`             // 证书路径
+	PrivateKeyPath  string `json:"private_key_path"`             // 私钥路径
+	ChainFilePath   string `json:"chain_file_path,omitempty"`    // 证书链路径（Apache SSLCertificateChainFile）
 
 	// Docker 特有（宿主机路径）
 	HostCertPath string `json:"host_cert_path,omitempty"` // 宿主机证书路径
@@ -84,14 +81,21 @@ func LoadScanResult() (*ScanResult, error) {
 	return &result, nil
 }
 
-// FindSiteByID 根据 ID 查找站点
-func (r *ScanResult) FindSiteByID(id string) *ScannedSite {
+// FindSiteByServerName 根据 ServerName 查找站点
+// 同 ServerName 多条目时，优先返回有 CertificatePath 的（已启用 SSL）
+func (r *ScanResult) FindSiteByServerName(serverName string) *ScannedSite {
+	var fallback *ScannedSite
 	for i := range r.Sites {
-		if r.Sites[i].ID == id {
-			return &r.Sites[i]
+		if r.Sites[i].ServerName == serverName {
+			if r.Sites[i].CertificatePath != "" {
+				return &r.Sites[i]
+			}
+			if fallback == nil {
+				fallback = &r.Sites[i]
+			}
 		}
 	}
-	return nil
+	return fallback
 }
 
 // FindSiteByIndex 根据索引查找站点（1-based）

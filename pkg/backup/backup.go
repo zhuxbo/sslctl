@@ -31,7 +31,7 @@ func computeFileHash(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -42,7 +42,7 @@ func computeFileHash(path string) (string, error) {
 
 // Metadata 备份元数据
 type Metadata struct {
-	SiteName  string    `json:"site_name"`
+	ServerName string    `json:"server_name"`
 	BackupAt  time.Time `json:"backup_at"`
 	CertInfo  CertInfo  `json:"cert_info"`
 	CertPath  string    `json:"cert_path"`
@@ -179,7 +179,7 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 
 	// 5. 保存元数据
 	metadata := &Metadata{
-		SiteName:  siteName,
+		ServerName: siteName,
 		BackupAt:  time.Now(),
 		CertPath:  certPath,
 		KeyPath:   keyPath,
@@ -320,7 +320,11 @@ func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, erro
 	var err error
 
 	if len(timestamp) > 0 && timestamp[0] != "" {
-		backupPath = filepath.Join(m.backupDir, siteName, timestamp[0])
+		var joinErr error
+		backupPath, joinErr = util.JoinUnderDir(m.backupDir, filepath.Join(siteName, timestamp[0]))
+		if joinErr != nil {
+			return nil, fmt.Errorf("invalid backup path: %w", joinErr)
+		}
 		if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
 			return nil, fmt.Errorf("备份不存在: %s/%s", siteName, timestamp[0])
 		}
@@ -398,12 +402,18 @@ func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, erro
 
 // DeleteBackup 删除指定备份
 func (m *Manager) DeleteBackup(siteName, timestamp string) error {
-	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
+	backupPath, err := util.JoinUnderDir(m.backupDir, filepath.Join(siteName, timestamp))
+	if err != nil {
+		return fmt.Errorf("invalid backup path: %w", err)
+	}
 	return os.RemoveAll(backupPath)
 }
 
 // DeleteAllBackups 删除站点的所有备份
 func (m *Manager) DeleteAllBackups(siteName string) error {
-	siteBackupDir := filepath.Join(m.backupDir, siteName)
+	siteBackupDir, err := util.JoinUnderDir(m.backupDir, siteName)
+	if err != nil {
+		return fmt.Errorf("invalid site name: %w", err)
+	}
 	return os.RemoveAll(siteBackupDir)
 }

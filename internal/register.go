@@ -95,7 +95,6 @@ func (a *nginxScannerAdapter) ScanLocal() ([]webserver.Site, error) {
 	var result []webserver.Site
 	for _, s := range sites {
 		result = append(result, webserver.Site{
-			Name:            s.ServerName,
 			ServerName:      s.ServerName,
 			ServerAlias:     s.ServerAlias,
 			ConfigFile:      s.ConfigFile,
@@ -182,7 +181,6 @@ func (a *apacheScannerAdapter) ScanLocal() ([]webserver.Site, error) {
 	var result []webserver.Site
 	for _, s := range sites {
 		result = append(result, webserver.Site{
-			Name:            s.ServerName,
 			ServerName:      s.ServerName,
 			ServerAlias:     s.ServerAlias,
 			ConfigFile:      s.ConfigFile,

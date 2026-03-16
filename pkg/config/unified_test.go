@@ -89,7 +89,7 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 		},
 		Certificates: []CertConfig{
 			{
-				CertName: "order-12345",
+				CertName: "example.com-12345",
 				OrderID:  12345,
 				Enabled:  true,
 				Domains:  []string{"example.com", "*.example.com"},
@@ -122,8 +122,8 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 		t.Fatalf("loaded Certificates length = %d, want 1", len(loaded.Certificates))
 	}
 
-	if loaded.Certificates[0].CertName != "order-12345" {
-		t.Errorf("loaded CertName = %s, want order-12345", loaded.Certificates[0].CertName)
+	if loaded.Certificates[0].CertName != "example.com-12345" {
+		t.Errorf("loaded CertName = %s, want example.com-12345", loaded.Certificates[0].CertName)
 	}
 
 	if loaded.Certificates[0].API.URL != "https://api.example.com" {
@@ -515,7 +515,7 @@ func TestConfigManager_DeepCopyDocker(t *testing.T) {
 		Enabled:  true,
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "docker-site",
+				ServerName:   "docker-site",
 				ServerType: ServerTypeDockerNginx,
 				Enabled:    true,
 				Docker: &DockerInfo{
@@ -813,27 +813,27 @@ func TestGetDefaultPaths(t *testing.T) {
 	}
 }
 
-// TestScanResult_FindSiteByID 测试根据 ID 查找站点
-func TestScanResult_FindSiteByID(t *testing.T) {
+// TestScanResult_FindSiteByServerName 测试根据 ServerName 查找站点
+func TestScanResult_FindSiteByServerName(t *testing.T) {
 	result := &ScanResult{
 		Sites: []ScannedSite{
-			{ID: "example.com", ServerName: "example.com"},
-			{ID: "test.com", ServerName: "test.com"},
+			{ServerName: "example.com"},
+			{ServerName: "test.com"},
 		},
 	}
 
 	// 查找存在的站点
-	site := result.FindSiteByID("example.com")
+	site := result.FindSiteByServerName("example.com")
 	if site == nil {
-		t.Error("FindSiteByID() 未找到存在的站点")
+		t.Error("FindSiteByServerName() 未找到存在的站点")
 	} else if site.ServerName != "example.com" {
-		t.Errorf("FindSiteByID() = %s, 期望 example.com", site.ServerName)
+		t.Errorf("FindSiteByServerName() = %s, 期望 example.com", site.ServerName)
 	}
 
 	// 查找不存在的站点
-	site = result.FindSiteByID("nonexistent.com")
+	site = result.FindSiteByServerName("nonexistent.com")
 	if site != nil {
-		t.Error("FindSiteByID() 应返回 nil 对于不存在的站点")
+		t.Error("FindSiteByServerName() 应返回 nil 对于不存在的站点")
 	}
 }
 
@@ -841,20 +841,20 @@ func TestScanResult_FindSiteByID(t *testing.T) {
 func TestScanResult_FindSiteByIndex(t *testing.T) {
 	result := &ScanResult{
 		Sites: []ScannedSite{
-			{ID: "site1.com", ServerName: "site1.com"},
-			{ID: "site2.com", ServerName: "site2.com"},
-			{ID: "site3.com", ServerName: "site3.com"},
+			{ServerName: "site1.com"},
+			{ServerName: "site2.com"},
+			{ServerName: "site3.com"},
 		},
 	}
 
 	// 有效索引（1-based）
 	site := result.FindSiteByIndex(1)
-	if site == nil || site.ID != "site1.com" {
+	if site == nil || site.ServerName != "site1.com" {
 		t.Error("FindSiteByIndex(1) 失败")
 	}
 
 	site = result.FindSiteByIndex(3)
-	if site == nil || site.ID != "site3.com" {
+	if site == nil || site.ServerName != "site3.com" {
 		t.Error("FindSiteByIndex(3) 失败")
 	}
 
@@ -987,7 +987,7 @@ func TestCertConfig_Bindings(t *testing.T) {
 		Domains:  []string{"bind.example.com"},
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "site1",
+				ServerName:   "site1",
 				ServerType: ServerTypeNginx,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1013,8 +1013,8 @@ func TestCertConfig_Bindings(t *testing.T) {
 	}
 
 	binding := got.Bindings[0]
-	if binding.SiteName != "site1" {
-		t.Errorf("SiteName = %s, 期望 site1", binding.SiteName)
+	if binding.ServerName != "site1" {
+		t.Errorf("ServerName = %s, 期望 site1", binding.ServerName)
 	}
 	if binding.ServerType != ServerTypeNginx {
 		t.Errorf("ServerType = %s, 期望 %s", binding.ServerType, ServerTypeNginx)
@@ -1025,7 +1025,7 @@ func TestCertConfig_Bindings(t *testing.T) {
 
 	// 添加新绑定
 	got.Bindings = append(got.Bindings, SiteBinding{
-		SiteName:   "site2",
+		ServerName:   "site2",
 		ServerType: ServerTypeApache,
 		Enabled:    true,
 		Paths: BindingPaths{
@@ -1066,7 +1066,7 @@ func TestCertConfig_DockerBinding(t *testing.T) {
 		Domains:  []string{"docker.example.com"},
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "docker-site",
+				ServerName:   "docker-site",
 				ServerType: ServerTypeDockerNginx,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1426,7 +1426,7 @@ func TestConfigManager_GetSiteBinding(t *testing.T) {
 		Enabled:  true,
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "nginx-site.com",
+				ServerName:   "nginx-site.com",
 				ServerType: ServerTypeNginx,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1435,7 +1435,7 @@ func TestConfigManager_GetSiteBinding(t *testing.T) {
 				},
 			},
 			{
-				SiteName:   "apache-site.com",
+				ServerName:   "apache-site.com",
 				ServerType: ServerTypeApache,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1453,7 +1453,7 @@ func TestConfigManager_GetSiteBinding(t *testing.T) {
 		Enabled:  true,
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "docker-site.com",
+				ServerName:   "docker-site.com",
 				ServerType: ServerTypeDockerNginx,
 				Enabled:    true,
 				Docker: &DockerInfo{
@@ -1515,8 +1515,8 @@ func TestConfigManager_GetSiteBinding(t *testing.T) {
 				t.Fatalf("GetSiteBinding() error = %v", err)
 			}
 
-			if binding.SiteName != tt.siteName {
-				t.Errorf("SiteName = %s, 期望 %s", binding.SiteName, tt.siteName)
+			if binding.ServerName != tt.siteName {
+				t.Errorf("ServerName = %s, 期望 %s", binding.ServerName, tt.siteName)
 			}
 
 			if binding.ServerType != tt.wantType {
@@ -1541,7 +1541,7 @@ func TestConfigManager_GetSiteBinding_DeepCopy(t *testing.T) {
 		Enabled:  true,
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "test-site.com",
+				ServerName:   "test-site.com",
 				ServerType: ServerTypeDockerNginx,
 				Enabled:    true,
 				Docker: &DockerInfo{
@@ -1556,12 +1556,12 @@ func TestConfigManager_GetSiteBinding_DeepCopy(t *testing.T) {
 	// 获取绑定并修改
 	binding1, _ := cm.GetSiteBinding("test-site.com")
 	binding1.Docker.ContainerName = "modified-container"
-	binding1.SiteName = "modified-site.com"
+	binding1.ServerName = "modified-site.com"
 
 	// 再次获取，验证未被修改
 	binding2, _ := cm.GetSiteBinding("test-site.com")
 
-	if binding2.SiteName != "test-site.com" {
+	if binding2.ServerName != "test-site.com" {
 		t.Error("GetSiteBinding 应返回深拷贝，修改不应影响内部缓存")
 	}
 
@@ -1586,7 +1586,7 @@ func TestDeepCopyCompleteness(t *testing.T) {
 		Domains:   []string{"domain1.com", "domain2.com", "domain3.com"},
 		Bindings: []SiteBinding{
 			{
-				SiteName:   "binding1.com",
+				ServerName:   "binding1.com",
 				ServerType: ServerTypeNginx,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1595,7 +1595,7 @@ func TestDeepCopyCompleteness(t *testing.T) {
 				},
 			},
 			{
-				SiteName:   "binding2.com",
+				ServerName:   "binding2.com",
 				ServerType: ServerTypeDockerNginx,
 				Enabled:    true,
 				Paths: BindingPaths{
@@ -1623,8 +1623,8 @@ func TestDeepCopyCompleteness(t *testing.T) {
 	// 修改所有引用类型字段
 	cfg1.Certificates[0].Domains[0] = "modified-domain.com"
 	cfg1.Certificates[0].Domains = append(cfg1.Certificates[0].Domains, "new-domain.com")
-	cfg1.Certificates[0].Bindings[0].SiteName = "modified-binding.com"
-	cfg1.Certificates[0].Bindings = append(cfg1.Certificates[0].Bindings, SiteBinding{SiteName: "new-binding.com"})
+	cfg1.Certificates[0].Bindings[0].ServerName = "modified-binding.com"
+	cfg1.Certificates[0].Bindings = append(cfg1.Certificates[0].Bindings, SiteBinding{ServerName: "new-binding.com"})
 	cfg1.Certificates[0].Bindings[1].Docker.ContainerName = "modified-container"
 	cfg1.Certificates = append(cfg1.Certificates, CertConfig{CertName: "new-cert"})
 
@@ -1648,8 +1648,8 @@ func TestDeepCopyCompleteness(t *testing.T) {
 	if len(cfg2.Certificates[0].Bindings) != 2 {
 		t.Errorf("Bindings 长度 = %d, 期望 2", len(cfg2.Certificates[0].Bindings))
 	}
-	if cfg2.Certificates[0].Bindings[0].SiteName != "binding1.com" {
-		t.Errorf("Bindings[0].SiteName = %s, 期望 binding1.com", cfg2.Certificates[0].Bindings[0].SiteName)
+	if cfg2.Certificates[0].Bindings[0].ServerName != "binding1.com" {
+		t.Errorf("Bindings[0].ServerName = %s, 期望 binding1.com", cfg2.Certificates[0].Bindings[0].ServerName)
 	}
 
 	// 验证 Docker 指针独立

@@ -3,6 +3,7 @@ package deployer
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
@@ -63,9 +64,13 @@ func (d *NginxDeployer) Deploy(cert, intermediate, key string) error {
 		)
 	}
 
-	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过）
-	_ = util.RestoreFileContext(d.certPath)
-	_ = util.RestoreFileContext(d.keyPath)
+	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过，失败仅警告）
+	if err := util.RestoreFileContext(d.certPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.certPath, err)
+	}
+	if err := util.RestoreFileContext(d.keyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.keyPath, err)
+	}
 
 	return d.TestAndReload()
 }

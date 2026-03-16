@@ -293,7 +293,7 @@ test_local_invalid_cert() {
     docker exec "$CONTAINER" bash -c "cat > /opt/sslctl/sites/${site_name}.json << EOF
 {
   \"version\": \"1.0\",
-  \"site_name\": \"$site_name\",
+  \"server_name\": \"$site_name\",
   \"enabled\": true,
   \"server_type\": \"$SERVER_TYPE\",
   \"domains\": [\"$site_name\"],

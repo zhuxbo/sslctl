@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -441,7 +442,7 @@ func TestIntegration_DeployToLocal(t *testing.T) {
 
 	// 创建绑定配置
 	binding := &config.SiteBinding{
-		SiteName:   "integration-test",
+		ServerName: "integration-test",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -522,8 +523,10 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 		return
 	}
 
-	// 创建证书配置
-	certName := "order-" + string(rune('0'+certData.OrderID%10))
+	// 创建证书配置（cert_name 格式: {domain}-{orderID}）
+	domains := strings.Split(certData.Domains, ",")
+	domain := strings.TrimSpace(domains[0])
+	certName := strings.Replace(domain, "*.", "WILDCARD.", 1) + "-" + strconv.Itoa(certData.OrderID)
 	siteCertsDir := filepath.Join(tmpDir, "certs", certName)
 
 	cert := &config.CertConfig{
@@ -534,7 +537,7 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 		API:      config.APIConfig{URL: apiURL, Token: token},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "test-site",
+				ServerName: "test-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -691,7 +694,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 	_ = os.WriteFile(keyPath, []byte("OLD-KEY"), 0600)
 
 	binding := &config.SiteBinding{
-		SiteName:   "backup-test",
+		ServerName: "backup-test",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -763,7 +766,7 @@ func TestIntegration_PreparePullRenew(t *testing.T) {
 		Domains:  strings.Split(infoData.Domains, ","),
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "test-site",
+				ServerName: "test-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -835,7 +838,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 		},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "renew-site",
+				ServerName: "renew-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{
@@ -927,7 +930,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 		},
 		Bindings: []config.SiteBinding{
 			{
-				SiteName:   "local-site",
+				ServerName: "local-site",
 				ServerType: config.ServerTypeNginx,
 				Enabled:    true,
 				Paths: config.BindingPaths{

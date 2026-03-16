@@ -3,6 +3,7 @@ package deployer
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
@@ -55,7 +56,13 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 		}
 	}
 
-	if err := util.AtomicWrite(d.certPath, []byte(cert), 0644); err != nil {
+	// 写入证书：有 chainPath 时分离写入，无 chainPath 时合并为 fullchain
+	certContent := cert
+	if d.chainPath == "" && intermediate != "" {
+		// 无 SSLCertificateChainFile 指令，将中间证书合并到证书文件
+		certContent = cert + "\n" + intermediate
+	}
+	if err := util.AtomicWrite(d.certPath, []byte(certContent), 0644); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
@@ -69,7 +76,7 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 		)
 	}
 
-	// Apache 需要分离的 chain 文件
+	// 有 chainPath 时，中间证书写入独立文件
 	if d.chainPath != "" && intermediate != "" {
 		if err := util.AtomicWrite(d.chainPath, []byte(intermediate), 0644); err != nil {
 			return errors.NewStructuredDeployError(
@@ -79,11 +86,17 @@ func (d *ApacheDeployer) Deploy(cert, intermediate, key string) error {
 		}
 	}
 
-	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过）
-	_ = util.RestoreFileContext(d.certPath)
-	_ = util.RestoreFileContext(d.keyPath)
+	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过，失败仅警告）
+	if err := util.RestoreFileContext(d.certPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.certPath, err)
+	}
+	if err := util.RestoreFileContext(d.keyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.keyPath, err)
+	}
 	if d.chainPath != "" {
-		_ = util.RestoreFileContext(d.chainPath)
+		if err := util.RestoreFileContext(d.chainPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.chainPath, err)
+		}
 	}
 
 	return d.TestAndReload()

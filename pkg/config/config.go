@@ -26,7 +26,7 @@ type ConfigMetadata struct {
 
 // CertConfig 证书配置
 type CertConfig struct {
-	CertName  string        `json:"cert_name"`            // 证书名称（如 order-12345）
+	CertName  string        `json:"cert_name"`            // 证书名称（如 example.com-12345）
 	OrderID   int           `json:"order_id"`             // 订单 ID
 	Enabled   bool          `json:"enabled"`              // 是否启用
 	Domains   []string      `json:"domains"`              // 证书域名列表
@@ -72,7 +72,7 @@ type CertMetadata struct {
 
 // SiteBinding 站点绑定配置
 type SiteBinding struct {
-	SiteName   string       `json:"site_name"`        // 站点名称
+	ServerName string       `json:"server_name"`      // 站点名称（域名）
 	ServerType string       `json:"server_type"`      // nginx, apache, docker-nginx, docker-apache
 	Enabled    bool         `json:"enabled"`          // 是否启用
 	Paths      BindingPaths `json:"paths"`            // 路径配置

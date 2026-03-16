@@ -4,6 +4,7 @@ package setup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -30,8 +31,8 @@ func TestCreateBinding_Nginx(t *testing.T) {
 
 	binding := createBinding(site, cfgManager)
 
-	if binding.SiteName != "example.com" {
-		t.Errorf("SiteName = %s, want example.com", binding.SiteName)
+	if binding.ServerName != "example.com" {
+		t.Errorf("ServerName = %s, want example.com", binding.ServerName)
 	}
 
 	if binding.ServerType != config.ServerTypeNginx {
@@ -75,12 +76,22 @@ func TestCreateBinding_Apache(t *testing.T) {
 		t.Errorf("ServerType = %s, want apache", binding.ServerType)
 	}
 
-	if binding.Reload.TestCommand != "apache2ctl -t" {
-		t.Errorf("TestCommand = %s, want 'apache2ctl -t'", binding.Reload.TestCommand)
+	validTestCmds := map[string]bool{
+		"apache2ctl -t": true,
+		"apachectl -t":  true,
+		"httpd -t":      true,
+	}
+	if !validTestCmds[binding.Reload.TestCommand] {
+		t.Errorf("TestCommand = %s, 不在合法命令集合中", binding.Reload.TestCommand)
 	}
 
-	if binding.Reload.ReloadCommand != "systemctl reload apache2" {
-		t.Errorf("ReloadCommand = %s", binding.Reload.ReloadCommand)
+	validReloadCmds := map[string]bool{
+		"apache2ctl graceful": true,
+		"apachectl graceful":  true,
+		"httpd -k graceful":   true,
+	}
+	if !validReloadCmds[binding.Reload.ReloadCommand] {
+		t.Errorf("ReloadCommand = %s, 不在合法命令集合中", binding.Reload.ReloadCommand)
 	}
 }
 
@@ -122,7 +133,7 @@ func TestDeployCert_Nginx(t *testing.T) {
 	}
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -168,7 +179,7 @@ func TestDeployCert_Apache(t *testing.T) {
 	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeApache,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -196,6 +207,56 @@ func TestDeployCert_Apache(t *testing.T) {
 	}
 }
 
+// TestDeployCert_Apache_Fullchain 测试 Apache fullchain 模式部署（无 ChainFile）
+func TestDeployCert_Apache_Fullchain(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	testCert, _ := certs.GenerateValidCert("example.com", nil)
+	intermediateCert, _ := certs.GenerateValidCert("Intermediate CA", nil)
+
+	binding := &config.SiteBinding{
+		ServerName: "example.com",
+		ServerType: config.ServerTypeApache,
+		Enabled:    true,
+		Paths: config.BindingPaths{
+			Certificate: certPath,
+			PrivateKey:  keyPath,
+			// 不设置 ChainFile — fullchain 模式
+		},
+	}
+
+	certData := &fetcher.CertData{
+		Cert:             testCert.CertPEM,
+		IntermediateCert: intermediateCert.CertPEM,
+	}
+
+	err := deployToSiteBinding(t.Context(), binding, certData, testCert.KeyPEM, nil)
+	if err != nil {
+		t.Fatalf("deployCert() error = %v", err)
+	}
+
+	// 验证证书文件包含 cert + intermediate（fullchain）
+	certData2, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+	certContent := string(certData2)
+	if !strings.Contains(certContent, testCert.CertPEM) {
+		t.Error("证书文件应包含服务器证书")
+	}
+	if !strings.Contains(certContent, intermediateCert.CertPEM) {
+		t.Error("证书文件应包含中间证书（fullchain 模式）")
+	}
+
+	// 不应创建 chain.pem
+	chainPath := filepath.Join(tmpDir, "chain.pem")
+	if _, err := os.Stat(chainPath); !os.IsNotExist(err) {
+		t.Error("fullchain 模式下不应创建独立的 chain.pem")
+	}
+}
+
 // TestDeployCert_CreateDirectory 测试目录自动创建
 func TestDeployCert_CreateDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -206,7 +267,7 @@ func TestDeployCert_CreateDirectory(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)
 
 	binding := &config.SiteBinding{
-		SiteName:   "example.com",
+		ServerName: "example.com",
 		ServerType: config.ServerTypeNginx,
 		Enabled:    true,
 		Paths: config.BindingPaths{
@@ -315,5 +376,26 @@ func TestInstallSSLConfig_Apache(t *testing.T) {
 
 	if !result.Modified {
 		t.Error("installSSLConfig() Modified 应为 true")
+	}
+}
+
+// TestBuildCertName 测试证书名称生成
+func TestBuildCertName(t *testing.T) {
+	tests := []struct {
+		domain  string
+		orderID int
+		want    string
+	}{
+		{"example.com", 12345, "example.com-12345"},
+		{"*.example.com", 99999, "WILDCARD.example.com-99999"},
+		{"sub.example.com", 1, "sub.example.com-1"},
+		{"*.sub.example.com", 100, "WILDCARD.sub.example.com-100"},
+	}
+
+	for _, tt := range tests {
+		got := buildCertName(tt.domain, tt.orderID)
+		if got != tt.want {
+			t.Errorf("buildCertName(%q, %d) = %q, want %q", tt.domain, tt.orderID, got, tt.want)
+		}
 	}
 }

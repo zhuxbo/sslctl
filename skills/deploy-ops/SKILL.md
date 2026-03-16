@@ -306,14 +306,14 @@ sslctl                    Manager API                    CA
   },
   "certificates": [
     {
-      "cert_name": "order-12345",
+      "cert_name": "example.com-12345",
       "order_id": 12345,
       "enabled": true,
       "domains": ["*.example.com", "example.com"],
       "renew_mode": "pull",
       "bindings": [
         {
-          "site_name": "www.example.com",
+          "server_name": "www.example.com",
           "server_type": "nginx",
           "enabled": true,
           "paths": {
@@ -395,7 +395,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 ```json
 {
   "certificates": [{
-    "cert_name": "order-12345",
+    "cert_name": "example.com-12345",
     "renew_mode": "local"
   }]
 }

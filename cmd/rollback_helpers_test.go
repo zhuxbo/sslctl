@@ -23,7 +23,7 @@ func TestApplyRollbackMetadata_UsesParsedCert(t *testing.T) {
 			{
 				CertName: "order-1",
 				Bindings: []config.SiteBinding{
-					{SiteName: "example.com"},
+					{ServerName: "example.com"},
 				},
 				Metadata: config.CertMetadata{
 					CSRSubmittedAt:  now.Add(-24 * time.Hour),
@@ -70,7 +70,7 @@ func TestApplyRollbackMetadata_FallbackToBackupMeta(t *testing.T) {
 			{
 				CertName: "order-2",
 				Bindings: []config.SiteBinding{
-					{SiteName: "example.org"},
+					{ServerName: "example.org"},
 				},
 			},
 		},
@@ -96,7 +96,7 @@ func TestApplyRollbackMetadata_NoMatch(t *testing.T) {
 			{
 				CertName: "order-3",
 				Bindings: []config.SiteBinding{
-					{SiteName: "site-a"},
+					{ServerName: "site-a"},
 				},
 			},
 		},

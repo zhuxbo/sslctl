@@ -37,8 +37,6 @@ func TestScanResult_Basic(t *testing.T) {
 		Environment: "local",
 		Sites: []ScannedSite{
 			{
-				ID:          "example.com",
-				Name:        "Example Site",
 				Source:      "local",
 				ServerName:  "example.com",
 				ServerAlias: []string{"www.example.com"},
@@ -59,8 +57,6 @@ func TestScanResult_Basic(t *testing.T) {
 // TestScannedSite_LocalSite 测试本地站点扫描结构
 func TestScannedSite_LocalSite(t *testing.T) {
 	site := ScannedSite{
-		ID:              "test.example.com",
-		Name:            "Test Site",
 		Source:          "local",
 		ConfigFile:      "/etc/nginx/sites-enabled/test.conf",
 		ServerName:      "test.example.com",
@@ -68,10 +64,6 @@ func TestScannedSite_LocalSite(t *testing.T) {
 		ListenPorts:     []string{"443 ssl", "8443 ssl"},
 		CertificatePath: "/etc/ssl/certs/test.crt",
 		PrivateKeyPath:  "/etc/ssl/private/test.key",
-	}
-
-	if site.ID == "" {
-		t.Error("ID 不应为空")
 	}
 
 	if len(site.ServerAlias) != 2 {
@@ -86,8 +78,6 @@ func TestScannedSite_LocalSite(t *testing.T) {
 // TestScannedSite_DockerSite 测试 Docker 站点扫描结构
 func TestScannedSite_DockerSite(t *testing.T) {
 	site := ScannedSite{
-		ID:            "docker-nginx",
-		Name:          "Docker Nginx Site",
 		Source:        "docker",
 		ContainerID:   "abc123def456",
 		ContainerName: "nginx-container",
@@ -147,9 +137,9 @@ func TestScanResult_MultipleSites(t *testing.T) {
 		ScanTime:    time.Now(),
 		Environment: "local",
 		Sites: []ScannedSite{
-			{ID: "site1.com", ServerName: "site1.com"},
-			{ID: "site2.com", ServerName: "site2.com"},
-			{ID: "site3.com", ServerName: "site3.com"},
+			{ServerName: "site1.com"},
+			{ServerName: "site2.com"},
+			{ServerName: "site3.com"},
 		},
 	}
 
@@ -158,10 +148,10 @@ func TestScanResult_MultipleSites(t *testing.T) {
 	}
 
 	// 验证每个站点
-	expectedIDs := []string{"site1.com", "site2.com", "site3.com"}
-	for i, expected := range expectedIDs {
-		if result.Sites[i].ID != expected {
-			t.Errorf("Sites[%d].ID = %s, 期望 %s", i, result.Sites[i].ID, expected)
+	expectedNames := []string{"site1.com", "site2.com", "site3.com"}
+	for i, expected := range expectedNames {
+		if result.Sites[i].ServerName != expected {
+			t.Errorf("Sites[%d].ServerName = %s, 期望 %s", i, result.Sites[i].ServerName, expected)
 		}
 	}
 }
@@ -174,8 +164,6 @@ func TestConfigScanResultConversion(t *testing.T) {
 		Environment: "local",
 		Sites: []ScannedSite{
 			{
-				ID:              "test.com",
-				Name:            "Test",
 				Source:          "local",
 				ConfigFile:      "/etc/nginx/test.conf",
 				ServerName:      "test.com",
@@ -196,8 +184,6 @@ func TestConfigScanResultConversion(t *testing.T) {
 
 	for i, site := range certopsResult.Sites {
 		configResult.Sites[i] = config.ScannedSite{
-			ID:              site.ID,
-			Name:            site.Name,
 			Source:          site.Source,
 			ConfigFile:      site.ConfigFile,
 			ServerName:      site.ServerName,
@@ -213,18 +199,18 @@ func TestConfigScanResultConversion(t *testing.T) {
 		t.Errorf("转换后站点数量不一致")
 	}
 
-	if configResult.Sites[0].ID != certopsResult.Sites[0].ID {
-		t.Errorf("ID 转换不正确")
+	if configResult.Sites[0].ServerName != certopsResult.Sites[0].ServerName {
+		t.Errorf("ServerName 转换不正确")
 	}
 }
 
 // TestScanOptions_SSLOnlyFilter 测试 SSL 过滤
 func TestScanOptions_SSLOnlyFilter(t *testing.T) {
 	allSites := []ScannedSite{
-		{ID: "ssl1.com", CertificatePath: "/etc/ssl/ssl1.crt"},
-		{ID: "http1.com", CertificatePath: ""},
-		{ID: "ssl2.com", CertificatePath: "/etc/ssl/ssl2.crt"},
-		{ID: "http2.com", CertificatePath: ""},
+		{ServerName: "ssl1.com", CertificatePath: "/etc/ssl/ssl1.crt"},
+		{ServerName: "http1.com", CertificatePath: ""},
+		{ServerName: "ssl2.com", CertificatePath: "/etc/ssl/ssl2.crt"},
+		{ServerName: "http2.com", CertificatePath: ""},
 	}
 
 	opts := ScanOptions{SSLOnly: true}
@@ -243,7 +229,7 @@ func TestScanOptions_SSLOnlyFilter(t *testing.T) {
 
 	for _, site := range filtered {
 		if site.CertificatePath == "" {
-			t.Errorf("过滤后不应包含无 SSL 的站点: %s", site.ID)
+			t.Errorf("过滤后不应包含无 SSL 的站点: %s", site.ServerName)
 		}
 	}
 }
@@ -254,8 +240,8 @@ func TestScanResult_MixedEnvironment(t *testing.T) {
 		ScanTime:    time.Now(),
 		Environment: "mixed",
 		Sites: []ScannedSite{
-			{ID: "local.example.com", Source: "local"},
-			{ID: "docker.example.com", Source: "docker"},
+			{ServerName: "local.example.com", Source: "local"},
+			{ServerName: "docker.example.com", Source: "docker"},
 		},
 	}
 
@@ -335,7 +321,7 @@ func TestScanSites_SSLOnly(t *testing.T) {
 	// 验证所有站点都有 SSL 配置
 	for _, site := range result.Sites {
 		if site.CertificatePath == "" {
-			t.Errorf("SSLOnly 过滤后站点 %s 不应无 SSL 配置", site.ID)
+			t.Errorf("SSLOnly 过滤后站点 %s 不应无 SSL 配置", site.ServerName)
 		}
 	}
 }
@@ -400,9 +386,6 @@ func TestDeployOptions_AllMode(t *testing.T) {
 func TestScannedSite_EmptyFields(t *testing.T) {
 	site := ScannedSite{}
 
-	if site.ID != "" {
-		t.Error("空站点 ID 应为空")
-	}
 	if site.Source != "" {
 		t.Error("空站点 Source 应为空")
 	}

@@ -28,7 +28,6 @@ func TestServerType(t *testing.T) {
 // TestSite 测试站点结构
 func TestSite(t *testing.T) {
 	site := Site{
-		Name:            "example.com",
 		ServerName:      "example.com",
 		ServerAlias:     []string{"www.example.com", "api.example.com"},
 		ConfigFile:      "/etc/nginx/sites-enabled/example.conf",
@@ -44,9 +43,6 @@ func TestSite(t *testing.T) {
 		VolumeMode:      false,
 	}
 
-	if site.Name != "example.com" {
-		t.Errorf("Name = %s, 期望 example.com", site.Name)
-	}
 	if site.ServerType != TypeNginx {
 		t.Errorf("ServerType = %s, 期望 nginx", site.ServerType)
 	}
@@ -58,7 +54,6 @@ func TestSite(t *testing.T) {
 // TestSite_Docker 测试 Docker 站点结构
 func TestSite_Docker(t *testing.T) {
 	site := Site{
-		Name:            "example.com",
 		ServerName:      "example.com",
 		ConfigFile:      "/etc/nginx/nginx.conf",
 		CertificatePath: "/etc/ssl/cert.pem",

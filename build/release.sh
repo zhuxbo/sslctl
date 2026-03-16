@@ -81,6 +81,11 @@ load_config() {
         log_error "SSH 密钥文件不存在: $SSH_KEY"
         exit 1
     fi
+
+    # 将 SIGN_KEY 相对路径解析为绝对路径（相对于项目根目录）
+    if [ -n "$SIGN_KEY" ] && [[ "$SIGN_KEY" != /* ]]; then
+        SIGN_KEY="$PROJECT_ROOT/$SIGN_KEY"
+    fi
 }
 
 # ========================================
@@ -193,7 +198,8 @@ compute_checksums_and_sign_local() {
 
     CHECKSUMS_JSON="{"
     SIGNATURES_JSON="{"
-    local first=true
+    local ck_first=true
+    local sig_first=true
 
     for gz in "$DIST_DIR"/*.gz; do
         [ -f "$gz" ] || continue
@@ -201,19 +207,28 @@ compute_checksums_and_sign_local() {
         local checksum
         checksum="sha256:$(shasum -a 256 "$gz" | cut -d' ' -f1)"
 
-        if [ "$first" = true ]; then first=false; else CHECKSUMS_JSON+=","; SIGNATURES_JSON+=","; fi
+        if [ "$ck_first" = true ]; then ck_first=false; else CHECKSUMS_JSON+=","; fi
         CHECKSUMS_JSON+="\"$filename\":\"$checksum\""
 
         # 签名
         if [ -n "$SIGN_KEY" ] && [ -f "$SIGN_KEY" ]; then
             local sig
             sig=$(sign_file_local "$gz" "$SIGN_KEY" "${SIGN_KEY_ID:-key-1}")
+            if [ -z "$sig" ]; then
+                log_error "签名生成失败: $filename"
+                exit 1
+            fi
+            if [ "$sig_first" = true ]; then sig_first=false; else SIGNATURES_JSON+=","; fi
             SIGNATURES_JSON+="\"$filename\":\"$sig\""
         fi
     done
 
     CHECKSUMS_JSON+="}"
     SIGNATURES_JSON+="}"
+
+    if [ -n "$SIGN_KEY" ] && [ ! -f "$SIGN_KEY" ]; then
+        log_warning "签名密钥文件不存在: $SIGN_KEY，发布将不包含签名"
+    fi
 }
 
 # 本地对单个文件签名（返回 ed25519:key_id:base64 格式）
@@ -243,7 +258,7 @@ func main() {
 	fmt.Printf("ed25519:%s:%s", os.Args[3], base64.StdEncoding.EncodeToString(sig))
 }
 GOEOF
-    go run "$SIGN_GO" "$key_file" "$file" "$key_id" 2>/dev/null
+    go run "$SIGN_GO" "$key_file" "$file" "$key_id"
     rm -f "$SIGN_GO"
 }
 
@@ -257,11 +272,11 @@ update_versions_remote() {
 
     parse_server "$server_str"
 
-    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "python3 << PYEOF
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$SERVER_DIR/releases.json' VERSION='$version' CHECKSUMS_JSON='$checksums_json' SIGNATURES_JSON='$signatures_json' python3 << 'PYEOF'
 import json, os
 
-releases_file = '$SERVER_DIR/releases.json'
-version = '$version'
+releases_file = os.environ['RELEASES_FILE']
+version = os.environ['VERSION']
 
 data = {}
 if os.path.exists(releases_file):
@@ -274,8 +289,8 @@ if os.path.exists(releases_file):
 if 'versions' not in data:
     data['versions'] = {}
 
-checksums = json.loads('$checksums_json')
-signatures = json.loads('$signatures_json')
+checksums = json.loads(os.environ['CHECKSUMS_JSON'])
+signatures = json.loads(os.environ['SIGNATURES_JSON'])
 
 if version not in data['versions']:
     data['versions'][version] = {}
@@ -307,15 +322,15 @@ update_releases_json_remote() {
     local releases_file="$SERVER_DIR/releases.json"
     local version_dir="$channel/$version"
 
-    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "python3 << 'PYEOF'
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$releases_file' VERSION='$version' CHANNEL='$channel' VERSION_DIR='$version_dir' python3 << 'PYEOF'
 import json
 import os
 from datetime import datetime
 
-releases_file = '$releases_file'
-version = '$version'
-channel = '$channel'
-version_dir = '$version_dir'
+releases_file = os.environ['RELEASES_FILE']
+version = os.environ['VERSION']
+channel = os.environ['CHANNEL']
+version_dir = os.environ['VERSION_DIR']
 
 # 版本号已带 v 前缀
 v_version = version if version.startswith('v') else f'v{version}'

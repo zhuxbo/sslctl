@@ -62,7 +62,7 @@ func DetectDockerServer(containerID string) ServerType {
 	}
 
 	// 尝试检测 Apache
-	for _, apacheCmd := range []string{"httpd", "apache2", "apache2ctl"} {
+	for _, apacheCmd := range []string{"httpd", "apache2", "apache2ctl", "apachectl"} {
 		cmd = exec.Command("docker", "exec", containerID, apacheCmd, "-v")
 		if cmd.Run() == nil {
 			return TypeDockerApache
@@ -98,7 +98,7 @@ func isNginxInstalled() bool {
 // isApacheInstalled 检查 Apache 是否已安装
 func isApacheInstalled() bool {
 	// 检查命令是否存在
-	apacheCommands := []string{"httpd", "apache2", "apache2ctl"}
+	apacheCommands := []string{"httpd", "apache2", "apache2ctl", "apachectl"}
 	for _, cmd := range apacheCommands {
 		if _, err := exec.LookPath(cmd); err == nil {
 			return true
@@ -195,6 +195,55 @@ func GetNginxSitesDir() string {
 	}
 
 	return ""
+}
+
+// ServerCommands Web 服务器测试和重载命令
+type ServerCommands struct {
+	TestCmd   string // 配置测试命令，如 "nginx -t"
+	ReloadCmd string // 服务重载命令，如 "nginx -s reload"
+}
+
+// DetectNginxCommands 检测当前系统可用的 Nginx 命令
+// nginx -t 和 nginx -s reload 在所有安装方式下均可用，是最通用的方式
+func DetectNginxCommands() ServerCommands {
+	return ServerCommands{
+		TestCmd:   "nginx -t",
+		ReloadCmd: "nginx -s reload",
+	}
+}
+
+// DetectApacheCommands 检测当前系统可用的 Apache 命令
+// 检测顺序：apache2ctl (Debian/Ubuntu) → apachectl (CentOS/RHEL/通用) → httpd (CentOS/RHEL)
+func DetectApacheCommands() ServerCommands {
+	// Debian/Ubuntu: apache2ctl
+	if _, err := exec.LookPath("apache2ctl"); err == nil {
+		return ServerCommands{
+			TestCmd:   "apache2ctl -t",
+			ReloadCmd: "apache2ctl graceful",
+		}
+	}
+
+	// CentOS/RHEL/通用: apachectl
+	if _, err := exec.LookPath("apachectl"); err == nil {
+		return ServerCommands{
+			TestCmd:   "apachectl -t",
+			ReloadCmd: "apachectl graceful",
+		}
+	}
+
+	// CentOS/RHEL: httpd
+	if _, err := exec.LookPath("httpd"); err == nil {
+		return ServerCommands{
+			TestCmd:   "httpd -t",
+			ReloadCmd: "httpd -k graceful",
+		}
+	}
+
+	// 回退默认值
+	return ServerCommands{
+		TestCmd:   "apachectl -t",
+		ReloadCmd: "apachectl graceful",
+	}
 }
 
 // GetApacheSitesDir 获取 Apache 站点配置目录

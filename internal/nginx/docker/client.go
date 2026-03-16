@@ -98,6 +98,7 @@ var allowedExecCommands = map[string]struct{}{
 	"apachectl": {},
 	"apache2":   {},
 	"httpd":     {},
+	"kill":      {}, // 容器内重载（kill -HUP 1）
 	"cat":       {}, // 读取配置文件
 	"test":      {}, // 测试文件存在
 	"ls":        {}, // 列出目录

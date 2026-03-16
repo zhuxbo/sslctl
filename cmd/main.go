@@ -125,16 +125,17 @@ func printUsage() {
   --debug   启用调试模式（详细日志）
 
 常用命令:
-  sslctl scan                          扫描所有站点
-  sslctl scan --ssl-only               仅扫描 SSL 站点
-  sslctl deploy --cert <name>          部署指定证书
-  sslctl deploy --all                  部署所有证书
-  sslctl rollback --site <name>        回滚证书到上一次备份
-  sslctl rollback --site <name> --list 查看备份列表
-  sslctl status                        查看服务状态
-  sslctl upgrade                       升级到最新版本
-  sslctl upgrade --check               检查更新
-  sslctl service repair                修复 systemd 服务
+  sslctl scan                                扫描所有站点
+  sslctl scan --ssl-only                     仅扫描 SSL 站点
+  sslctl deploy --cert <name>                部署指定证书
+  sslctl deploy --cert <name> --site <site>  绑定站点并部署
+  sslctl deploy --all                        部署所有证书
+  sslctl rollback --site <name>              回滚证书到上一次备份
+  sslctl rollback --site <name> --list       查看备份列表
+  sslctl status                              查看服务状态
+  sslctl upgrade                             升级到最新版本
+  sslctl upgrade --check                     检查更新
+  sslctl service repair                      修复 systemd 服务
 
 一键部署:
   sslctl setup --url <url> --token <token> --order <order_id>
@@ -635,11 +636,13 @@ func runRollback(args []string) {
 	// 提示用户重载 Web 服务器
 	serverType := webserver.DetectWebServerType()
 	if serverType == "nginx" {
+		nginxCmds := webserver.DetectNginxCommands()
 		fmt.Println("\n请重载 Nginx 使证书生效:")
-		fmt.Println("  nginx -t && systemctl reload nginx")
+		fmt.Printf("  %s && %s\n", nginxCmds.TestCmd, nginxCmds.ReloadCmd)
 	} else if serverType == "apache" {
+		apacheCmds := webserver.DetectApacheCommands()
 		fmt.Println("\n请重载 Apache 使证书生效:")
-		fmt.Println("  apachectl -t && systemctl reload apache2")
+		fmt.Printf("  %s && %s\n", apacheCmds.TestCmd, apacheCmds.ReloadCmd)
 	} else {
 		fmt.Println("\n请手动重载 Web 服务器使证书生效")
 	}

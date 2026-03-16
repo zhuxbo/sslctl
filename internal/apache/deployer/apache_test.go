@@ -103,13 +103,13 @@ func TestApacheDeployer_Deploy_WriteCert(t *testing.T) {
 	}
 }
 
-// TestApacheDeployer_Deploy_NoChain 测试无证书链部署
+// TestApacheDeployer_Deploy_NoChain 测试无证书链部署（fullchain 模式）
 func TestApacheDeployer_Deploy_NoChain(t *testing.T) {
 	tmpDir := t.TempDir()
 	certPath := filepath.Join(tmpDir, "cert.pem")
 	keyPath := filepath.Join(tmpDir, "key.pem")
 
-	// 不指定 chainPath
+	// 不指定 chainPath（模式2：证书和链合并到 SSLCertificateFile）
 	d := NewApacheDeployer(baseDeployer.Config{CertPath: certPath, KeyPath: keyPath})
 
 	cert := "-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"
@@ -122,9 +122,19 @@ func TestApacheDeployer_Deploy_NoChain(t *testing.T) {
 	}
 
 	// 证书链文件不应被创建
-	chainPath := filepath.Join(tmpDir, "chain.pem")
-	if _, err := os.Stat(chainPath); !os.IsNotExist(err) {
+	chainFilePath := filepath.Join(tmpDir, "chain.pem")
+	if _, err := os.Stat(chainFilePath); !os.IsNotExist(err) {
 		t.Error("不应创建证书链文件（未指定 chainPath）")
+	}
+
+	// 证书文件应包含 cert + intermediate（fullchain）
+	certData, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("读取证书文件失败: %v", err)
+	}
+	expected := cert + "\n" + intermediate
+	if string(certData) != expected {
+		t.Errorf("无 chainPath 时应将中间证书合并到证书文件\n期望: %s\n实际: %s", expected, string(certData))
 	}
 }
 
