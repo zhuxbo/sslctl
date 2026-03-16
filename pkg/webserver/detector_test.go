@@ -114,6 +114,43 @@ func TestGetApacheConfigPath_WithMockPaths(t *testing.T) {
 	_ = GetApacheConfigPath()
 }
 
+// TestDetectNginxCommands 测试 Nginx 命令检测
+func TestDetectNginxCommands(t *testing.T) {
+	cmds := DetectNginxCommands()
+
+	if cmds.TestCmd != "nginx -t" {
+		t.Errorf("TestCmd = %s, want 'nginx -t'", cmds.TestCmd)
+	}
+	if cmds.ReloadCmd != "nginx -s reload" {
+		t.Errorf("ReloadCmd = %s, want 'nginx -s reload'", cmds.ReloadCmd)
+	}
+}
+
+// TestDetectApacheCommands 测试 Apache 命令检测
+func TestDetectApacheCommands(t *testing.T) {
+	cmds := DetectApacheCommands()
+
+	validTestCmds := map[string]bool{
+		"apache2ctl -t": true,
+		"apachectl -t":  true,
+		"httpd -t":      true,
+	}
+	if !validTestCmds[cmds.TestCmd] {
+		t.Errorf("TestCmd = %s, 不在合法命令集合中", cmds.TestCmd)
+	}
+
+	validReloadCmds := map[string]bool{
+		"apache2ctl graceful": true,
+		"apachectl graceful":  true,
+		"httpd -k graceful":   true,
+	}
+	if !validReloadCmds[cmds.ReloadCmd] {
+		t.Errorf("ReloadCmd = %s, 不在合法命令集合中", cmds.ReloadCmd)
+	}
+
+	t.Logf("检测到 Apache 命令: test=%s, reload=%s", cmds.TestCmd, cmds.ReloadCmd)
+}
+
 // TestDetectDockerServer 测试 Docker 服务器检测
 func TestDetectDockerServer(t *testing.T) {
 	// 使用不存在的容器 ID 测试

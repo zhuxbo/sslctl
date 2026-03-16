@@ -128,7 +128,7 @@ func TestNewDeployer_Apache(t *testing.T) {
 		"/etc/ssl/cert.pem",
 		"/etc/ssl/key.pem",
 		"/etc/ssl/chain.pem",
-		"apachectl configtest",
+		"apachectl -t",
 		"apachectl graceful",
 	)
 	if err != nil {
@@ -292,7 +292,7 @@ func TestNewDeployer_DockerApache(t *testing.T) {
 		"/etc/ssl/cert.pem",
 		"/etc/ssl/key.pem",
 		"/etc/ssl/chain.pem",
-		"docker exec apache apachectl configtest",
+		"docker exec apache apachectl -t",
 		"docker exec apache apachectl graceful",
 	)
 	if err != nil {

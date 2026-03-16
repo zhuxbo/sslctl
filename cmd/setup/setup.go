@@ -466,17 +466,16 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 		binding.Paths.ChainFile = site.ChainPath
 	}
 
-	// 设置重载命令
+	// 设置重载命令（根据系统环境动态检测）
+	var cmds webserver.ServerCommands
 	if site.ServerType == config.ServerTypeNginx {
-		binding.Reload = config.ReloadConfig{
-			TestCommand:   "nginx -t",
-			ReloadCommand: "nginx -s reload",
-		}
+		cmds = webserver.DetectNginxCommands()
 	} else {
-		binding.Reload = config.ReloadConfig{
-			TestCommand:   "apache2ctl -t",
-			ReloadCommand: "systemctl reload apache2",
-		}
+		cmds = webserver.DetectApacheCommands()
+	}
+	binding.Reload = config.ReloadConfig{
+		TestCommand:   cmds.TestCmd,
+		ReloadCommand: cmds.ReloadCmd,
 	}
 
 	return binding
@@ -544,10 +543,12 @@ func installSSLConfig(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) (
 	// Nginx 本身就是 fullchain 模式，chainPath 无意义
 	chainPath := ""
 
-	// 确定 testCmd（根据站点类型而非全局检测类型）
-	testCmd := "nginx -t"
+	// 确定 testCmd（根据站点类型动态检测）
+	var testCmd string
 	if site.ServerType == config.ServerTypeApache {
-		testCmd = "apache2ctl -t"
+		testCmd = webserver.DetectApacheCommands().TestCmd
+	} else {
+		testCmd = webserver.DetectNginxCommands().TestCmd
 	}
 
 	// 创建安装器

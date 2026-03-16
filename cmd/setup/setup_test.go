@@ -76,12 +76,22 @@ func TestCreateBinding_Apache(t *testing.T) {
 		t.Errorf("ServerType = %s, want apache", binding.ServerType)
 	}
 
-	if binding.Reload.TestCommand != "apache2ctl -t" {
-		t.Errorf("TestCommand = %s, want 'apache2ctl -t'", binding.Reload.TestCommand)
+	validTestCmds := map[string]bool{
+		"apache2ctl -t": true,
+		"apachectl -t":  true,
+		"httpd -t":      true,
+	}
+	if !validTestCmds[binding.Reload.TestCommand] {
+		t.Errorf("TestCommand = %s, 不在合法命令集合中", binding.Reload.TestCommand)
 	}
 
-	if binding.Reload.ReloadCommand != "systemctl reload apache2" {
-		t.Errorf("ReloadCommand = %s", binding.Reload.ReloadCommand)
+	validReloadCmds := map[string]bool{
+		"apache2ctl graceful": true,
+		"apachectl graceful":  true,
+		"httpd -k graceful":   true,
+	}
+	if !validReloadCmds[binding.Reload.ReloadCommand] {
+		t.Errorf("ReloadCommand = %s, 不在合法命令集合中", binding.Reload.ReloadCommand)
 	}
 }
 

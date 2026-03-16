@@ -365,9 +365,11 @@ func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *c
 
 	// 安装 SSL 配置
 	serverType := detectServerType(site)
-	testCmd := "nginx -t"
+	var testCmd string
 	if serverType == config.ServerTypeApache {
-		testCmd = "apachectl -t"
+		testCmd = webserver.DetectApacheCommands().TestCmd
+	} else {
+		testCmd = webserver.DetectNginxCommands().TestCmd
 	}
 
 	installer, err := webserver.NewInstaller(
@@ -657,16 +659,17 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 		}
 	}
 
-	// 添加默认重载命令
+	// 添加默认重载命令（根据系统环境动态检测）
+	var cmds webserver.ServerCommands
 	if serverType == config.ServerTypeNginx {
-		binding.Reload = config.ReloadConfig{
-			TestCommand:   "nginx -t",
-			ReloadCommand: "systemctl reload nginx",
-		}
+		cmds = webserver.DetectNginxCommands()
 	} else if serverType == config.ServerTypeApache {
+		cmds = webserver.DetectApacheCommands()
+	}
+	if cmds.TestCmd != "" {
 		binding.Reload = config.ReloadConfig{
-			TestCommand:   "apachectl -t",
-			ReloadCommand: "apachectl graceful",
+			TestCommand:   cmds.TestCmd,
+			ReloadCommand: cmds.ReloadCmd,
 		}
 	}
 

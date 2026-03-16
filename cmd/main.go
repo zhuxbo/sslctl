@@ -636,11 +636,13 @@ func runRollback(args []string) {
 	// 提示用户重载 Web 服务器
 	serverType := webserver.DetectWebServerType()
 	if serverType == "nginx" {
+		nginxCmds := webserver.DetectNginxCommands()
 		fmt.Println("\n请重载 Nginx 使证书生效:")
-		fmt.Println("  nginx -t && systemctl reload nginx")
+		fmt.Printf("  %s && %s\n", nginxCmds.TestCmd, nginxCmds.ReloadCmd)
 	} else if serverType == "apache" {
+		apacheCmds := webserver.DetectApacheCommands()
 		fmt.Println("\n请重载 Apache 使证书生效:")
-		fmt.Println("  apachectl -t && systemctl reload apache2")
+		fmt.Printf("  %s && %s\n", apacheCmds.TestCmd, apacheCmds.ReloadCmd)
 	} else {
 		fmt.Println("\n请手动重载 Web 服务器使证书生效")
 	}
