@@ -81,6 +81,11 @@ load_config() {
         log_error "SSH 密钥文件不存在: $SSH_KEY"
         exit 1
     fi
+
+    # 将 SIGN_KEY 相对路径解析为绝对路径（相对于项目根目录）
+    if [ -n "$SIGN_KEY" ] && [[ "$SIGN_KEY" != /* ]]; then
+        SIGN_KEY="$PROJECT_ROOT/$SIGN_KEY"
+    fi
 }
 
 # ========================================
@@ -209,6 +214,10 @@ compute_checksums_and_sign_local() {
         if [ -n "$SIGN_KEY" ] && [ -f "$SIGN_KEY" ]; then
             local sig
             sig=$(sign_file_local "$gz" "$SIGN_KEY" "${SIGN_KEY_ID:-key-1}")
+            if [ -z "$sig" ]; then
+                log_error "签名生成失败: $filename"
+                exit 1
+            fi
             if [ "$sig_first" = true ]; then sig_first=false; else SIGNATURES_JSON+=","; fi
             SIGNATURES_JSON+="\"$filename\":\"$sig\""
         fi
@@ -216,6 +225,10 @@ compute_checksums_and_sign_local() {
 
     CHECKSUMS_JSON+="}"
     SIGNATURES_JSON+="}"
+
+    if [ -n "$SIGN_KEY" ] && [ ! -f "$SIGN_KEY" ]; then
+        log_warning "签名密钥文件不存在: $SIGN_KEY，发布将不包含签名"
+    fi
 }
 
 # 本地对单个文件签名（返回 ed25519:key_id:base64 格式）
@@ -245,7 +258,7 @@ func main() {
 	fmt.Printf("ed25519:%s:%s", os.Args[3], base64.StdEncoding.EncodeToString(sig))
 }
 GOEOF
-    go run "$SIGN_GO" "$key_file" "$file" "$key_id" 2>/dev/null
+    go run "$SIGN_GO" "$key_file" "$file" "$key_id"
     rm -f "$SIGN_GO"
 }
 

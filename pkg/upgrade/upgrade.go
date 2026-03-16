@@ -72,15 +72,20 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	logFunc("当前版本: %s", current)
 	logFunc("最新版本: %s (%s)", target, channel)
 
+	cmp := CompareVersions(target, current)
 	result := &Result{
 		FromVersion: current,
 		ToVersion:   target,
 		Channel:     channel,
-		NeedUpgrade: current != target || opts.Force,
+		NeedUpgrade: cmp > 0 || opts.Force,
 	}
 
 	if !result.NeedUpgrade {
-		logFunc("已是最新版本")
+		if cmp < 0 {
+			logFunc("当前版本高于远程版本，无需降级（如需降级请使用 --force）")
+		} else {
+			logFunc("已是最新版本")
+		}
 		return result, nil
 	}
 

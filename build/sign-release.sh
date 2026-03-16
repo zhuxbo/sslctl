@@ -38,6 +38,10 @@ if [ -f "$CONF_FILE" ]; then
     source "$CONF_FILE"
     KEY_FILE="${SIGN_KEY:-}"
     KEY_ID="${SIGN_KEY_ID:-}"
+    # 将相对路径解析为绝对路径（相对于项目根目录）
+    if [ -n "$KEY_FILE" ] && [[ "$KEY_FILE" != /* ]]; then
+        KEY_FILE="$PROJECT_ROOT/$KEY_FILE"
+    fi
 fi
 
 # 解析参数（命令行参数优先于 release.conf）

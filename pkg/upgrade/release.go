@@ -109,12 +109,13 @@ func NormalizeVersion(ver string) string {
 
 // CompareVersions 比较两个语义化版本号
 // 返回: -1 (a < b), 0 (a == b), 1 (a > b)
-// 仅比较主版本号部分（忽略 -beta/-dev 等预发布标识）
+// 遵循 semver 规范：主版本号优先比较，pre-release 版本低于同号正式版
 func CompareVersions(a, b string) int {
-	parseVer := func(v string) [3]int {
+	parseVer := func(v string) ([3]int, string) {
 		v = strings.TrimPrefix(v, "v")
-		// 截取 - 之前的部分
+		pre := ""
 		if idx := strings.Index(v, "-"); idx >= 0 {
+			pre = v[idx+1:]
 			v = v[:idx]
 		}
 		parts := strings.Split(v, ".")
@@ -123,10 +124,13 @@ func CompareVersions(a, b string) int {
 			n, _ := strconv.Atoi(parts[i])
 			result[i] = n
 		}
-		return result
+		return result, pre
 	}
 
-	va, vb := parseVer(a), parseVer(b)
+	va, preA := parseVer(a)
+	vb, preB := parseVer(b)
+
+	// 先比较主版本号
 	for i := 0; i < 3; i++ {
 		if va[i] < vb[i] {
 			return -1
@@ -134,6 +138,26 @@ func CompareVersions(a, b string) int {
 		if va[i] > vb[i] {
 			return 1
 		}
+	}
+
+	// 主版本号相同，比较 pre-release
+	// semver: 有 pre-release 的版本 < 无 pre-release 的版本
+	if preA == "" && preB == "" {
+		return 0
+	}
+	if preA != "" && preB == "" {
+		return -1
+	}
+	if preA == "" && preB != "" {
+		return 1
+	}
+
+	// 都有 pre-release 时按字典序比较
+	if preA < preB {
+		return -1
+	}
+	if preA > preB {
+		return 1
 	}
 	return 0
 }

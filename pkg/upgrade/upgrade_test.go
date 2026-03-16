@@ -90,6 +90,56 @@ func TestExecute_Force(t *testing.T) {
 	}
 }
 
+func TestExecute_NoDowngrade(t *testing.T) {
+	info := &ReleaseInfo{
+		LatestMain: "v0.1.0",
+		LatestDev:    "v0.1.0",
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(info)
+	}))
+	defer server.Close()
+
+	// beta 版本不应降级到更低的正式版
+	result, err := executeWithClient(Options{
+		CurrentVersion: "v0.1.1-beta",
+		Channel:        "main",
+	}, nil, server.URL+"/releases.json", server.Client())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.NeedUpgrade {
+		t.Error("expected NeedUpgrade=false: should not downgrade from v0.1.1-beta to v0.1.0")
+	}
+}
+
+func TestExecute_PreReleaseUpgrade(t *testing.T) {
+	info := &ReleaseInfo{
+		LatestMain: "v0.1.1",
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(info)
+	}))
+	defer server.Close()
+
+	// pre-release 应升级到同号正式版
+	result, err := executeWithClient(Options{
+		CurrentVersion: "v0.1.1-beta",
+		Channel:        "main",
+		CheckOnly:      true,
+	}, nil, server.URL+"/releases.json", server.Client())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.NeedUpgrade {
+		t.Error("expected NeedUpgrade=true: v0.1.1-beta should upgrade to v0.1.1")
+	}
+}
+
 func TestExecute_FetchError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
