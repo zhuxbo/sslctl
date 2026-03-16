@@ -46,6 +46,7 @@ func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult,
 				ListenPorts:     site.ListenPorts,
 				CertificatePath: site.CertificatePath,
 				PrivateKeyPath:  site.PrivateKeyPath,
+				ChainFilePath:   site.ChainFile,
 			})
 		}
 	}
@@ -71,6 +72,7 @@ func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult,
 			ListenPorts:     site.ListenPorts,
 			CertificatePath: site.CertificatePath,
 			PrivateKeyPath:  site.PrivateKeyPath,
+			ChainFilePath:   site.ChainFilePath,
 			HostCertPath:    site.HostCertPath,
 			HostKeyPath:     site.HostKeyPath,
 			VolumeMode:      site.VolumeMode,

@@ -33,8 +33,9 @@ type ScannedSite struct {
 	Webroot     string   `json:"webroot,omitempty"`      // Web 根目录
 
 	// 证书路径（容器内路径或本地路径）
-	CertificatePath string `json:"certificate_path"` // 证书路径
-	PrivateKeyPath  string `json:"private_key_path"` // 私钥路径
+	CertificatePath string `json:"certificate_path"`            // 证书路径
+	PrivateKeyPath  string `json:"private_key_path"`             // 私钥路径
+	ChainFilePath   string `json:"chain_file_path,omitempty"`    // 证书链路径（Apache SSLCertificateChainFile）
 
 	// Docker 特有（宿主机路径）
 	HostCertPath string `json:"host_cert_path,omitempty"` // 宿主机证书路径

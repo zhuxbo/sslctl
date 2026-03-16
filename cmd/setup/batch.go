@@ -400,12 +400,12 @@ func installSSLForBatch(site *matcher.ScannedSiteInfo, plan *certDeployPlan, p *
 	if plan.CertData.IntermediateCert != "" {
 		fullchain += "\n" + plan.CertData.IntermediateCert
 	}
-	if err := os.WriteFile(binding.Paths.Certificate, []byte(fullchain), 0644); err != nil {
+	if err := util.AtomicWrite(binding.Paths.Certificate, []byte(fullchain), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "    %s: 写入证书失败: %v\n", site.ServerName, err)
 		binding.Enabled = false
 		return
 	}
-	if err := os.WriteFile(binding.Paths.PrivateKey, []byte(plan.PrivateKey), 0600); err != nil {
+	if err := util.AtomicWrite(binding.Paths.PrivateKey, []byte(plan.PrivateKey), 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "    %s: 写入私钥失败: %v\n", site.ServerName, err)
 		binding.Enabled = false
 		return

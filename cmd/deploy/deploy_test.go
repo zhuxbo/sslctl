@@ -275,6 +275,7 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 		site           *config.ScannedSite
 		wantServerType string
 		wantDocker     bool
+		wantChainFile  string // 期望的 ChainFile 值
 	}{
 		{
 			name: "本地 Nginx 站点",
@@ -289,7 +290,7 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 			wantDocker:     false,
 		},
 		{
-			name: "本地 Apache 站点",
+			name: "本地 Apache 站点（fullchain 模式）",
 			site: &config.ScannedSite{
 				ServerName:      "apache-site.com",
 				Source:          "local",
@@ -299,6 +300,20 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 			},
 			wantServerType: config.ServerTypeApache,
 			wantDocker:     false,
+		},
+		{
+			name: "本地 Apache 站点（有 ChainFile）",
+			site: &config.ScannedSite{
+				ServerName:      "apache-chain.com",
+				Source:          "local",
+				ConfigFile:      "/etc/apache2/sites-enabled/apache-chain.conf",
+				CertificatePath: "/etc/ssl/apache-chain.com/cert.pem",
+				PrivateKeyPath:  "/etc/ssl/apache-chain.com/key.pem",
+				ChainFilePath:   "/etc/ssl/apache-chain.com/chain.pem",
+			},
+			wantServerType: config.ServerTypeApache,
+			wantDocker:     false,
+			wantChainFile:  "/etc/ssl/apache-chain.com/chain.pem",
 		},
 		{
 			name: "Docker Nginx 站点",
@@ -359,9 +374,9 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 				}
 			}
 
-			// Apache 站点不应自动填充 ChainFile（支持 fullchain 单文件）
-			if binding.Paths.ChainFile != "" {
-				t.Error("ChainFile should be empty (support fullchain single file)")
+			// ChainFile 应与扫描结果一致
+			if binding.Paths.ChainFile != tt.wantChainFile {
+				t.Errorf("ChainFile = %s, want %s", binding.Paths.ChainFile, tt.wantChainFile)
 			}
 		})
 	}

@@ -644,8 +644,11 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 		},
 	}
 
-	// 注意：不自动填充 Apache ChainFile，允许 fullchain 单文件部署
-	// 用户如需分离 chain file，可通过 --ca 参数指定
+	// Apache：保留扫描到的 ChainFile 路径（已有 SSLCertificateChainFile 的站点）
+	// 新站点 ChainFilePath 为空，使用 fullchain 模式
+	if site.ChainFilePath != "" {
+		binding.Paths.ChainFile = site.ChainFilePath
+	}
 
 	// Docker 站点添加信息
 	if site.Source == "docker" {
