@@ -44,7 +44,9 @@ testdata/      # 测试数据和工具
 
 ```bash
 # 一键部署（推荐）
-sslctl setup --url <url> --token <token> --order <order_id>
+sslctl setup --url <url> --token <token> --order <order_id>          # 单证书部署
+sslctl setup --url <url> --token <token> --order "123,example.com"   # 批量部署
+sslctl setup --url <url> --token <token>                             # 部署所有证书
 
 # 站点扫描
 sslctl scan                                      # 扫描站点（自动检测 Web 服务器）
@@ -56,13 +58,13 @@ sslctl deploy --cert <name> --site <server_name> # 绑定站点并部署
 sslctl deploy --all                              # 部署所有证书
 
 # 本地证书部署（不依赖 API）
-sslctl deploy local --cert <file> --key <file> --site <name>
-sslctl deploy local --cert <file> --key <file> --ca <file> --site <name>  # Apache
+sslctl deploy local --cert <file> --key <file> --site <server_name>
+sslctl deploy local --cert <file> --key <file> --ca <file> --site <server_name>  # Apache
 
 # 证书回滚
-sslctl rollback --site <name>                    # 回滚到最新备份
-sslctl rollback --site <name> --list             # 查看备份列表
-sslctl rollback --site <name> --version <ts>     # 回滚到指定版本
+sslctl rollback --site <server_name>                    # 回滚到最新备份
+sslctl rollback --site <server_name> --list             # 查看备份列表
+sslctl rollback --site <server_name> --version <ts>     # 回滚到指定版本
 
 # 服务管理
 sslctl status                                    # 查看服务状态（含证书过期详情）

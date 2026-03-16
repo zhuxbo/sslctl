@@ -993,3 +993,208 @@ func TestUpdate_WithDomains(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 }
+
+// TestAPIResponse_ParsePaginatedData 测试分页响应解析
+func TestAPIResponse_ParsePaginatedData(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      string
+		wantCount int
+		wantTotal int
+		wantErr   bool
+	}{
+		{
+			name:      "分页响应",
+			data:      `{"total":2,"currentPage":1,"pageSize":100,"data":[{"order_id":1,"status":"active"},{"order_id":2,"status":"active"}]}`,
+			wantCount: 2,
+			wantTotal: 2,
+		},
+		{
+			name:      "分页响应空数据",
+			data:      `{"total":0,"currentPage":1,"pageSize":100,"data":[]}`,
+			wantCount: 0,
+			wantTotal: 0,
+		},
+		{
+			name:      "兼容单对象",
+			data:      `{"order_id":123,"status":"issued"}`,
+			wantCount: 1,
+			wantTotal: 1,
+		},
+		{
+			name:      "兼容数组",
+			data:      `[{"order_id":1,"status":"active"},{"order_id":2,"status":"active"}]`,
+			wantCount: 2,
+			wantTotal: 2,
+		},
+		{
+			name:    "空数据",
+			data:    ``,
+			wantErr: true,
+		},
+		{
+			name:    "无效 JSON",
+			data:    `{invalid}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &APIResponse{
+				Code: 1,
+				Data: json.RawMessage(tt.data),
+			}
+
+			certs, total, err := resp.ParsePaginatedData()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParsePaginatedData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				return
+			}
+			if len(certs) != tt.wantCount {
+				t.Errorf("certs count = %d, want %d", len(certs), tt.wantCount)
+			}
+			if total != tt.wantTotal {
+				t.Errorf("total = %d, want %d", total, tt.wantTotal)
+			}
+		})
+	}
+}
+
+// TestQueryBatch 测试批量查询
+func TestQueryBatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queryParam := r.URL.Query().Get("query")
+		pageSize := r.URL.Query().Get("pageSize")
+
+		if pageSize != "100" {
+			t.Errorf("pageSize = %s, want 100", pageSize)
+		}
+
+		var data []map[string]interface{}
+		if queryParam == "" {
+			// 无参数：返回全部
+			data = []map[string]interface{}{mockCertData()}
+		} else if queryParam == "123,example.com" {
+			// 混合查询
+			cert1 := mockCertData()
+			cert1["order_id"] = 123
+			cert2 := mockCertData()
+			cert2["order_id"] = 456
+			data = []map[string]interface{}{cert1, cert2}
+		}
+
+		resp := mockResponse{
+			Code: 1,
+			Data: map[string]interface{}{
+				"total":       len(data),
+				"currentPage": 1,
+				"pageSize":    100,
+				"data":        data,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	// 测试无参数查询
+	certs, err := f.QueryBatch(ctx, server.URL, "token", "")
+	if err != nil {
+		t.Fatalf("QueryBatch('') error = %v", err)
+	}
+	if len(certs) != 1 {
+		t.Errorf("QueryBatch('') got %d certs, want 1", len(certs))
+	}
+
+	// 测试混合查询
+	certs, err = f.QueryBatch(ctx, server.URL, "token", "123,example.com")
+	if err != nil {
+		t.Fatalf("QueryBatch('123,example.com') error = %v", err)
+	}
+	if len(certs) != 2 {
+		t.Errorf("QueryBatch('123,example.com') got %d certs, want 2", len(certs))
+	}
+}
+
+// TestQueryBatch_Pagination 测试批量查询自动翻页
+func TestQueryBatch_Pagination(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		page := r.URL.Query().Get("currentPage")
+
+		var data []map[string]interface{}
+		total := 3
+		pageNum := 1
+		if page == "2" {
+			pageNum = 2
+		}
+
+		switch page {
+		case "1":
+			cert1 := mockCertData()
+			cert1["order_id"] = 1
+			cert2 := mockCertData()
+			cert2["order_id"] = 2
+			data = []map[string]interface{}{cert1, cert2}
+		case "2":
+			cert3 := mockCertData()
+			cert3["order_id"] = 3
+			data = []map[string]interface{}{cert3}
+		default:
+			data = []map[string]interface{}{}
+		}
+
+		resp := mockResponse{
+			Code: 1,
+			Data: map[string]interface{}{
+				"total":       total,
+				"currentPage": pageNum,
+				"pageSize":    2,
+				"data":        data,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	certs, err := f.QueryBatch(ctx, server.URL, "token", "")
+	if err != nil {
+		t.Fatalf("QueryBatch() error = %v", err)
+	}
+	if len(certs) != 3 {
+		t.Errorf("got %d certs, want 3", len(certs))
+	}
+	if callCount != 2 {
+		t.Errorf("API called %d times, want 2 (pagination)", callCount)
+	}
+}
+
+// TestQueryBatch_APIError 测试批量查询 API 错误
+func TestQueryBatch_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{Code: 0, Message: "unauthorized"}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := NewWithRetry(30*time.Second, RetryConfig{MaxRetries: 0})
+	ctx := context.Background()
+
+	_, err := f.QueryBatch(ctx, server.URL, "bad-token", "")
+	if err == nil {
+		t.Fatal("QueryBatch() should return error for API error")
+	}
+	if !strings.Contains(err.Error(), "unauthorized") {
+		t.Errorf("error should contain 'unauthorized', got: %v", err)
+	}
+}

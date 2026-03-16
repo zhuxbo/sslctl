@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,18 +22,34 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
+// setupParams 保存 setup 命令的通用参数
+type setupParams struct {
+	apiURL    string
+	token     string
+	localKey  bool
+	yes       bool
+	noService bool
+	ctx       context.Context
+	cfgManager *config.ConfigManager
+	log       *logger.Logger
+}
+
 // Run 运行 setup 命令
 func Run(args []string, debug bool) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	apiURL := fs.String("url", "", "证书 API 基础地址")
 	token := fs.String("token", "", "API 认证 Token")
-	orderID := fs.Int("order", 0, "订单 ID")
+	order := fs.String("order", "", "订单 ID 或批量查询（支持 ID/域名/逗号分隔混合，不传则查询全部）")
 	localKey := fs.Bool("local-key", false, "使用本地私钥模式")
 	yes := fs.Bool("yes", false, "跳过确认提示")
 	noService := fs.Bool("no-service", false, "不安装守护服务")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: sslctl setup --url <base_url> --token <token> --order <order_id>\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "用法:\n")
+		fmt.Fprintf(os.Stderr, "  sslctl setup --url <base_url> --token <token> --order <order_id>          # 单证书部署\n")
+		fmt.Fprintf(os.Stderr, "  sslctl setup --url <base_url> --token <token> --order \"123,example.com\"    # 批量部署\n")
+		fmt.Fprintf(os.Stderr, "  sslctl setup --url <base_url> --token <token>                             # 部署所有证书\n")
+		fmt.Fprintf(os.Stderr, "\n选项:\n")
 		fs.PrintDefaults()
 	}
 
@@ -40,7 +57,7 @@ func Run(args []string, debug bool) {
 		os.Exit(1)
 	}
 
-	if *apiURL == "" || *token == "" || *orderID == 0 {
+	if *apiURL == "" || *token == "" {
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -78,8 +95,28 @@ func Run(args []string, debug bool) {
 		log.SetLevel(logger.LevelDebug)
 	}
 
-	ctx := context.Background()
+	params := &setupParams{
+		apiURL:     *apiURL,
+		token:      *token,
+		localKey:   *localKey,
+		yes:        *yes,
+		noService:  *noService,
+		ctx:        context.Background(),
+		cfgManager: cfgManager,
+		log:        log,
+	}
 
+	// 路由：纯数字走单订单旧路径，其他走批量
+	orderStr := strings.TrimSpace(*order)
+	if orderID, err := strconv.Atoi(orderStr); err == nil && orderID > 0 {
+		runSingle(params, orderID)
+	} else {
+		runBatch(params, orderStr)
+	}
+}
+
+// runSingle 单证书部署（保持原有 7 步流程）
+func runSingle(p *setupParams, orderID int) {
 	// 1. 检测 Web 服务器
 	fmt.Println("步骤 1/7: 检测 Web 服务器...")
 	serverType := webserver.DetectWebServerType()
@@ -92,7 +129,7 @@ func Run(args []string, debug bool) {
 	// 2. 获取证书信息
 	fmt.Println("\n步骤 2/7: 获取证书信息...")
 	f := fetcher.New(30 * time.Second)
-	certData, err := f.QueryOrder(ctx, *apiURL, *token, *orderID)
+	certData, err := f.QueryOrder(p.ctx, p.apiURL, p.token, orderID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询订单失败: %v\n", err)
 		os.Exit(1)
@@ -132,7 +169,7 @@ func Run(args []string, debug bool) {
 
 	// 3. 扫描站点并匹配
 	fmt.Println("\n步骤 3/7: 扫描站点...")
-	sites := scanSites(serverType, log)
+	sites := scanSites(serverType, p.log)
 	if len(sites) == 0 {
 		fmt.Fprintln(os.Stderr, "未发现站点配置")
 		os.Exit(1)
@@ -152,14 +189,14 @@ func Run(args []string, debug bool) {
 		fmt.Printf("\n  ✓ 完全匹配: %s\n", site.ServerName)
 		if !site.HasSSL {
 			fmt.Printf("    站点未启用 SSL，部署时将安装 HTTPS 配置\n")
-			if !*yes {
+			if !p.yes {
 				if !confirm("    是否安装 HTTPS 配置?") {
 					continue
 				}
 			}
 			needSSLInstall = append(needSSLInstall, site)
 		}
-		bindings = append(bindings, createBinding(site, cfgManager))
+		bindings = append(bindings, createBinding(site, p.cfgManager))
 	}
 
 	// 处理部分匹配
@@ -169,7 +206,7 @@ func Run(args []string, debug bool) {
 		fmt.Printf("    匹配域名: %s\n", strings.Join(smr.Result.MatchedDomains, ", "))
 		fmt.Printf("    未覆盖域名: %s\n", strings.Join(smr.Result.MissedDomains, ", "))
 
-		if !*yes {
+		if !p.yes {
 			if !confirm("    是否绑定此站点?") {
 				continue
 			}
@@ -177,14 +214,14 @@ func Run(args []string, debug bool) {
 
 		if !site.HasSSL {
 			fmt.Printf("    站点未启用 SSL，部署时将安装 HTTPS 配置\n")
-			if !*yes {
+			if !p.yes {
 				if !confirm("    是否安装 HTTPS 配置?") {
 					continue
 				}
 			}
 			needSSLInstall = append(needSSLInstall, site)
 		}
-		bindings = append(bindings, createBinding(site, cfgManager))
+		bindings = append(bindings, createBinding(site, p.cfgManager))
 	}
 
 	if len(bindings) == 0 {
@@ -208,7 +245,7 @@ func Run(args []string, debug bool) {
 	}
 
 	// 确认部署
-	if !*yes {
+	if !p.yes {
 		fmt.Printf("\n将部署证书到 %d 个站点:\n", len(bindings))
 		for _, b := range bindings {
 			fmt.Printf("  - %s (%s)\n", b.ServerName, b.ServerType)
@@ -221,17 +258,17 @@ func Run(args []string, debug bool) {
 
 	// 5. 部署证书
 	fmt.Println("\n步骤 5/7: 部署证书...")
-	certName := fmt.Sprintf("order-%d", *orderID)
+	certName := fmt.Sprintf("order-%d", orderID)
 
 	// 创建证书配置（API 配置写入证书级别）
 	certConfig := &config.CertConfig{
 		CertName: certName,
-		OrderID:  *orderID,
+		OrderID:  orderID,
 		Enabled:  true,
 		Domains:  certDomains,
 		API: config.APIConfig{
-			URL:   *apiURL,
-			Token: *token,
+			URL:   p.apiURL,
+			Token: p.token,
 		},
 		Bindings: bindings,
 	}
@@ -273,7 +310,7 @@ func Run(args []string, debug bool) {
 		}
 
 		// 安装 SSL 配置（此时 nginx -t 可以加载已写入的证书文件）
-		result, err := installSSLConfig(site, cfgManager)
+		result, err := installSSLConfig(site, p.cfgManager)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "    %s: 安装 SSL 配置失败: %v\n", site.ServerName, err)
 			binding.Enabled = false
@@ -281,7 +318,7 @@ func Run(args []string, debug bool) {
 		}
 		if result.Modified {
 			fmt.Printf("    ✓ %s: SSL 配置已安装（备份: %s）\n", site.ServerName, result.BackupPath)
-			updateSiteAfterInstall(site, cfgManager)
+			updateSiteAfterInstall(site, p.cfgManager)
 		}
 	}
 
@@ -292,7 +329,7 @@ func Run(args []string, debug bool) {
 		binding := &bindings[i]
 		fmt.Printf("  部署到: %s\n", binding.ServerName)
 
-		if err := deployToSiteBinding(ctx, binding, certData, privateKey, log); err != nil {
+		if err := deployToSiteBinding(p.ctx, binding, certData, privateKey, p.log); err != nil {
 			fmt.Fprintf(os.Stderr, "    部署失败: %v\n", err)
 			failCount++
 			failedSites = append(failedSites, binding.ServerName)
@@ -317,18 +354,18 @@ func Run(args []string, debug bool) {
 	certConfig.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
 	certConfig.Metadata.LastDeployAt = time.Now()
 
-	if *localKey {
+	if p.localKey {
 		certConfig.RenewMode = config.RenewModeLocal
 	}
 
-	if err := cfgManager.AddCert(certConfig); err != nil {
+	if err := p.cfgManager.AddCert(certConfig); err != nil {
 		fmt.Fprintf(os.Stderr, "保存证书配置失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("  配置已保存: %s\n", cfgManager.GetConfigPath())
+	fmt.Printf("  配置已保存: %s\n", p.cfgManager.GetConfigPath())
 
 	// 7. 安装守护服务
-	if !*noService {
+	if !p.noService {
 		fmt.Println("\n步骤 7/7: 安装守护服务...")
 		if err := installService(); err != nil {
 			fmt.Fprintf(os.Stderr, "  安装服务失败: %v\n", err)
@@ -348,10 +385,10 @@ func Run(args []string, debug bool) {
 		fmt.Printf("一键部署完成! 共 %d 个站点\n", successCount)
 	}
 	fmt.Println("========================================")
-	fmt.Printf("\n配置文件: %s\n", cfgManager.GetConfigPath())
-	fmt.Printf("证书目录: %s\n", cfgManager.GetCertsDir())
+	fmt.Printf("\n配置文件: %s\n", p.cfgManager.GetConfigPath())
+	fmt.Printf("证书目录: %s\n", p.cfgManager.GetCertsDir())
 
-	if !*noService {
+	if !p.noService {
 		fmt.Println("\n守护服务命令:")
 		fmt.Println("  systemctl status sslctl    # 查看状态")
 		fmt.Println("  journalctl -u sslctl -f    # 查看日志")

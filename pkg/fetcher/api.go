@@ -87,6 +87,39 @@ func (r *APIResponse) ParseData() (*CertData, error) {
 	return &list[0], nil
 }
 
+// PaginatedResponse 批量查询分页响应结构
+type PaginatedResponse struct {
+	Total       int        `json:"total"`
+	CurrentPage int        `json:"currentPage"`
+	PageSize    int        `json:"pageSize"`
+	Data        []CertData `json:"data"`
+}
+
+// ParsePaginatedData 解析批量查询的分页响应
+// 批量响应格式: {"total": N, "currentPage": 1, "pageSize": 100, "data": [...]}
+// 兼容单对象格式: 包装成单元素切片返回
+func (r *APIResponse) ParsePaginatedData() ([]CertData, int, error) {
+	if len(r.Data) == 0 {
+		return nil, 0, fmt.Errorf("empty data field")
+	}
+	// 尝试解析为分页响应
+	var paginated PaginatedResponse
+	if err := json.Unmarshal(r.Data, &paginated); err == nil && paginated.Data != nil {
+		return paginated.Data, paginated.Total, nil
+	}
+	// 兼容：尝试解析为单个对象
+	var single CertData
+	if err := json.Unmarshal(r.Data, &single); err == nil && single.OrderID != 0 {
+		return []CertData{single}, 1, nil
+	}
+	// 兼容：尝试解析为数组
+	var list []CertData
+	if err := json.Unmarshal(r.Data, &list); err == nil {
+		return list, len(list), nil
+	}
+	return nil, 0, fmt.Errorf("failed to parse paginated data")
+}
+
 // PostRequest POST 参数（兼容旧接口）
 type PostRequest struct {
 	CSR              string `json:"csr"`
@@ -228,6 +261,9 @@ func NewWithRetry(timeout time.Duration, retryConfig RetryConfig) *Fetcher {
 // defaultMaxResponseSize API 响应体最大大小（512KB 足够承载证书链）
 const defaultMaxResponseSize = 512 * 1024
 
+// batchMaxResponseSize 批量查询响应体最大大小（5MB，100 条证书约 500-800KB）
+const batchMaxResponseSize = 5 * 1024 * 1024
+
 // isRetryable 判断错误是否可重试
 func isRetryable(err error, statusCode int) bool {
 	// 网络错误可重试，但 SSRF 防护拒绝的请求除外
@@ -331,6 +367,30 @@ func (f *Fetcher) doAPICall(ctx context.Context, newRequest func() (*http.Reques
 		return nil, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
 	}
 	return apiResp.ParseData()
+}
+
+// doAPICallBatch 批量查询的 API 调用流程，返回证书列表和总数
+func (f *Fetcher) doAPICallBatch(ctx context.Context, newRequest func() (*http.Request, error), errMsg string) ([]CertData, int, error) {
+	resp, err := f.doWithRetry(ctx, newRequest)
+	if err != nil {
+		return nil, 0, errors.NewNetworkError(errMsg, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, errors.NewNetworkError(fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, batchMaxResponseSize))
+	if err != nil {
+		return nil, 0, errors.NewNetworkError("failed to read response body", err)
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, 0, errors.NewNetworkError("failed to parse JSON response", err)
+	}
+	if apiResp.Code != APICodeSuccess {
+		return nil, 0, errors.NewNetworkError(fmt.Sprintf("API error: %s", apiResp.Message), nil)
+	}
+	return apiResp.ParsePaginatedData()
 }
 
 // mustValidURL 校验 URL 是否有效。
@@ -549,4 +609,58 @@ func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID
 	}
 
 	return f.doAPICall(ctx, newRequest, "failed to query order")
+}
+
+// QueryBatch 批量查询证书
+// query 非空时: GET {baseURL}/api/deploy?query={query}
+// query 为空时: GET {baseURL}/api/deploy（返回最新 100 条 active 证书）
+// 自动处理分页，返回全部结果
+func (f *Fetcher) QueryBatch(ctx context.Context, baseURL, token, query string) ([]CertData, error) {
+	apiURL := buildAPIURL(baseURL, "")
+	if err := mustValidURL(apiURL); err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, errors.NewNetworkError("invalid API URL", err)
+	}
+
+	const pageSize = 100
+	var allCerts []CertData
+
+	for page := 1; ; page++ {
+		q := u.Query()
+		if query != "" {
+			q.Set("query", query)
+		}
+		q.Set("pageSize", fmt.Sprintf("%d", pageSize))
+		q.Set("currentPage", fmt.Sprintf("%d", page))
+		u.RawQuery = q.Encode()
+		fullURL := u.String()
+
+		newRequest := func() (*http.Request, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("Authorization", "Bearer "+token)
+			return req, nil
+		}
+
+		certs, total, err := f.doAPICallBatch(ctx, newRequest, "failed to batch query")
+		if err != nil {
+			return nil, err
+		}
+
+		allCerts = append(allCerts, certs...)
+
+		// 已获取全部或无更多页
+		if len(allCerts) >= total || len(certs) == 0 {
+			break
+		}
+	}
+
+	return allCerts, nil
 }
