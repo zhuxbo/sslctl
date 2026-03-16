@@ -351,6 +351,14 @@ func TestBuildBindingFromScanResult(t *testing.T) {
 				t.Error("Docker info should be nil for local site")
 			}
 
+			// Docker 站点不应设置 Reload 命令（由 Docker deployer 内部处理）
+			if tt.wantDocker {
+				if binding.Reload.TestCommand != "" || binding.Reload.ReloadCommand != "" {
+					t.Errorf("Docker 站点不应设置 Reload 命令, got test=%s reload=%s",
+						binding.Reload.TestCommand, binding.Reload.ReloadCommand)
+				}
+			}
+
 			// Apache 站点不应自动填充 ChainFile（支持 fullchain 单文件）
 			if binding.Paths.ChainFile != "" {
 				t.Error("ChainFile should be empty (support fullchain single file)")

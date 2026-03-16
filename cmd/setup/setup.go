@@ -470,12 +470,14 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 	var cmds webserver.ServerCommands
 	if site.ServerType == config.ServerTypeNginx {
 		cmds = webserver.DetectNginxCommands()
-	} else {
+	} else if site.ServerType == config.ServerTypeApache {
 		cmds = webserver.DetectApacheCommands()
 	}
-	binding.Reload = config.ReloadConfig{
-		TestCommand:   cmds.TestCmd,
-		ReloadCommand: cmds.ReloadCmd,
+	if cmds.TestCmd != "" {
+		binding.Reload = config.ReloadConfig{
+			TestCommand:   cmds.TestCmd,
+			ReloadCommand: cmds.ReloadCmd,
+		}
 	}
 
 	return binding
