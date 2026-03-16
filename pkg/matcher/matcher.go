@@ -142,8 +142,7 @@ func MatchDomain(certDomain, targetDomain string) bool {
 	return false
 }
 
-// MatchSites 批量匹配站点
-// 返回分类后的匹配结果
+// SiteMatchResult 批量匹配站点的结果
 type SiteMatchResult struct {
 	Site      *ScannedSiteInfo     // 站点信息
 	Result    *config.MatchResult  // 匹配结果

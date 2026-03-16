@@ -378,3 +378,24 @@ func TestInstallSSLConfig_Apache(t *testing.T) {
 		t.Error("installSSLConfig() Modified 应为 true")
 	}
 }
+
+// TestBuildCertName 测试证书名称生成
+func TestBuildCertName(t *testing.T) {
+	tests := []struct {
+		domain  string
+		orderID int
+		want    string
+	}{
+		{"example.com", 12345, "example.com-12345"},
+		{"*.example.com", 99999, "WILDCARD.example.com-99999"},
+		{"sub.example.com", 1, "sub.example.com-1"},
+		{"*.sub.example.com", 100, "WILDCARD.sub.example.com-100"},
+	}
+
+	for _, tt := range tests {
+		got := buildCertName(tt.domain, tt.orderID)
+		if got != tt.want {
+			t.Errorf("buildCertName(%q, %d) = %q, want %q", tt.domain, tt.orderID, got, tt.want)
+		}
+	}
+}

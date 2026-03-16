@@ -26,7 +26,7 @@ type ConfigMetadata struct {
 
 // CertConfig 证书配置
 type CertConfig struct {
-	CertName  string        `json:"cert_name"`            // 证书名称（如 order-12345）
+	CertName  string        `json:"cert_name"`            // 证书名称（如 example.com-12345）
 	OrderID   int           `json:"order_id"`             // 订单 ID
 	Enabled   bool          `json:"enabled"`              // 是否启用
 	Domains   []string      `json:"domains"`              // 证书域名列表

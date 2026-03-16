@@ -69,9 +69,6 @@ test_deploy_single() {
 
     log_step "运行 $test_id: $test_name"
 
-    # 使用 setup 命令创建的证书名称（格式: order-{ORDER_ID}）
-    local cert_name="order-${ORDER_ID:-1001}"
-
     # 检查配置是否存在
     if ! docker exec "$CONTAINER" test -f /opt/sslctl/config.json 2>/dev/null; then
         log_warn "配置文件不存在，跳过测试（请先运行 setup 测试）"
@@ -79,10 +76,12 @@ test_deploy_single() {
         return 0
     fi
 
-    # 检查证书配置是否存在
-    if ! docker exec "$CONTAINER" grep -q "\"cert_name\":.*\"$cert_name\"" /opt/sslctl/config.json 2>/dev/null; then
-        log_warn "证书 $cert_name 不存在于配置中，跳过测试"
-        record_test "$test_id" "$test_name" "pass" "证书配置不存在，跳过"
+    # 从配置文件中动态提取 cert_name（格式: {domain}-{orderID}）
+    local cert_name
+    cert_name=$(docker exec "$CONTAINER" grep -o '"cert_name":"[^"]*"' /opt/sslctl/config.json 2>/dev/null | head -1 | sed 's/"cert_name":"//;s/"//')
+    if [ -z "$cert_name" ]; then
+        log_warn "无法从配置中提取 cert_name，跳过测试"
+        record_test "$test_id" "$test_name" "pass" "cert_name 提取失败，跳过"
         return 0
     fi
 

@@ -17,23 +17,21 @@ type ScanResult struct {
 
 // ScannedSite 扫描到的站点
 type ScannedSite struct {
-	Name string `json:"name"` // 显示名称（容器名或本地）
-
 	// 来源信息
 	Source         string `json:"source"`                    // local | docker
 	ContainerID    string `json:"container_id,omitempty"`    // Docker 容器 ID
 	ContainerName  string `json:"container_name,omitempty"`  // Docker 容器名
 	ComposeService string `json:"compose_service,omitempty"` // Compose 服务名
 
-	// 配置信息
-	ConfigFile  string   `json:"config_file"`            // 配置文件路径
+	// 站点信息
 	ServerName  string   `json:"server_name"`            // 主域名，可能为 _
 	ServerAlias []string `json:"server_alias,omitempty"` // 域名别名
 	ListenPorts []string `json:"listen_ports"`           // 监听端口
 	Webroot     string   `json:"webroot,omitempty"`      // Web 根目录
 
-	// 证书路径（容器内路径或本地路径）
-	CertificatePath string `json:"certificate_path"`            // 证书路径
+	// 配置和证书路径
+	ConfigFile      string `json:"config_file"`                  // 配置文件路径
+	CertificatePath string `json:"certificate_path"`             // 证书路径
 	PrivateKeyPath  string `json:"private_key_path"`             // 私钥路径
 	ChainFilePath   string `json:"chain_file_path,omitempty"`    // 证书链路径（Apache SSLCertificateChainFile）
 

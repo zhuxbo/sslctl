@@ -89,7 +89,7 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 		},
 		Certificates: []CertConfig{
 			{
-				CertName: "order-12345",
+				CertName: "example.com-12345",
 				OrderID:  12345,
 				Enabled:  true,
 				Domains:  []string{"example.com", "*.example.com"},
@@ -122,8 +122,8 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 		t.Fatalf("loaded Certificates length = %d, want 1", len(loaded.Certificates))
 	}
 
-	if loaded.Certificates[0].CertName != "order-12345" {
-		t.Errorf("loaded CertName = %s, want order-12345", loaded.Certificates[0].CertName)
+	if loaded.Certificates[0].CertName != "example.com-12345" {
+		t.Errorf("loaded CertName = %s, want example.com-12345", loaded.Certificates[0].CertName)
 	}
 
 	if loaded.Certificates[0].API.URL != "https://api.example.com" {

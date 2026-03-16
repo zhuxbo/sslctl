@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -522,8 +523,10 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 		return
 	}
 
-	// 创建证书配置
-	certName := "order-" + string(rune('0'+certData.OrderID%10))
+	// 创建证书配置（cert_name 格式: {domain}-{orderID}）
+	domains := strings.Split(certData.Domains, ",")
+	domain := strings.TrimSpace(domains[0])
+	certName := strings.Replace(domain, "*.", "WILDCARD.", 1) + "-" + strconv.Itoa(certData.OrderID)
 	siteCertsDir := filepath.Join(tmpDir, "certs", certName)
 
 	cert := &config.CertConfig{

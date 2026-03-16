@@ -38,12 +38,11 @@ func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult,
 				continue
 			}
 			result.Sites = append(result.Sites, ScannedSite{
-				Name:            site.ServerName,
 				Source:          "local",
-				ConfigFile:      site.ConfigFile,
 				ServerName:      site.ServerName,
 				ServerAlias:     site.ServerAlias,
 				ListenPorts:     site.ListenPorts,
+				ConfigFile:      site.ConfigFile,
 				CertificatePath: site.CertificatePath,
 				PrivateKeyPath:  site.PrivateKeyPath,
 				ChainFilePath:   site.ChainFile,
@@ -62,14 +61,13 @@ func (s *Service) ScanSites(ctx context.Context, opts ScanOptions) (*ScanResult,
 	}
 	for i, site := range result.Sites {
 		configResult.Sites[i] = config.ScannedSite{
-			Name:            site.Name,
 			Source:          site.Source,
 			ContainerID:     site.ContainerID,
 			ContainerName:   site.ContainerName,
-			ConfigFile:      site.ConfigFile,
 			ServerName:      site.ServerName,
 			ServerAlias:     site.ServerAlias,
 			ListenPorts:     site.ListenPorts,
+			ConfigFile:      site.ConfigFile,
 			CertificatePath: site.CertificatePath,
 			PrivateKeyPath:  site.PrivateKeyPath,
 			ChainFilePath:   site.ChainFilePath,

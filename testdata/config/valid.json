@@ -10,7 +10,7 @@
   },
   "certificates": [
     {
-      "cert_name": "order-12345",
+      "cert_name": "example.com-12345",
       "order_id": 12345,
       "enabled": true,
       "domains": ["example.com", "*.example.com"],

@@ -37,7 +37,6 @@ func TestScanResult_Basic(t *testing.T) {
 		Environment: "local",
 		Sites: []ScannedSite{
 			{
-				Name:        "Example Site",
 				Source:      "local",
 				ServerName:  "example.com",
 				ServerAlias: []string{"www.example.com"},
@@ -58,7 +57,6 @@ func TestScanResult_Basic(t *testing.T) {
 // TestScannedSite_LocalSite 测试本地站点扫描结构
 func TestScannedSite_LocalSite(t *testing.T) {
 	site := ScannedSite{
-		Name:            "Test Site",
 		Source:          "local",
 		ConfigFile:      "/etc/nginx/sites-enabled/test.conf",
 		ServerName:      "test.example.com",
@@ -80,7 +78,6 @@ func TestScannedSite_LocalSite(t *testing.T) {
 // TestScannedSite_DockerSite 测试 Docker 站点扫描结构
 func TestScannedSite_DockerSite(t *testing.T) {
 	site := ScannedSite{
-		Name:          "Docker Nginx Site",
 		Source:        "docker",
 		ContainerID:   "abc123def456",
 		ContainerName: "nginx-container",
@@ -167,7 +164,6 @@ func TestConfigScanResultConversion(t *testing.T) {
 		Environment: "local",
 		Sites: []ScannedSite{
 			{
-				Name:            "Test",
 				Source:          "local",
 				ConfigFile:      "/etc/nginx/test.conf",
 				ServerName:      "test.com",
@@ -188,7 +184,6 @@ func TestConfigScanResultConversion(t *testing.T) {
 
 	for i, site := range certopsResult.Sites {
 		configResult.Sites[i] = config.ScannedSite{
-			Name:            site.Name,
 			Source:          site.Source,
 			ConfigFile:      site.ConfigFile,
 			ServerName:      site.ServerName,

@@ -50,7 +50,6 @@ func TestScanResult(t *testing.T) {
 // TestScannedSite 测试扫描站点结构
 func TestScannedSite(t *testing.T) {
 	site := ScannedSite{
-		Name:            "Example",
 		Source:          "docker",
 		ContainerID:     "abc123",
 		ContainerName:   "nginx-container",

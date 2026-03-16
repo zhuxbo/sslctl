@@ -154,7 +154,7 @@ func runBatch(p *setupParams, query string) {
 			continue
 		}
 
-		fmt.Printf("\n  证书 order-%d (%s):\n", plan.CertData.OrderID, strings.Join(plan.CertDomains, ", "))
+		fmt.Printf("\n  证书 %s:\n", buildCertName(plan.CertDomains[0], plan.CertData.OrderID))
 
 		// 获取私钥
 		privateKey, err := getAndValidatePrivateKey(plan.Bindings, plan.CertData, certValidator)
@@ -206,7 +206,7 @@ func runBatch(p *setupParams, query string) {
 		}
 
 		certConfig := &config.CertConfig{
-			CertName: fmt.Sprintf("order-%d", plan.CertData.OrderID),
+			CertName: buildCertName(plan.CertDomains[0], plan.CertData.OrderID),
 			OrderID:  plan.CertData.OrderID,
 			Enabled:  true,
 			Domains:  plan.CertDomains,
@@ -225,10 +225,10 @@ func runBatch(p *setupParams, query string) {
 		}
 
 		if err := p.cfgManager.AddCert(certConfig); err != nil {
-			fmt.Fprintf(os.Stderr, "  保存 order-%d 失败: %v\n", plan.CertData.OrderID, err)
+			fmt.Fprintf(os.Stderr, "  保存 %s 失败: %v\n", certConfig.CertName, err)
 			continue
 		}
-		fmt.Printf("  ✓ order-%d 配置已保存\n", plan.CertData.OrderID)
+		fmt.Printf("  ✓ %s 配置已保存\n", certConfig.CertName)
 	}
 
 	// 8/8: 安装守护服务
@@ -306,8 +306,9 @@ func resolveSiteConflicts(plans []*certDeployPlan, sites []*matcher.ScannedSiteI
 		siteAssignment[siteName] = best.planIndex
 
 		if len(candidates) > 1 {
-			fmt.Printf("  站点 %s 有 %d 个证书匹配，选择 order-%d\n",
-				siteName, len(candidates), plans[best.planIndex].CertData.OrderID)
+			bestPlan := plans[best.planIndex]
+			fmt.Printf("  站点 %s 有 %d 个证书匹配，选择 %s\n",
+				siteName, len(candidates), buildCertName(bestPlan.CertDomains[0], bestPlan.CertData.OrderID))
 		}
 	}
 
@@ -357,7 +358,7 @@ func printDeployPlan(plans []*certDeployPlan) {
 		if len(plan.Bindings) == 0 {
 			continue
 		}
-		fmt.Printf("\n  证书 order-%d (%s):\n", plan.CertData.OrderID, strings.Join(plan.CertDomains, ", "))
+		fmt.Printf("\n  证书 %s:\n", buildCertName(plan.CertDomains[0], plan.CertData.OrderID))
 		for _, b := range plan.Bindings {
 			sslTag := ""
 			if !fileExists(b.Paths.Certificate) {

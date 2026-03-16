@@ -258,7 +258,7 @@ func runSingle(p *setupParams, orderID int) {
 
 	// 5. 部署证书
 	fmt.Println("\n步骤 5/7: 部署证书...")
-	certName := fmt.Sprintf("order-%d", orderID)
+	certName := buildCertName(certDomains[0], orderID)
 
 	// 创建证书配置（API 配置写入证书级别）
 	certConfig := &config.CertConfig{
@@ -638,4 +638,11 @@ func confirm(prompt string) bool {
 	}
 	response = strings.ToLower(strings.TrimSpace(response))
 	return response != "n" && response != "no"
+}
+
+// buildCertName 根据域名和订单ID生成证书名称
+// 通配符 *.example.com → WILDCARD.example.com-12345
+func buildCertName(domain string, orderID int) string {
+	name := strings.Replace(domain, "*.", "WILDCARD.", 1)
+	return fmt.Sprintf("%s-%d", name, orderID)
 }
