@@ -266,13 +266,6 @@ func runBatch(p *setupParams, query string) {
 // resolveSiteConflicts 为每个证书匹配站点，解决多证书匹配同一站点的冲突
 func resolveSiteConflicts(plans []*certDeployPlan, sites []*matcher.ScannedSiteInfo, cm *config.ConfigManager) {
 	// 第一步：每个证书独立匹配所有站点
-	type matchInfo struct {
-		planIndex int
-		site      *matcher.ScannedSiteInfo
-		matchType config.MatchType
-		matched   int // 匹配域名数
-	}
-
 	// 站点 → 所有候选
 	candidateMap := make(map[string][]siteCandidate)
 
