@@ -282,8 +282,72 @@ fi
 # 解压并安装
 echo_info "安装中..."
 gunzip -f "/tmp/$FILENAME"
-mv "/tmp/sslctl-${OS}-${ARCH}" /usr/local/bin/sslctl
-chmod +x /usr/local/bin/sslctl
+
+BINARY_SRC="/tmp/sslctl-${OS}-${ARCH}"
+BINARY_DST="/usr/local/bin/sslctl"
+
+if ! mv "$BINARY_SRC" "$BINARY_DST" 2>/dev/null; then
+    echo_error "无法安装到 $BINARY_DST，正在诊断原因..."
+
+    # 检查目录写权限
+    DST_DIR=$(dirname "$BINARY_DST")
+    if [ ! -w "$DST_DIR" ]; then
+        echo_error "原因: 目录 $DST_DIR 没有写权限"
+        echo_error "当前权限: $(ls -ld "$DST_DIR" 2>/dev/null)"
+        echo_error "提示: 宝塔面板「系统加固」或其他安全软件可能修改了系统目录权限"
+        echo_error "修复: chmod 755 $DST_DIR && 重新运行安装脚本，并将 $BINARY_DST 加入工具白名单"
+        rm -f "$BINARY_SRC"
+        exit 1
+    fi
+
+    # 检查 immutable 属性
+    if [ -f "$BINARY_DST" ] && command -v lsattr >/dev/null 2>&1; then
+        ATTRS=$(lsattr "$BINARY_DST" 2>/dev/null || true)
+        if echo "$ATTRS" | grep -q -- '----i'; then
+            echo_error "原因: 文件有 immutable (不可变) 属性"
+            echo_error "提示: 可能由防篡改工具或安全加固软件设置"
+            echo_error "修复: chattr -i $BINARY_DST && 重新运行安装脚本，并将 $BINARY_DST 加入工具白名单"
+            rm -f "$BINARY_SRC"
+            exit 1
+        fi
+    fi
+
+    # 检查 SELinux
+    if command -v getenforce >/dev/null 2>&1; then
+        SE_STATUS=$(getenforce 2>/dev/null || true)
+        if [ "$SE_STATUS" = "Enforcing" ]; then
+            echo_error "原因: SELinux 处于 Enforcing 模式，可能阻止了文件写入"
+            # 尝试输出最近的拒绝记录
+            if command -v ausearch >/dev/null 2>&1; then
+                DENIED=$(ausearch -m avc -ts recent 2>/dev/null | grep "$BINARY_DST" | tail -3)
+                [ -n "$DENIED" ] && echo_error "SELinux 拒绝记录:\n$DENIED"
+            fi
+            echo_error "修复: setenforce 0 (临时关闭) 然后重新安装，或调整 SELinux 策略"
+            rm -f "$BINARY_SRC"
+            exit 1
+        fi
+    fi
+
+    # 检查文件系统是否只读
+    if mount 2>/dev/null | grep -E ' /usr/local | /usr ' | grep -q '\bro\b'; then
+        echo_error "原因: 文件系统以只读方式挂载"
+        echo_error "修复: mount -o remount,rw /usr/local (或对应的挂载点)"
+        rm -f "$BINARY_SRC"
+        exit 1
+    fi
+
+    # 通用诊断信息
+    echo_error "无法确定具体原因，以下信息可能有帮助:"
+    [ -f "$BINARY_DST" ] && echo_error "已有文件: $(ls -la "$BINARY_DST" 2>/dev/null)"
+    echo_error "目标目录: $(ls -ld /usr/local/bin/ 2>/dev/null)"
+    echo_error "当前用户: $(id)"
+    echo_error "提示: 如使用安全防护工具，请将 $BINARY_DST 加入工具白名单后重试"
+    echo_error "建议: 手动执行 mv $BINARY_SRC $BINARY_DST 查看详细错误"
+    rm -f "$BINARY_SRC"
+    exit 1
+fi
+
+chmod +x "$BINARY_DST"
 
 # 创建工作目录
 mkdir -p /opt/sslctl/{logs,backup,certs}
