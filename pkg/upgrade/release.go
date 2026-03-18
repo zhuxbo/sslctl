@@ -32,7 +32,7 @@ type ReleaseInfo struct {
 func FetchReleaseInfo(baseURL string) (*ReleaseInfo, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		return nil, fmt.Errorf("未配置升级地址，请重新安装或在配置文件中设置 release_url")
+		return nil, fmt.Errorf("未配置升级地址，请运行 sslctl upgrade 在交互终端中输入，或使用安装脚本升级")
 	}
 	// 安全校验：强制 HTTPS（与 downloadBinaryWithClient 保持一致）
 	if !strings.HasPrefix(baseURL, "https://") {

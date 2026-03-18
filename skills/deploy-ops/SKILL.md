@@ -5,11 +5,13 @@
 ### 一键安装
 
 ```bash
-# Linux
-curl -fsSL https://example.com/install.sh | sudo bash
+# Linux（参数传域名，脚本自动拼接 https://<host>/sslctl）
+curl -fsSL https://example.com/sslctl/install.sh | sudo bash -s -- example.com
 
 # Windows (PowerShell)
-irm https://example.com/install.ps1 | iex
+.\install.ps1 -ReleaseHost example.com
+# 管道模式
+$env:SSLCTL_RELEASE_URL="https://example.com/sslctl"; irm https://example.com/sslctl/install.ps1 | iex
 ```
 
 ### 手动安装

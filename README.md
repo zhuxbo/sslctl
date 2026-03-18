@@ -5,29 +5,32 @@ SSL 证书部署工具，支持 Nginx、Apache，支持 Docker 容器。
 ## 安装
 
 ```bash
-# 安装最新稳定版
-curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash
+# 安装最新稳定版（参数传域名，脚本自动拼接 https://<host>/sslctl）
+curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- release.example.com
 
 # 安装测试版
-curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- --dev
+curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- release.example.com --dev
 
 # 安装指定版本
-curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- --version 1.0.0
+curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- release.example.com --version 1.0.0
 
 # 强制重新安装
-curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- --force
+curl -fsSL https://release.example.com/sslctl/install.sh | sudo bash -s -- release.example.com --force
 ```
 
 Windows (PowerShell 管理员):
 
 ```powershell
 # 安装最新稳定版
-irm https://release.example.com/sslctl/install.ps1 | iex
+.\install.ps1 -ReleaseHost release.example.com
+
+# 管道模式（通过环境变量指定）
+$env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://release.example.com/sslctl/install.ps1 | iex
 
 # 直接执行支持参数
-.\install.ps1 -Dev                     # 安装测试版
-.\install.ps1 -Version 1.0.0           # 安装指定版本
-.\install.ps1 -Force                   # 强制重新安装
+.\install.ps1 -ReleaseHost release.example.com -Dev           # 安装测试版
+.\install.ps1 -ReleaseHost release.example.com -Version 1.0.0 # 安装指定版本
+.\install.ps1 -ReleaseHost release.example.com -Force         # 强制重新安装
 ```
 
 > **服务端部署注意**：`irm | iex` 管道模式要求服务端返回 `Content-Type: text/plain; charset=utf-8`，否则 PowerShell 5.1 会因编码错误导致中文乱码。nginx 配置示例：
@@ -175,6 +178,7 @@ sslctl --debug deploy --site example.com
 
 | 变量 | 说明 |
 |------|------|
+| `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://） |
 | `SSLCTL_API_TOKEN` | API Token（覆盖所有证书的 API 配置） |
 | `SSLCTL_API_URL` | API URL（覆盖所有证书的 API 配置） |
 | `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 |
