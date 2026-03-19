@@ -34,6 +34,7 @@ $env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://releas
 ```
 
 > **服务端部署注意**：`irm | iex` 管道模式要求服务端返回 `Content-Type: text/plain; charset=utf-8`，否则 PowerShell 5.1 会因编码错误导致中文乱码。nginx 配置示例：
+>
 > ```nginx
 > location ~ \.ps1$ {
 >     types { text/plain ps1; }
@@ -52,6 +53,7 @@ sslctl setup --url https://api.example.com --token your-token --order 12345
 ```
 
 自动完成：
+
 1. 检测 Web 服务器（Nginx/Apache）
 2. 获取证书信息并匹配站点
 3. 为未启用 SSL 的站点安装 HTTPS 配置（需确认，备份原配置，失败自动回滚）
@@ -59,6 +61,7 @@ sslctl setup --url https://api.example.com --token your-token --order 12345
 5. 安装守护服务（自动续签）
 
 选项：
+
 - `--local-key`: 使用本机提交
 - `--yes`: 跳过确认提示
 - `--no-service`: 不安装守护服务
@@ -81,6 +84,7 @@ sslctl deploy local --cert cert.pem --key key.pem --ca chain.pem --site apache-s
 ```
 
 选项：
+
 - `--cert`: 证书文件路径（必需）
 - `--key`: 私钥文件路径（必需）
 - `--ca`: CA 证书链文件路径（Apache 配置了证书链路径时必需）
@@ -115,12 +119,12 @@ sslctl uninstall --purge                             # 卸载并清理配置
 
 ## 平台支持
 
-| 平台 | Nginx | Apache | 服务管理 |
-|------|-------|--------|----------|
-| Linux (systemd) | ✅ | ✅ | systemd |
-| Linux (OpenRC) | ✅ | ✅ | OpenRC |
-| Linux (SysVinit) | ✅ | ✅ | SysVinit |
-| Windows | ✅ | ✅ | Windows Service |
+| 平台             | Nginx | Apache | 服务管理        |
+| ---------------- | ----- | ------ | --------------- |
+| Linux (systemd)  | ✅    | ✅     | systemd         |
+| Linux (OpenRC)   | ✅    | ✅     | OpenRC          |
+| Linux (SysVinit) | ✅    | ✅     | SysVinit        |
+| Windows          | ✅    | ✅     | Windows Service |
 
 CI 覆盖 linux/amd64、linux/arm64、windows/amd64 三平台交叉编译验证。
 
@@ -176,14 +180,15 @@ sslctl --debug deploy --site example.com
 
 ## 环境变量
 
-| 变量 | 说明 |
-|------|------|
+| 变量                 | 说明                                              |
+| -------------------- | ------------------------------------------------- |
 | `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://） |
-| `SSLCTL_API_TOKEN` | API Token（覆盖所有证书的 API 配置） |
-| `SSLCTL_API_URL` | API URL（覆盖所有证书的 API 配置） |
-| `SSLCTL_LOG_FORMAT` | 日志格式：`json` 启用 JSON 输出 |
+| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）              |
+| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）                |
+| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出                   |
 
 使用示例：
+
 ```bash
 export SSLCTL_API_TOKEN="your-secret-token"
 sslctl status
@@ -232,11 +237,11 @@ sslctl status
 
 ### schedule 字段说明
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `check_interval_hours` | int | 6 | 守护进程检查间隔（小时），0 使用默认值 |
-| `renew_before_days` | int | pull:13, local:15 | 提前续期天数，0 使用默认值 |
-| `renew_mode` | string | `pull` | 全局续签模式，证书级别可覆盖 |
+| 字段                   | 类型   | 默认值            | 说明                                   |
+| ---------------------- | ------ | ----------------- | -------------------------------------- |
+| `check_interval_hours` | int    | 6                 | 守护进程检查间隔（小时），0 使用默认值 |
+| `renew_before_days`    | int    | pull:13, local:15 | 提前续期天数，0 使用默认值             |
+| `renew_mode`           | string | `pull`            | 全局续签模式，证书级别可覆盖           |
 
 ### config.json.lock
 
@@ -246,22 +251,22 @@ sslctl status
 
 服务端在证书到期前 **14 天**自动续签，本地需配合选择续签模式：
 
-| 模式 | 说明 | 时间限制 | 默认值 |
-|------|------|----------|--------|
-| `local` | 本机提交，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
-| `pull` | 自动签发，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
+| 模式    | 说明                             | 时间限制                  | 默认值 |
+| ------- | -------------------------------- | ------------------------- | ------ |
+| `local` | 本机提交，本地生成私钥和 CSR     | `renew_before_days >= 15` | 15 天  |
+| `pull`  | 自动签发，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天  |
 
 - **本机提交**：在服务端自动续签之前发起，由本地控制私钥。通过 POST 部署接口提交本地生成的 CSR
 - **自动签发**：等待服务端完成自动续签后拉取证书。查询已签发的证书直接部署
 
 ## API 接口
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/deploy?order_id=xxx` | 按订单 ID 查询（推荐） |
-| GET | `/api/deploy?domain=xxx` | 按域名查询（首次获取 order_id） |
-| POST | `/api/deploy` | 更新/续费证书（需要 order_id） |
-| POST | `/api/deploy/callback` | 部署结果回调 |
+| 方法 | 路径                       | 说明                            |
+| ---- | -------------------------- | ------------------------------- |
+| GET  | `/api/deploy?order_id=xxx` | 按订单 ID 查询（推荐）          |
+| GET  | `/api/deploy?domain=xxx`   | 按域名查询（首次获取 order_id） |
+| POST | `/api/deploy`              | 更新/续费证书（需要 order_id）  |
+| POST | `/api/deploy/callback`     | 部署结果回调                    |
 
 认证方式：`Authorization: Bearer {deploy_token}`
 
@@ -322,11 +327,13 @@ bash docker/test/scripts/run-e2e-tests.sh --distro ubuntu --server nginx
 测试报告输出到 `docker/test/reports/test-report.md`。
 
 **发行版服务管理测试**覆盖 5 种发行版 × 3 种 init 系统：
+
 - systemd: Ubuntu 22.04, Debian 12, AlmaLinux 9
 - OpenRC: Alpine 3.19
 - SysVinit: Devuan 5
 
 **E2E 测试**覆盖 4 种发行版 × 2 种服务器：
+
 - Ubuntu, Debian, Alpine, Rocky × Nginx, Apache
 
 ## License

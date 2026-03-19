@@ -84,12 +84,12 @@ sslctl uninstall                                 # 卸载
 
 ## 环境变量
 
-| 变量                      | 说明                             |
-|---------------------------|----------------------------------|
-| `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://）|
-| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）  |
-| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）    |
-| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出  |
+| 变量                 | 说明                                              |
+| -------------------- | ------------------------------------------------- |
+| `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://） |
+| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）              |
+| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）                |
+| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出                   |
 
 ## 测试
 
@@ -128,10 +128,10 @@ docker/test/
 
 ## 续签模式
 
-| 模式    | 说明           | 启用方式                 |
-|---------|----------------|--------------------------|
-| `local` | 本机提交   | `--local-key` 或配置文件 |
-| `pull`  | 自动签发（默认）| 默认行为                 |
+| 模式    | 说明             | 启用方式                 |
+| ------- | ---------------- | ------------------------ |
+| `local` | 本机提交         | `--local-key` 或配置文件 |
+| `pull`  | 自动签发（默认） | 默认行为                 |
 
 详见 `skills/deploy-ops/SKILL.md`
 
