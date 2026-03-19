@@ -145,7 +145,7 @@ func (c *CertConfig) GetRenewMode(schedule *ScheduleConfig) string {
 func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 	days := c.DaysUntilExpiry()
 	mode := c.GetRenewMode(schedule)
-	// 本地私钥模式：避免与服务端自动续签冲突
+	// 本机提交：避免与服务端自动续签冲突
 	if mode == RenewModeLocal {
 		localRenewDays := schedule.RenewBeforeDays
 		// 本地模式必须 > 14，否则使用默认值 15

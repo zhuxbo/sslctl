@@ -666,7 +666,7 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 	}
 }
 
-// TestCertConfig_NeedsRenewal_LocalMode 测试本地私钥模式的续签判断
+// TestCertConfig_NeedsRenewal_LocalMode 测试本机提交的续签判断
 func TestCertConfig_NeedsRenewal_LocalMode(t *testing.T) {
 	tests := []struct {
 		name           string

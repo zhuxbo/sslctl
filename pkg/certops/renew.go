@@ -149,7 +149,7 @@ func getRenewMode(schedule *config.ScheduleConfig) string {
 	return mode
 }
 
-// preparePullRenew 拉取模式：等待服务端续签完成后拉取证书
+// preparePullRenew 自动签发：等待服务端续签完成后拉取证书
 func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
 	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
@@ -172,7 +172,7 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	return certData, privateKey, nil
 }
 
-// prepareLocalRenew 本地私钥模式：生成 CSR 并通过 API 触发续签
+// prepareLocalRenew 本机提交：生成 CSR 并通过 API 触发续签
 func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
 	// 自动重置过期的重试计数（CSR 提交超过 7 天则重置）
 	if cert.Metadata.IssueRetryCount > 0 && !cert.Metadata.CSRSubmittedAt.IsZero() &&

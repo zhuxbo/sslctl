@@ -65,8 +65,8 @@ type ValidationConfig struct {
 
 // RenewMode 续签模式常量
 const (
-	RenewModeLocal = "local" // 本地私钥模式：本地生成私钥和 CSR，发起签发
-	RenewModePull  = "pull"  // 拉取模式：从服务端拉取已签发的证书
+	RenewModeLocal = "local" // 本机提交：本地生成私钥和 CSR，发起签发
+	RenewModePull  = "pull"  // 自动签发：从服务端拉取已签发的证书
 )
 
 // ValidationMethod 验证方法常量
@@ -102,8 +102,8 @@ func ValidateValidationMethod(domain string, method string) string {
 // 续签时间限制常量
 const (
 	ServerAutoRenewDays  = 14 // 服务端自动续签天数（到期前 14 天）
-	LocalRenewDefaultDay = 15 // 本地私钥模式默认值
-	PullRenewDefaultDay  = 13 // 拉取模式默认值
+	LocalRenewDefaultDay = 15 // 本机提交默认值
+	PullRenewDefaultDay  = 13 // 自动签发默认值
 )
 
 // 定时任务常量
@@ -134,7 +134,7 @@ type ScheduleConfig struct {
 func ValidateSchedule(schedule *ScheduleConfig) error {
 	mode := schedule.RenewMode
 	if mode == "" {
-		mode = RenewModePull // 默认拉取模式
+		mode = RenewModePull // 默认自动签发
 	}
 
 	// 如果 RenewBeforeDays 为 0，使用默认值，跳过验证
@@ -144,18 +144,18 @@ func ValidateSchedule(schedule *ScheduleConfig) error {
 
 	switch mode {
 	case RenewModeLocal:
-		// 本地私钥模式：RenewBeforeDays 必须 > 14
+		// 本机提交：RenewBeforeDays 必须 > 14
 		if schedule.RenewBeforeDays <= ServerAutoRenewDays {
 			return errors.NewConfigError(
-				"本地私钥模式(local)的 renew_before_days 必须 > 14（服务端在到期前 14 天自动续签）",
+				"本机提交(local)的 renew_before_days 必须 > 14（服务端在到期前 14 天自动续签）",
 				nil,
 			)
 		}
 	case RenewModePull:
-		// 拉取模式：RenewBeforeDays 必须 < 14
+		// 自动签发：RenewBeforeDays 必须 < 14
 		if schedule.RenewBeforeDays >= ServerAutoRenewDays {
 			return errors.NewConfigError(
-				"拉取模式(pull)的 renew_before_days 必须 < 14（等待服务端在到期前 14 天完成续签）",
+				"自动签发(pull)的 renew_before_days 必须 < 14（等待服务端在到期前 14 天完成续签）",
 				nil,
 			)
 		}

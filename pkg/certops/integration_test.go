@@ -726,7 +726,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 	}
 }
 
-// TestIntegration_PreparePullRenew 测试拉取模式续签
+// TestIntegration_PreparePullRenew 测试自动签发续签
 func TestIntegration_PreparePullRenew(t *testing.T) {
 	apiURL, token := getTestAPIConfig(t)
 
@@ -881,7 +881,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 
 	// API 配置在证书级别设置
 
-	// 设置本地私钥模式
+	// 设置本机提交
 	cfg, _ := cm.Load()
 	cfg.Schedule = config.ScheduleConfig{
 		RenewMode:          config.RenewModeLocal,

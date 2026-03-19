@@ -288,7 +288,7 @@ sslctl                    Manager API                    CA
 - **systemd 安全加固**：NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单
 - **日志轮转**：自动清理旧日志文件（保留 30 天/10 个）
 - **重试限制**：CSR 签发重试次数上限（10 次）
-- **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换
+- **私钥保护**：本机提交下，新私钥先保存到临时位置，签发成功后再替换
 - **环境变量**：支持通过环境变量配置敏感信息（优先级高于配置文件）
 
 ---
@@ -374,8 +374,8 @@ sslctl                    Manager API                    CA
 
 | 模式 | 说明 | 时间限制 | 默认值 |
 |------|------|----------|--------|
-| `local` | 本地私钥模式，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
-| `pull` | 拉取模式，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
+| `local` | 本机提交，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
+| `pull` | 自动签发，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
 
 ### 配置级别
 
@@ -388,7 +388,7 @@ sslctl                    Manager API                    CA
 ### 命令行启用
 
 ```bash
-# 一键部署时启用本地私钥模式
+# 一键部署时启用本机提交
 sslctl setup --url <url> --token <token> --order <id> --local-key
 ```
 
@@ -403,7 +403,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 }
 ```
 
-### 本地私钥模式流程
+### 本机提交流程
 
 ```
 定时任务 → NeedsRenewal() == true
@@ -421,7 +421,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 
 关键方法：`issuer.CheckAndIssue()`
 
-### 拉取模式流程
+### 自动签发流程
 
 ```
 定时任务 → NeedsRenewal() == true
@@ -444,7 +444,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 
 1. **两种模式都保存 order_id** - 用于后续查询和重签
 2. **通过 order_id 查询** - 优先使用 `QueryOrder(order_id)`
-3. **本地私钥模式 POST 带 order_id** - `Update(order_id, csr)` 用于重签/续费
+3. **本机提交 POST 带 order_id** - `Update(order_id, csr)` 用于重签/续费
 4. **首次部署用域名查询** - `Query(domain)` 获取初始 order_id
 
 ### 验证方法校验
