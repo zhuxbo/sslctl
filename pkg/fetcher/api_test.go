@@ -24,15 +24,22 @@ type mockResponse struct {
 func mockCertData() map[string]interface{} {
 	return map[string]interface{}{
 		"order_id":       12345,
-		"status":         "issued",
-		"common_name":    "example.com",
-		"domain":         "example.com",
+		"status":         "active",
 		"domains":        "example.com,*.example.com",
 		"certificate":    "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
 		"ca_certificate": "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----",
 		"private_key":    "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----",
-		"expires_at":     "2025-12-31T23:59:59Z",
-		"created_at":     "2024-01-01T00:00:00Z",
+		"issued_at":      "2024-01-01",
+		"expires_at":     "2025-12-31",
+	}
+}
+
+func mockPaginatedData(certData ...map[string]interface{}) map[string]interface{} {
+	return map[string]interface{}{
+		"total":       len(certData),
+		"currentPage": 1,
+		"pageSize":    100,
+		"data":        certData,
 	}
 }
 
@@ -97,8 +104,8 @@ func TestInfo(t *testing.T) {
 		t.Errorf("OrderID = %d, want 12345", data.OrderID)
 	}
 
-	if data.CommonName != "example.com" {
-		t.Errorf("CommonName = %s, want example.com", data.CommonName)
+	if data.Domains != "example.com,*.example.com" {
+		t.Errorf("Domains = %s, want example.com,*.example.com", data.Domains)
 	}
 }
 
@@ -145,15 +152,15 @@ func TestInfo_HTTPError(t *testing.T) {
 // TestQuery 测试按域名查询
 func TestQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 验证 domain 参数
-		domain := r.URL.Query().Get("domain")
-		if domain != "test.example.com" {
-			t.Errorf("domain query param = %s, want test.example.com", domain)
+		// 验证 order 参数
+		order := r.URL.Query().Get("order")
+		if order != "test.example.com" {
+			t.Errorf("order query param = %s, want test.example.com", order)
 		}
 
 		resp := mockResponse{
 			Code: 1,
-			Data: mockCertData(),
+			Data: mockPaginatedData(mockCertData()),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -175,15 +182,15 @@ func TestQuery(t *testing.T) {
 // TestQueryOrder 测试按订单 ID 查询
 func TestQueryOrder(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 验证 order_id 参数
-		orderID := r.URL.Query().Get("order_id")
+		// 验证 order 参数
+		orderID := r.URL.Query().Get("order")
 		if orderID != "12345" {
-			t.Errorf("order_id query param = %s, want 12345", orderID)
+			t.Errorf("order query param = %s, want 12345", orderID)
 		}
 
 		resp := mockResponse{
 			Code: 1,
-			Data: mockCertData(),
+			Data: mockPaginatedData(mockCertData()),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -318,7 +325,6 @@ func TestCallback(t *testing.T) {
 
 	req := &CallbackRequest{
 		OrderID:    12345,
-		Domain:     "example.com",
 		Status:     "success",
 		DeployedAt: "2024-01-01T00:00:00Z",
 	}
@@ -623,7 +629,7 @@ func TestQueryOrder_Retry(t *testing.T) {
 		// 第三次成功
 		resp := mockResponse{
 			Code: 1,
-			Data: mockCertData(),
+			Data: mockPaginatedData(mockCertData()),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -701,7 +707,7 @@ func TestQueryOrder_RetryBoundary(t *testing.T) {
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
-				resp := mockResponse{Code: 1, Data: mockCertData()}
+				resp := mockResponse{Code: 1, Data: mockPaginatedData(mockCertData())}
 				_ = json.NewEncoder(w).Encode(resp)
 			}))
 			defer server.Close()
@@ -897,15 +903,13 @@ func TestCertData_Fields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data := map[string]interface{}{
 			"order_id":       99999,
-			"status":         "issued",
-			"common_name":    "test.example.com",
-			"domain":         "test.example.com",
+			"status":         "active",
 			"domains":        "test.example.com,www.test.example.com",
 			"certificate":    "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
 			"ca_certificate": "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----",
 			"private_key":    "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----",
-			"expires_at":     "2025-06-30T23:59:59Z",
-			"created_at":     "2024-06-01T00:00:00Z",
+			"issued_at":      "2024-06-01",
+			"expires_at":     "2025-06-30",
 		}
 		resp := mockResponse{Code: 1, Data: data}
 		_ = json.NewEncoder(w).Encode(resp)
@@ -923,16 +927,16 @@ func TestCertData_Fields(t *testing.T) {
 	if data.OrderID != 99999 {
 		t.Errorf("OrderID = %d, want 99999", data.OrderID)
 	}
-	if data.Status != "issued" {
-		t.Errorf("Status = %s, want issued", data.Status)
-	}
-	if data.CommonName != "test.example.com" {
-		t.Errorf("CommonName = %s, want test.example.com", data.CommonName)
+	if data.Status != "active" {
+		t.Errorf("Status = %s, want active", data.Status)
 	}
 	if data.Domains != "test.example.com,www.test.example.com" {
 		t.Errorf("Domains = %s", data.Domains)
 	}
-	if data.ExpiresAt != "2025-06-30T23:59:59Z" {
+	if data.IssuedAt != "2024-06-01" {
+		t.Errorf("IssuedAt = %s", data.IssuedAt)
+	}
+	if data.ExpiresAt != "2025-06-30" {
 		t.Errorf("ExpiresAt = %s", data.ExpiresAt)
 	}
 }
@@ -955,7 +959,6 @@ func TestCallbackNew(t *testing.T) {
 
 	req := &CallbackRequest{
 		OrderID:    12345,
-		Domain:     "example.com",
 		Status:     "success",
 		DeployedAt: "2024-01-01T00:00:00Z",
 	}
@@ -1067,7 +1070,7 @@ func TestAPIResponse_ParsePaginatedData(t *testing.T) {
 // TestQueryBatch 测试批量查询
 func TestQueryBatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queryParam := r.URL.Query().Get("query")
+		queryParam := r.URL.Query().Get("order")
 		pageSize := r.URL.Query().Get("pageSize")
 
 		if pageSize != "100" {

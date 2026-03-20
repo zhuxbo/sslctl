@@ -123,17 +123,10 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 // sendRenewCallback 向 API 发送续签结果回调
 // 非关键路径，失败仅记录日志
 func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig, result *RenewResult) {
-	msg := ""
-	if result.Error != nil {
-		msg = result.Error.Error()
-	}
-
 	callbackReq := &fetcher.CallbackRequest{
 		OrderID:    cert.OrderID,
-		Domain:     strings.Join(cert.Domains, ","),
 		Status:     result.Status,
 		DeployedAt: time.Now().Format(time.RFC3339),
-		Message:    msg,
 	}
 
 	fillCertMetadata(callbackReq, cert)

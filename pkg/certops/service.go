@@ -50,14 +50,8 @@ func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *f
 	}
 }
 
-// fillCertMetadata 填充回调请求中的证书元数据
-func fillCertMetadata(req *fetcher.CallbackRequest, cert *config.CertConfig) {
-	if !cert.Metadata.CertExpiresAt.IsZero() {
-		req.CertExpiresAt = cert.Metadata.CertExpiresAt.Format(time.RFC3339)
-	}
-	if cert.Metadata.CertSerial != "" {
-		req.CertSerial = cert.Metadata.CertSerial
-	}
+// fillCertMetadata 填充回调请求中的证书元数据（预留扩展）
+func fillCertMetadata(_ *fetcher.CallbackRequest, _ *config.CertConfig) {
 }
 
 // CheckExpiry 检查证书过期时间并输出告警日志

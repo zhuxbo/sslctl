@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -116,29 +115,14 @@ func (s *Service) DeployAllCerts(ctx context.Context) ([]*DeployResult, error) {
 // 非关键路径，失败仅记录日志不影响部署结果
 func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult) {
 	status := "success"
-	msg := ""
 	if !result.Success {
 		status = "failure"
-		if result.Error != nil {
-			msg = result.Error.Error()
-		}
-	}
-
-	// 收集绑定的服务器类型
-	var serverTypes []string
-	for _, b := range cert.Bindings {
-		if b.Enabled && b.ServerType != "" {
-			serverTypes = append(serverTypes, b.ServerType)
-		}
 	}
 
 	callbackReq := &fetcher.CallbackRequest{
 		OrderID:    cert.OrderID,
-		Domain:     strings.Join(cert.Domains, ","),
 		Status:     status,
 		DeployedAt: time.Now().Format(time.RFC3339),
-		ServerType: strings.Join(serverTypes, ","),
-		Message:    msg,
 	}
 
 	fillCertMetadata(callbackReq, cert)
