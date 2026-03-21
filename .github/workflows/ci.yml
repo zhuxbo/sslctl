@@ -30,7 +30,7 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.out
+          files: ./coverage.out
           fail_ci_if_error: false
 
   lint:
@@ -48,7 +48,7 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=5m
