@@ -56,6 +56,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}
 	log.Info("检查间隔: %v", interval)
 
+	// 关闭超时
+	shutdownTimeout := time.Duration(cfg.Schedule.ShutdownTimeoutSeconds) * time.Second
+	if shutdownTimeout == 0 {
+		shutdownTimeout = time.Duration(config.DefaultShutdownTimeoutSeconds) * time.Second
+	}
+
 	// 创建证书服务
 	svc := certops.NewService(cfgManager, log)
 
@@ -102,8 +108,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			// 取消 context，通知正在运行的任务停止
 			cancel()
 
-			// 等待任务完成（最多等待 60 秒）
-			// TODO: 改为可配置的超时值，大量站点场景可能需要更长时间
+			// 等待任务完成
 			done := make(chan struct{})
 			go func() {
 				wg.Wait()
@@ -113,8 +118,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 			select {
 			case <-done:
 				log.Info("所有任务已完成，退出")
-			case <-time.After(60 * time.Second):
-				log.Warn("等待任务完成超时（60s），强制退出")
+			case <-time.After(shutdownTimeout):
+				log.Warn("等待任务完成超时（%v），强制退出", shutdownTimeout)
 			}
 			return
 		}

@@ -948,3 +948,94 @@ func TestParseConfigFile_MissingCertOrKey(t *testing.T) {
 		})
 	}
 }
+
+// TestScanConfigFile_DeepInclude 测试多层嵌套 Include 正确递归处理
+func TestScanConfigFile_DeepInclude(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建 3 层嵌套: main.conf → level1.conf → level2.conf
+	level2 := filepath.Join(tmpDir, "level2.conf")
+	_ = os.WriteFile(level2, []byte(`
+<VirtualHost *:443>
+    ServerName deep.example.com
+    SSLCertificateFile /etc/ssl/deep.crt
+    SSLCertificateKeyFile /etc/ssl/deep.key
+</VirtualHost>
+`), 0644)
+
+	level1 := filepath.Join(tmpDir, "level1.conf")
+	_ = os.WriteFile(level1, []byte(`
+<VirtualHost *:443>
+    ServerName mid.example.com
+    SSLCertificateFile /etc/ssl/mid.crt
+    SSLCertificateKeyFile /etc/ssl/mid.key
+</VirtualHost>
+Include `+level2+`
+`), 0644)
+
+	main := filepath.Join(tmpDir, "main.conf")
+	_ = os.WriteFile(main, []byte(`
+<VirtualHost *:443>
+    ServerName top.example.com
+    SSLCertificateFile /etc/ssl/top.crt
+    SSLCertificateKeyFile /etc/ssl/top.key
+</VirtualHost>
+Include `+level1+`
+`), 0644)
+
+	s := NewWithConfig(main)
+	sites, err := s.Scan()
+	if err != nil {
+		t.Fatalf("扫描失败: %v", err)
+	}
+
+	if len(sites) != 3 {
+		t.Errorf("期望 3 个站点（3 层嵌套），实际 %d", len(sites))
+		for _, site := range sites {
+			t.Logf("  站点: %s", site.ServerName)
+		}
+	}
+}
+
+// TestScanConfigFile_MaxFilesLimit 测试 maxScanFiles 限制正确截断扫描
+func TestScanConfigFile_MaxFilesLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建 main.conf 包含大量 Include
+	var includes string
+	fileCount := maxScanFiles + 10 // 超出限制
+	for i := 0; i < fileCount; i++ {
+		confPath := filepath.Join(tmpDir, "site"+filepath.Base(t.Name())+string(rune('A'+i%26))+string(rune('0'+i/26))+".conf")
+		content := `
+<VirtualHost *:443>
+    ServerName site` + filepath.Base(confPath) + `.example.com
+    SSLCertificateFile /etc/ssl/` + filepath.Base(confPath) + `.crt
+    SSLCertificateKeyFile /etc/ssl/` + filepath.Base(confPath) + `.key
+</VirtualHost>
+`
+		_ = os.WriteFile(confPath, []byte(content), 0644)
+		includes += "Include " + confPath + "\n"
+	}
+
+	mainConf := filepath.Join(tmpDir, "main.conf")
+	_ = os.WriteFile(mainConf, []byte(includes), 0644)
+
+	s := NewWithConfig(mainConf)
+	sites, err := s.Scan()
+	if err != nil {
+		t.Fatalf("扫描失败: %v", err)
+	}
+
+	// 应该被 maxScanFiles 截断，站点数不超过 maxScanFiles
+	if len(s.scannedFiles) > maxScanFiles {
+		t.Errorf("扫描文件数 %d 超过限制 %d", len(s.scannedFiles), maxScanFiles)
+	}
+
+	// 应该找到一些站点但不是全部
+	if len(sites) >= fileCount {
+		t.Errorf("站点数 %d 应小于总文件数 %d（被截断）", len(sites), fileCount)
+	}
+	if len(sites) == 0 {
+		t.Error("应至少找到一些站点")
+	}
+}

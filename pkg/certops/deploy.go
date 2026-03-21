@@ -24,7 +24,7 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		return nil, fmt.Errorf("获取证书配置失败: %w", err)
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(s.log)
 	if api.URL == "" || api.Token == "" {
 		return nil, fmt.Errorf("证书 %s 的 API 配置不完整", certName)
 	}
@@ -126,7 +126,7 @@ func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfi
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
 }
 
 // deployToBinding 部署证书到绑定（带备份和回滚）

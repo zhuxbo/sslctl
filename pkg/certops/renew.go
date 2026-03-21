@@ -42,7 +42,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		}
 
 		// 逐证书检查 API 配置
-		api := cert.GetAPI()
+		api := cert.GetAPI(s.log)
 		if api.URL == "" || api.Token == "" {
 			s.log.Warn("证书 %s 的 API 配置不完整，跳过续签", cert.CertName)
 			continue
@@ -130,7 +130,7 @@ func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
 }
 
 // getRenewMode 获取续签模式（带默认值）

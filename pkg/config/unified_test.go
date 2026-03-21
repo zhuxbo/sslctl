@@ -299,7 +299,7 @@ func TestCertConfig_GetAPI_EnvOverride(t *testing.T) {
 		},
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(nil)
 
 	// 环境变量应该覆盖证书配置
 	if api.Token != envToken {
@@ -324,7 +324,7 @@ func TestCertConfig_GetAPI_NoEnv(t *testing.T) {
 		},
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(nil)
 	if api.URL != "https://cert-api.com" {
 		t.Errorf("API.URL = %s, want https://cert-api.com", api.URL)
 	}

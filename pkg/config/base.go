@@ -125,10 +125,14 @@ const (
 
 // ScheduleConfig 调度配置
 type ScheduleConfig struct {
-	CheckIntervalHours int    `json:"check_interval_hours"`  // 检查间隔(小时)，0 使用默认值 6
-	RenewBeforeDays    int    `json:"renew_before_days"`     // 提前续期天数，0 使用默认值（pull:13, local:15）
-	RenewMode          string `json:"renew_mode,omitempty"`  // 续签模式: local | pull，默认 pull
+	CheckIntervalHours     int    `json:"check_interval_hours"`               // 检查间隔(小时)，0 使用默认值 6
+	RenewBeforeDays        int    `json:"renew_before_days"`                  // 提前续期天数，0 使用默认值（pull:13, local:15）
+	RenewMode              string `json:"renew_mode,omitempty"`               // 续签模式: local | pull，默认 pull
+	ShutdownTimeoutSeconds int    `json:"shutdown_timeout_seconds,omitempty"` // 守护进程关闭超时(秒)，0 使用默认值 60
 }
+
+// DefaultShutdownTimeoutSeconds 默认关闭超时
+const DefaultShutdownTimeoutSeconds = 60
 
 // ValidateSchedule 验证调度配置
 func ValidateSchedule(schedule *ScheduleConfig) error {
