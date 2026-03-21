@@ -64,9 +64,9 @@ func TestValidateAPIURL(t *testing.T) {
 		wantErr bool
 		desc    string
 	}{
-		// 有效 URL（通过）
-		{"https_remote", "https://api.example.com/v1", false, "HTTPS 外网"},
-		{"https_with_port", "https://api.example.com:8443/v1", false, "HTTPS 带端口"},
+		// 有效 URL（通过）— 使用 IP 避免 CI 环境 DNS 解析失败
+		{"https_remote", "https://8.8.8.8/v1", false, "HTTPS 外网"},
+		{"https_with_port", "https://1.1.1.1:8443/v1", false, "HTTPS 带端口"},
 		{"http_localhost", "http://localhost:8080/api", false, "HTTP localhost"},
 		{"http_127", "http://127.0.0.1:8080/api", false, "HTTP 127.0.0.1"},
 		{"http_ipv6_local", "http://[::1]:8080/api", false, "HTTP [::1]"},
