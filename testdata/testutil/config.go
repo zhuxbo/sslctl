@@ -26,9 +26,8 @@ type TestAPIConfig struct {
 
 // TestScheduleConfig 测试用调度配置
 type TestScheduleConfig struct {
-	CheckIntervalHours int    `json:"check_interval_hours"`
-	RenewBeforeDays    int    `json:"renew_before_days"`
-	RenewMode          string `json:"renew_mode,omitempty"`
+	RenewBeforeDays int    `json:"renew_before_days"`
+	RenewMode       string `json:"renew_mode,omitempty"`
 }
 
 // TestCertConfig 测试用证书配置
@@ -62,9 +61,8 @@ func DefaultTestConfig() *TestConfig {
 			Token: "test-token",
 		},
 		Schedule: TestScheduleConfig{
-			CheckIntervalHours: 6,
-			RenewBeforeDays:    13,
-			RenewMode:          "pull",
+			RenewBeforeDays: 13,
+			RenewMode:       "pull",
 		},
 		Certificates: []TestCertConfig{},
 	}

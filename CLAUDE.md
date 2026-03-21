@@ -133,6 +133,9 @@ docker/test/
 | `local` | 本机提交         | `--local-key` 或配置文件 |
 | `pull`  | 自动签发（默认） | 默认行为                 |
 
+- 两种模式统一：`renew_before_days` 最大 13 天，默认 13 天
+- 定时检查：每天一次，随机选择明天的某个时间点执行
+
 详见 `skills/deploy-ops/SKILL.md`
 
 ## 代码质量

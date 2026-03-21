@@ -302,7 +302,6 @@ sslctl                    Manager API                    CA
     "token": "xxx"
   },
   "schedule": {
-    "check_interval_hours": 6,
     "renew_before_days": 13,
     "renew_mode": "pull"
   },
@@ -333,8 +332,7 @@ sslctl                    Manager API                    CA
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `check_interval_hours` | int | 6 | 守护进程检查间隔（小时），0 使用默认值 |
-| `renew_before_days` | int | pull:13, local:15 | 提前续期天数，0 使用默认值 |
+| `renew_before_days` | int | 13 | 提前续期天数，最大 13，0 使用默认值 |
 | `renew_mode` | string | `pull` | 全局续签模式，证书级别 `certificates[].renew_mode` 可覆盖 |
 
 ### config.json.lock
@@ -370,20 +368,16 @@ sslctl                    Manager API                    CA
 
 ## 续签模式
 
-服务端在证书到期前 **14 天**自动续签，本地需配合选择续签模式：
+两种模式统一：`renew_before_days` 最大 13 天，默认 13 天。
 
-| 模式 | 说明 | 时间限制 | 默认值 |
-|------|------|----------|--------|
-| `local` | 本机提交，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
-| `pull` | 自动签发，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
+| 模式 | 说明 | 默认值 |
+|------|------|--------|
+| `local` | 本机提交，本地生成私钥和 CSR | 13 天 |
+| `pull` | 自动签发，从服务端拉取已签发证书 | 13 天 |
 
 ### 配置级别
 
 `renew_mode` 为**订单级别**配置，在 `certificates[].renew_mode` 中设置。不同证书可使用不同模式。
-
-系统自动适配续签窗口：
-- local 模式：若全局 `renew_before_days <= 14`，自动使用 15 天
-- pull 模式：若全局 `renew_before_days >= 14`，自动使用 13 天
 
 ### 命令行启用
 

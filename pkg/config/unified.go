@@ -509,9 +509,8 @@ func (cm *ConfigManager) EnsureSiteCertsDir(siteName string) (string, error) {
 // defaultSchedule 默认调度配置
 func defaultSchedule() ScheduleConfig {
 	return ScheduleConfig{
-		CheckIntervalHours: DefaultCheckIntervalHours,
-		RenewBeforeDays:    PullRenewDefaultDay,
-		RenewMode:          RenewModePull,
+		RenewBeforeDays: DefaultRenewBeforeDays,
+		RenewMode:       RenewModePull,
 	}
 }
 

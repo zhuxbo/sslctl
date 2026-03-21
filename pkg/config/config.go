@@ -149,24 +149,9 @@ func (c *CertConfig) GetRenewMode(schedule *ScheduleConfig) string {
 // NeedsRenewal 判断是否需要续期
 func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 	days := c.DaysUntilExpiry()
-	mode := c.GetRenewMode(schedule)
-	// 本机提交：避免与服务端自动续签冲突
-	if mode == RenewModeLocal {
-		localRenewDays := schedule.RenewBeforeDays
-		// 本地模式必须 > 14，否则使用默认值 15
-		if localRenewDays <= ServerAutoRenewDays {
-			localRenewDays = LocalRenewDefaultDay
-		}
-		if c.Metadata.IssueRetryCount > 0 {
-			return days <= localRenewDays
-		}
-		return days > ServerAutoRenewDays && days <= localRenewDays
-	}
-
 	renewDays := schedule.RenewBeforeDays
-	// pull 模式必须 < 14，否则使用默认值 13（等待服务端在 14 天前完成续签）
-	if renewDays == 0 || renewDays >= ServerAutoRenewDays {
-		renewDays = PullRenewDefaultDay
+	if renewDays == 0 || renewDays > MaxRenewBeforeDays {
+		renewDays = DefaultRenewBeforeDays
 	}
 	return days <= renewDays
 }

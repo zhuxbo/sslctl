@@ -4,6 +4,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -49,12 +50,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		os.Exit(1)
 	}
 
-	// 检查间隔
-	interval := time.Duration(cfg.Schedule.CheckIntervalHours) * time.Hour
-	if interval == 0 {
-		interval = time.Duration(config.DefaultCheckIntervalHours) * time.Hour
-	}
-	log.Info("检查间隔: %v", interval)
+	log.Info("检查频率: 每天一次（随机时间）")
 
 	// 关闭超时
 	shutdownTimeout := time.Duration(cfg.Schedule.ShutdownTimeoutSeconds) * time.Second
@@ -68,9 +64,6 @@ func Run(args []string, version, buildTime string, debug bool) {
 	// 信号处理
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -89,8 +82,12 @@ func Run(args []string, version, buildTime string, debug bool) {
 	}()
 
 	for {
+		delay := nextRandomDaily()
+		log.Info("下次检查: %v 后", delay.Round(time.Minute))
+		timer := time.NewTimer(delay)
+
 		select {
-		case <-ticker.C:
+		case <-timer.C:
 			// 检查是否有任务正在运行，防止重叠
 			select {
 			case taskRunning <- struct{}{}:
@@ -104,6 +101,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 				log.Debug("上一次检查任务仍在运行，跳过本次检查")
 			}
 		case sig := <-sigCh:
+			timer.Stop()
 			log.Info("收到信号 %v，正在退出...", sig)
 			// 取消 context，通知正在运行的任务停止
 			cancel()
@@ -124,6 +122,19 @@ func Run(args []string, version, buildTime string, debug bool) {
 			return
 		}
 	}
+}
+
+// nextRandomDaily 计算到明天随机时刻的延迟
+// 在明天 00:00~23:59 之间随机选择一个时间点，最短不低于 1 小时
+func nextRandomDaily() time.Duration {
+	now := time.Now()
+	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1,
+		rand.Intn(24), rand.Intn(60), 0, 0, now.Location())
+	delay := tomorrow.Sub(now)
+	if delay < time.Hour {
+		delay += 24 * time.Hour
+	}
+	return delay
 }
 
 // checkAndDeploy 检查并部署证书

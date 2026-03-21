@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -101,15 +102,11 @@ func ValidateValidationMethod(domain string, method string) string {
 
 // 续签时间限制常量
 const (
-	ServerAutoRenewDays  = 14 // 服务端自动续签天数（到期前 14 天）
-	LocalRenewDefaultDay = 15 // 本机提交默认值
-	PullRenewDefaultDay  = 13 // 自动签发默认值
+	MaxRenewBeforeDays    = 13 // 提前续签天数上限（两种模式共同遵守）
+	DefaultRenewBeforeDays = 13 // 默认提前续签天数
 )
 
-// 定时任务常量
-const (
-	DefaultCheckIntervalHours = 6 // 默认检查间隔（小时）
-)
+
 
 // 文件大小限制常量
 const (
@@ -125,8 +122,7 @@ const (
 
 // ScheduleConfig 调度配置
 type ScheduleConfig struct {
-	CheckIntervalHours     int    `json:"check_interval_hours"`               // 检查间隔(小时)，0 使用默认值 6
-	RenewBeforeDays        int    `json:"renew_before_days"`                  // 提前续期天数，0 使用默认值（pull:13, local:15）
+	RenewBeforeDays        int    `json:"renew_before_days"`                  // 提前续期天数，0 使用默认值 13，最大 13
 	RenewMode              string `json:"renew_mode,omitempty"`               // 续签模式: local | pull，默认 pull
 	ShutdownTimeoutSeconds int    `json:"shutdown_timeout_seconds,omitempty"` // 守护进程关闭超时(秒)，0 使用默认值 60
 }
@@ -146,26 +142,18 @@ func ValidateSchedule(schedule *ScheduleConfig) error {
 		return nil
 	}
 
-	switch mode {
-	case RenewModeLocal:
-		// 本机提交：RenewBeforeDays 必须 > 14
-		if schedule.RenewBeforeDays <= ServerAutoRenewDays {
-			return errors.NewConfigError(
-				"本机提交(local)的 renew_before_days 必须 > 14（服务端在到期前 14 天自动续签）",
-				nil,
-			)
-		}
-	case RenewModePull:
-		// 自动签发：RenewBeforeDays 必须 < 14
-		if schedule.RenewBeforeDays >= ServerAutoRenewDays {
-			return errors.NewConfigError(
-				"自动签发(pull)的 renew_before_days 必须 < 14（等待服务端在到期前 14 天完成续签）",
-				nil,
-			)
-		}
-	default:
+	// 验证模式有效性
+	if mode != RenewModeLocal && mode != RenewModePull {
 		return errors.NewConfigError(
 			"无效的 renew_mode: "+mode+"（必须是 local 或 pull）",
+			nil,
+		)
+	}
+
+	// 两种模式统一：renew_before_days 不能超过上限
+	if schedule.RenewBeforeDays > MaxRenewBeforeDays {
+		return errors.NewConfigError(
+			fmt.Sprintf("renew_before_days 不能超过 %d 天", MaxRenewBeforeDays),
 			nil,
 		)
 	}
