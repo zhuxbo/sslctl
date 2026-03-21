@@ -330,7 +330,7 @@ func runStatus() {
 				} else if days < 7 {
 					status = "\033[31m即将过期\033[0m" // 红色
 					daysStr = fmt.Sprintf(" (剩余 %d 天)", days)
-				} else if days < 14 {
+				} else if days < 13 {
 					status = "\033[33m即将过期\033[0m" // 黄色
 					daysStr = fmt.Sprintf(" (剩余 %d 天)", days)
 				} else {

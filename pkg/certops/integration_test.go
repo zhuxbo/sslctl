@@ -865,9 +865,8 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 	// 设置本机提交
 	cfg, _ := cm.Load()
 	cfg.Schedule = config.ScheduleConfig{
-		RenewMode:          config.RenewModeLocal,
-		RenewBeforeDays:    14,
-		CheckIntervalHours: 1,
+		RenewMode:       config.RenewModeLocal,
+		RenewBeforeDays: 13,
 	}
 	_ = cm.Save(cfg)
 

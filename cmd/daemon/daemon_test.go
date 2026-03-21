@@ -50,42 +50,16 @@ func TestCheckAndDeploy_WithContext(t *testing.T) {
 	checkAndDeploy(ctx, svc, log)
 }
 
-// TestDaemonInterval 测试守护进程间隔配置
-func TestDaemonInterval(t *testing.T) {
-	tests := []struct {
-		name          string
-		intervalHours int
-		wantHours     int
-	}{
-		{
-			name:          "默认间隔",
-			intervalHours: 0,
-			wantHours:     config.DefaultCheckIntervalHours,
-		},
-		{
-			name:          "自定义间隔",
-			intervalHours: 12,
-			wantHours:     12,
-		},
-		{
-			name:          "最小间隔",
-			intervalHours: 1,
-			wantHours:     1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			interval := time.Duration(tt.intervalHours) * time.Hour
-			if interval == 0 {
-				interval = time.Duration(config.DefaultCheckIntervalHours) * time.Hour
-			}
-
-			gotHours := int(interval.Hours())
-			if gotHours != tt.wantHours {
-				t.Errorf("interval = %d hours, want %d hours", gotHours, tt.wantHours)
-			}
-		})
+// TestNextRandomDaily 测试随机每日延迟
+func TestNextRandomDaily(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		d := nextRandomDaily()
+		if d < time.Hour {
+			t.Errorf("nextRandomDaily() = %v, 不应低于 1 小时", d)
+		}
+		if d > 48*time.Hour {
+			t.Errorf("nextRandomDaily() = %v, 不应超过 48 小时", d)
+		}
 	}
 }
 

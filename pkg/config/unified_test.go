@@ -83,9 +83,8 @@ func TestConfigManager_SaveAndLoad(t *testing.T) {
 	// 创建测试配置
 	cfg := &Config{
 		Schedule: ScheduleConfig{
-			CheckIntervalHours: 12,
-			RenewBeforeDays:    7,
-			RenewMode:          RenewModePull,
+			RenewBeforeDays: 7,
+			RenewMode:       RenewModePull,
 		},
 		Certificates: []CertConfig{
 			{
@@ -630,7 +629,7 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 			schedule: ScheduleConfig{
 				RenewMode: RenewModePull,
 			},
-			want: true, // PullRenewDefaultDay = 7
+			want: true, // DefaultRenewBeforeDays = 13，5 <= 13 需续签
 		},
 		{
 			name:      "空模式默认为Pull",
@@ -647,7 +646,7 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 				RenewMode:       RenewModePull,
 				RenewBeforeDays: 30, // local 模式的典型值，对 pull 无效
 			},
-			want: false, // 应使用 PullRenewDefaultDay (13)，20 > 13 不续签
+			want: false, // 应使用 DefaultRenewBeforeDays (13)，20 > 13 不续签
 		},
 	}
 
@@ -676,39 +675,32 @@ func TestCertConfig_NeedsRenewal_LocalMode(t *testing.T) {
 		want           bool
 	}{
 		{
-			name:           "本地模式-在服务端自动续签范围内，不续签",
-			expiresAt:      time.Now().Add(10 * 24 * time.Hour), // 10 天后过期，小于 ServerAutoRenewDays (14)
-			retryCount:     0,
-			renewBeforeDays: 30,
-			want:           false, // days (10) <= ServerAutoRenewDays (14) 不续签
-		},
-		{
-			name:           "本地模式-有重试记录，续签",
-			expiresAt:      time.Now().Add(25 * 24 * time.Hour),
-			retryCount:     1,
-			renewBeforeDays: 30,
-			want:           true,
-		},
-		{
 			name:           "本地模式-在续签窗口内",
-			expiresAt:      time.Now().Add(35 * 24 * time.Hour),
+			expiresAt:      time.Now().Add(10 * 24 * time.Hour), // 10 天后过期，<= 13
 			retryCount:     0,
-			renewBeforeDays: 40,
+			renewBeforeDays: 13,
 			want:           true,
 		},
 		{
-			name:            "本地模式-renewBeforeDays为pull默认值13时应使用local默认值15",
-			expiresAt:       time.Now().Add((15*24 + 1) * time.Hour), // 略超过 15 天后过期
-			retryCount:      0,
-			renewBeforeDays: 13, // pull 模式默认值，对 local 模式无效
-			want:            true, // 应使用 LocalRenewDefaultDay (15)，15 > 14 && 15 <= 15
+			name:           "本地模式-超出续签窗口",
+			expiresAt:      time.Now().Add(15 * 24 * time.Hour), // 15 天后过期，> 13
+			retryCount:     0,
+			renewBeforeDays: 13,
+			want:           false,
 		},
 		{
-			name:            "本地模式-renewBeforeDays为0时使用默认值15",
-			expiresAt:       time.Now().Add((15*24 + 1) * time.Hour), // 略超过 15 天后过期
+			name:            "本地模式-renewBeforeDays超过上限使用默认值13",
+			expiresAt:       time.Now().Add(12 * 24 * time.Hour), // 12 天后过期
+			retryCount:      0,
+			renewBeforeDays: 30, // 超过上限，应回落到 13
+			want:            true, // 12 <= 13
+		},
+		{
+			name:            "本地模式-renewBeforeDays为0时使用默认值13",
+			expiresAt:       time.Now().Add(12 * 24 * time.Hour), // 12 天后过期
 			retryCount:      0,
 			renewBeforeDays: 0,
-			want:            true, // 应使用 LocalRenewDefaultDay (15)
+			want:            true, // 应使用默认值 13，12 <= 13
 		},
 	}
 
@@ -917,12 +909,8 @@ func TestConfigManager_ScheduleDefaults(t *testing.T) {
 		t.Errorf("默认 RenewMode = %s, 期望 %s", cfg.Schedule.RenewMode, RenewModePull)
 	}
 
-	if cfg.Schedule.CheckIntervalHours != DefaultCheckIntervalHours {
-		t.Errorf("默认 CheckIntervalHours = %d, 期望 %d", cfg.Schedule.CheckIntervalHours, DefaultCheckIntervalHours)
-	}
-
-	if cfg.Schedule.RenewBeforeDays != PullRenewDefaultDay {
-		t.Errorf("默认 RenewBeforeDays = %d, 期望 %d", cfg.Schedule.RenewBeforeDays, PullRenewDefaultDay)
+	if cfg.Schedule.RenewBeforeDays != DefaultRenewBeforeDays {
+		t.Errorf("默认 RenewBeforeDays = %d, 期望 %d", cfg.Schedule.RenewBeforeDays, DefaultRenewBeforeDays)
 	}
 }
 
@@ -1124,12 +1112,12 @@ func TestScheduleConfig_Validation(t *testing.T) {
 			name: "有效的 local 模式",
 			schedule: ScheduleConfig{
 				RenewMode:       RenewModeLocal,
-				RenewBeforeDays: 30,
+				RenewBeforeDays: 13,
 			},
 			wantError: false,
 		},
 		{
-			name: "pull 模式 RenewBeforeDays >= 14 应报错",
+			name: "pull 模式 RenewBeforeDays > 13 应报错",
 			schedule: ScheduleConfig{
 				RenewMode:       RenewModePull,
 				RenewBeforeDays: 14,
@@ -1137,7 +1125,7 @@ func TestScheduleConfig_Validation(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "local 模式 RenewBeforeDays <= 14 应报错",
+			name: "local 模式 RenewBeforeDays > 13 应报错",
 			schedule: ScheduleConfig{
 				RenewMode:       RenewModeLocal,
 				RenewBeforeDays: 14,
@@ -1328,17 +1316,11 @@ func TestCertMetadata(t *testing.T) {
 
 // TestTimeConstants 测试时间相关常量
 func TestTimeConstants(t *testing.T) {
-	if ServerAutoRenewDays != 14 {
-		t.Errorf("ServerAutoRenewDays = %d, 期望 14", ServerAutoRenewDays)
+	if MaxRenewBeforeDays != 13 {
+		t.Errorf("MaxRenewBeforeDays = %d, 期望 13", MaxRenewBeforeDays)
 	}
-	if LocalRenewDefaultDay != 15 {
-		t.Errorf("LocalRenewDefaultDay = %d, 期望 15", LocalRenewDefaultDay)
-	}
-	if PullRenewDefaultDay != 13 {
-		t.Errorf("PullRenewDefaultDay = %d, 期望 13", PullRenewDefaultDay)
-	}
-	if DefaultCheckIntervalHours != 6 {
-		t.Errorf("DefaultCheckIntervalHours = %d, 期望 6", DefaultCheckIntervalHours)
+	if DefaultRenewBeforeDays != 13 {
+		t.Errorf("DefaultRenewBeforeDays = %d, 期望 13", DefaultRenewBeforeDays)
 	}
 }
 

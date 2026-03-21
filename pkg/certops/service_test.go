@@ -147,7 +147,7 @@ func TestCheckExpiry(t *testing.T) {
 			},
 		},
 		{
-			name:      "7-14天过期",
+			name:      "7-13天过期",
 			wantLevel: "WARN",
 			certs: []config.CertConfig{
 				{
@@ -160,7 +160,7 @@ func TestCheckExpiry(t *testing.T) {
 			},
 		},
 		{
-			name:       "14天以上无告警",
+			name:       "13天以上无告警",
 			wantLevel:  "",
 			wantAbsent: "warn-cert",
 			certs: []config.CertConfig{
