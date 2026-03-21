@@ -181,7 +181,7 @@ ensure_tag() {
         git push origin "$tag"
     elif [ "$tag_commit" != "$head_commit" ]; then
         log_warning "tag $tag 指向其他提交，更新到当前提交"
-        git tag -d "$tag"
+        git tag -d "$tag" 2>/dev/null || true
         git push origin ":refs/tags/$tag" 2>/dev/null || true
         git tag "$tag"
         git push origin "$tag"
