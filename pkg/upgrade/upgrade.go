@@ -39,7 +39,7 @@ func Execute(opts Options, logFunc func(format string, args ...interface{})) (*R
 	// 统一处理末尾斜杠，避免拼接出错
 	opts.ReleaseURL = strings.TrimRight(strings.TrimSpace(opts.ReleaseURL), "/")
 	if opts.ReleaseURL == "" {
-		return nil, fmt.Errorf("未配置升级地址，请重新安装或在配置文件中设置 release_url")
+		return nil, fmt.Errorf("未配置升级地址，请运行 sslctl upgrade 在交互终端中输入，或使用安装脚本升级")
 	}
 	// 安全校验：强制 HTTPS
 	if !strings.HasPrefix(opts.ReleaseURL, "https://") {
@@ -90,7 +90,10 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	}
 
 	baseURL := strings.TrimSuffix(releaseURL, "/releases.json")
-	installHint := fmt.Sprintf("curl -fsSL %s/install.sh | sudo bash", baseURL)
+	// 从 baseURL 提取域名+路径部分（去掉 https:// 前缀和 /sslctl 后缀）
+	hostPath := strings.TrimPrefix(baseURL, "https://")
+	hostPath = strings.TrimSuffix(hostPath, "/sslctl")
+	installHint := fmt.Sprintf("curl -fsSL %s/install.sh | sudo bash -s -- %s", baseURL, hostPath)
 
 	// 4. 如果只是检查，返回结果
 	if opts.CheckOnly {

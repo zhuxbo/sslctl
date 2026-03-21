@@ -42,7 +42,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		}
 
 		// 逐证书检查 API 配置
-		api := cert.GetAPI()
+		api := cert.GetAPI(s.log)
 		if api.URL == "" || api.Token == "" {
 			s.log.Warn("证书 %s 的 API 配置不完整，跳过续签", cert.CertName)
 			continue
@@ -123,21 +123,14 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 // sendRenewCallback 向 API 发送续签结果回调
 // 非关键路径，失败仅记录日志
 func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig, result *RenewResult) {
-	msg := ""
-	if result.Error != nil {
-		msg = result.Error.Error()
-	}
-
 	callbackReq := &fetcher.CallbackRequest{
 		OrderID:    cert.OrderID,
-		Domain:     strings.Join(cert.Domains, ","),
 		Status:     result.Status,
 		DeployedAt: time.Now().Format(time.RFC3339),
-		Message:    msg,
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
 }
 
 // getRenewMode 获取续签模式（带默认值）
@@ -149,7 +142,7 @@ func getRenewMode(schedule *config.ScheduleConfig) string {
 	return mode
 }
 
-// preparePullRenew 拉取模式：等待服务端续签完成后拉取证书
+// preparePullRenew 自动签发：等待服务端续签完成后拉取证书
 func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
 	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
@@ -172,7 +165,7 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	return certData, privateKey, nil
 }
 
-// prepareLocalRenew 本地私钥模式：生成 CSR 并通过 API 触发续签
+// prepareLocalRenew 本机提交：生成 CSR 并通过 API 触发续签
 func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
 	// 自动重置过期的重试计数（CSR 提交超过 7 天则重置）
 	if cert.Metadata.IssueRetryCount > 0 && !cert.Metadata.CSRSubmittedAt.IsZero() &&

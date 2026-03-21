@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
-	"strings"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/errors"
@@ -31,12 +32,12 @@ type RetryConfig struct {
 	Multiplier  float64       // 退避乘数
 }
 
-// DefaultRetryConfig 默认重试配置（线性退避：1s, 2s, 3s）
+// DefaultRetryConfig 默认重试配置（指数退避：1s, 2s, 4s）
 var DefaultRetryConfig = RetryConfig{
 	MaxRetries:  3,
 	InitialWait: 1 * time.Second,
-	MaxWait:     3 * time.Second,
-	Multiplier:  1.0,
+	MaxWait:     10 * time.Second,
+	Multiplier:  2.0,
 }
 
 type FileChallenge struct {
@@ -48,14 +49,12 @@ type FileChallenge struct {
 type CertData struct {
 	OrderID          int            `json:"order_id"`
 	Status           string         `json:"status"`
-	CommonName       string         `json:"common_name"`
-	Domain           string         `json:"domain"`
 	Domains          string         `json:"domains"`
 	Cert             string         `json:"certificate"`
 	IntermediateCert string         `json:"ca_certificate"`
 	PrivateKey       string         `json:"private_key"`
+	IssuedAt         string         `json:"issued_at"`
 	ExpiresAt        string         `json:"expires_at"`
-	CreatedAt        string         `json:"created_at"`
 	File             *FileChallenge `json:"file,omitempty"`
 }
 
@@ -136,14 +135,9 @@ type UpdateRequest struct {
 
 // CallbackRequest 部署回调请求
 type CallbackRequest struct {
-	OrderID       int    `json:"order_id"`
-	Domain        string `json:"domain"`
-	Status        string `json:"status"` // success, failure
-	DeployedAt    string `json:"deployed_at"`
-	CertExpiresAt string `json:"cert_expires_at,omitempty"`
-	CertSerial    string `json:"cert_serial,omitempty"`
-	ServerType    string `json:"server_type,omitempty"` // nginx, apache
-	Message       string `json:"message,omitempty"`
+	OrderID    int    `json:"order_id"`
+	Status     string `json:"status"` // success, failure
+	DeployedAt string `json:"deployed_at"`
 }
 
 // CallbackResponse 回调响应
@@ -329,8 +323,18 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 			break
 		}
 
-		// 线性退避：1s, 2s, 3s（attempt 从 0 开始）
-		sleepTime := f.retryConfig.InitialWait + time.Duration(attempt)*time.Second
+		// 指数退避 + 抖动：InitialWait * Multiplier^attempt * (0.75~1.25)
+		multiplier := f.retryConfig.Multiplier
+		if multiplier < 1.0 {
+			multiplier = 2.0
+		}
+		wait := float64(f.retryConfig.InitialWait)
+		for i := 0; i < attempt; i++ {
+			wait *= multiplier
+		}
+		// ±25% 随机抖动，防止多实例同时重试的惊群效应
+		jitter := 0.75 + rand.Float64()*0.5 // [0.75, 1.25)
+		sleepTime := time.Duration(wait * jitter)
 		if sleepTime > f.retryConfig.MaxWait {
 			sleepTime = f.retryConfig.MaxWait
 		}
@@ -512,20 +516,21 @@ func buildAPIURL(baseURL, path string) string {
 	return baseURL + "/api/deploy" + path
 }
 
-// Query 查询证书（新 API：GET {baseURL}/api/deploy?domain=xxx）
+// Query 查询证书（新 API：GET {baseURL}/api/deploy?order=xxx）
+// API 返回分页格式，取第一条结果
 func (f *Fetcher) Query(ctx context.Context, baseURL, token, domain string) (*CertData, error) {
 	apiURL := buildAPIURL(baseURL, "")
 	if err := mustValidURL(apiURL); err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 
-	// 构建带 domain 参数的 URL
+	// 构建带 order 参数的 URL
 	u, err := url.Parse(apiURL)
 	if err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 	q := u.Query()
-	q.Set("domain", domain)
+	q.Set("order", domain)
 	u.RawQuery = q.Encode()
 	fullURL := u.String()
 
@@ -539,7 +544,14 @@ func (f *Fetcher) Query(ctx context.Context, baseURL, token, domain string) (*Ce
 		return req, nil
 	}
 
-	return f.doAPICall(ctx, newRequest, "failed to query certificate")
+	certs, _, err := f.doAPICallBatch(ctx, newRequest, "failed to query certificate")
+	if err != nil {
+		return nil, err
+	}
+	if len(certs) == 0 {
+		return nil, errors.NewNetworkError("no certificate found", nil)
+	}
+	return &certs[0], nil
 }
 
 // Update 更新/续费证书（新 API：POST {baseURL}/api/deploy）
@@ -581,20 +593,21 @@ func (f *Fetcher) CallbackNew(ctx context.Context, baseURL, token string, callba
 }
 
 // QueryOrder 按 OrderID 查询订单状态
-// GET {baseURL}/api/deploy?order_id=xxx
+// GET {baseURL}/api/deploy?order=xxx
+// API 返回分页格式，取第一条结果
 func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID int) (*CertData, error) {
 	apiURL := buildAPIURL(baseURL, "")
 	if err := mustValidURL(apiURL); err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 
-	// 构建带 order_id 参数的 URL
+	// 构建带 order 参数的 URL
 	u, err := url.Parse(apiURL)
 	if err != nil {
 		return nil, errors.NewNetworkError("invalid API URL", err)
 	}
 	q := u.Query()
-	q.Set("order_id", fmt.Sprintf("%d", orderID))
+	q.Set("order", fmt.Sprintf("%d", orderID))
 	u.RawQuery = q.Encode()
 	fullURL := u.String()
 
@@ -608,11 +621,18 @@ func (f *Fetcher) QueryOrder(ctx context.Context, baseURL, token string, orderID
 		return req, nil
 	}
 
-	return f.doAPICall(ctx, newRequest, "failed to query order")
+	certs, _, err := f.doAPICallBatch(ctx, newRequest, "failed to query order")
+	if err != nil {
+		return nil, err
+	}
+	if len(certs) == 0 {
+		return nil, errors.NewNetworkError("order not found", nil)
+	}
+	return &certs[0], nil
 }
 
 // QueryBatch 批量查询证书
-// query 非空时: GET {baseURL}/api/deploy?query={query}
+// query 非空时: GET {baseURL}/api/deploy?order={query}
 // query 为空时: GET {baseURL}/api/deploy（返回最新 100 条 active 证书）
 // 自动处理分页，返回全部结果
 func (f *Fetcher) QueryBatch(ctx context.Context, baseURL, token, query string) ([]CertData, error) {
@@ -632,7 +652,7 @@ func (f *Fetcher) QueryBatch(ctx context.Context, baseURL, token, query string) 
 	for page := 1; ; page++ {
 		q := u.Query()
 		if query != "" {
-			q.Set("query", query)
+			q.Set("order", query)
 		}
 		q.Set("pageSize", fmt.Sprintf("%d", pageSize))
 		q.Set("currentPage", fmt.Sprintf("%d", page))

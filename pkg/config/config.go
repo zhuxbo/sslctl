@@ -2,10 +2,10 @@
 package config
 
 import (
-	"log"
 	"os"
 	"time"
 
+	"github.com/zhuxbo/sslctl/pkg/logger"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
@@ -37,19 +37,24 @@ type CertConfig struct {
 }
 
 // GetAPI 获取 API 配置（环境变量优先覆盖所有证书）
-func (c *CertConfig) GetAPI() APIConfig {
+// log 可为 nil，此时校验失败静默降级
+func (c *CertConfig) GetAPI(log *logger.Logger) APIConfig {
 	api := c.API
 
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
 		if err := validateToken(envToken); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIToken, err)
+			if log != nil {
+				log.Warn("环境变量 %s 校验失败: %v，使用证书配置", EnvAPIToken, err)
+			}
 		} else {
 			api.Token = envToken
 		}
 	}
 	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
 		if err := validateAPIURL(envURL); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIURL, err)
+			if log != nil {
+				log.Warn("环境变量 %s 校验失败: %v，使用证书配置", EnvAPIURL, err)
+			}
 		} else {
 			api.URL = envURL
 		}
@@ -145,7 +150,7 @@ func (c *CertConfig) GetRenewMode(schedule *ScheduleConfig) string {
 func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 	days := c.DaysUntilExpiry()
 	mode := c.GetRenewMode(schedule)
-	// 本地私钥模式：避免与服务端自动续签冲突
+	// 本机提交：避免与服务端自动续签冲突
 	if mode == RenewModeLocal {
 		localRenewDays := schedule.RenewBeforeDays
 		// 本地模式必须 > 14，否则使用默认值 15

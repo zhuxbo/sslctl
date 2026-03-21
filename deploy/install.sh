@@ -13,21 +13,11 @@ echo_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Release 服务器（由发布脚本自动替换）
-RELEASE_URL="__RELEASE_URL__"
-# 去掉末尾斜杠，避免拼接出错
-RELEASE_URL="${RELEASE_URL%/}"
-
-# 检测占位符未被替换（直接运行源码中的脚本）
-if [[ "$RELEASE_URL" != https://* ]]; then
-    echo_error "安装脚本未正确配置，请从官方渠道下载安装脚本"
-    exit 1
-fi
-
 # 参数解析
 CHANNEL=""          # 空=自动，main/dev=指定
 TARGET_VERSION=""   # 空=最新，指定=使用该版本
 FORCE=false
+RELEASE_HOST=""     # 域名（或域名+路径），如 release.example.com 或 cdn.example.com/mirror
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,6 +30,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --version)
+            if [ -z "${2:-}" ]; then
+                echo_error "--version 需要指定版本号"
+                exit 1
+            fi
             TARGET_VERSION="$2"
             shift 2
             ;;
@@ -48,30 +42,61 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "用法: install.sh [选项]"
+            echo "用法: curl -fsSL <url>/install.sh | bash -s -- [host] [选项]"
+            echo ""
+            echo "参数:"
+            echo "  [host]         升级服务器（域名或域名+路径，默认 release.cnssl.com）"
             echo ""
             echo "选项:"
             echo "  --dev          安装测试版（dev 通道）"
-            echo "  --main       安装稳定版（main 通道，默认）"
+            echo "  --main         安装稳定版（main 通道，默认）"
             echo "  --version VER  安装指定版本"
             echo "  --force        强制重新安装（即使版本相同）"
             echo "  --help         显示此帮助信息"
             echo ""
             echo "示例:"
-            echo "  install.sh                      # 安装最新稳定版"
-            echo "  install.sh --dev                # 安装最新测试版"
-            echo "  install.sh --version 1.0.0      # 安装指定版本"
-            echo "  install.sh --dev --version 1.0.1-dev  # 安装指定测试版"
-            echo "  install.sh --force              # 强制重新安装"
+            echo "  bash -s -- release.example.com                     # 安装最新稳定版"
+            echo "  bash -s -- release.example.com --dev               # 安装最新测试版"
+            echo "  bash -s -- release.example.com --version 1.0.0     # 安装指定版本"
+            echo "  bash -s -- cdn.example.com/mirror                  # 多层目录"
+            echo ""
+            echo "也可通过环境变量指定完整 URL（含 https://）："
+            echo "  curl -fsSL <url>/install.sh | sudo SSLCTL_RELEASE_URL=https://release.example.com/sslctl bash -s --"
             exit 0
             ;;
-        *)
+        --*)
             echo_error "未知参数: $1"
             echo "使用 --help 查看帮助"
             exit 1
             ;;
+        *)
+            if [ -z "$RELEASE_HOST" ]; then
+                RELEASE_HOST="$1"
+            else
+                echo_error "多余的参数: $1"
+                exit 1
+            fi
+            shift
+            ;;
     esac
 done
+
+# 网络超时（秒），可通过环境变量覆盖
+TIMEOUT=${SSLCTL_TIMEOUT:-30}
+
+# 内置回落地址（未传参时使用此默认值）
+FALLBACK_HOST="release.cnssl.com"
+
+# 构建升级地址（优先级：位置参数 > 环境变量 > 回落）
+if [ -n "$RELEASE_HOST" ]; then
+    RELEASE_HOST="${RELEASE_HOST%/}"
+    RELEASE_URL="https://$RELEASE_HOST/sslctl"
+elif [ -n "${SSLCTL_RELEASE_URL:-}" ]; then
+    RELEASE_URL="${SSLCTL_RELEASE_URL%/}"
+else
+    RELEASE_URL="https://$FALLBACK_HOST/sslctl"
+    echo_warn "未指定升级服务器，使用默认地址: $RELEASE_URL"
+fi
 
 # 检查 root 权限
 if [ "$EUID" -ne 0 ]; then
@@ -159,7 +184,7 @@ get_target_version() {
 
     # 获取最新版本
     local json
-    json=$(curl -s --connect-timeout 10 "$RELEASE_URL/releases.json" 2>/dev/null)
+    json=$(curl -s --connect-timeout $TIMEOUT "$RELEASE_URL/releases.json" 2>/dev/null)
     if [ -z "$json" ]; then
         echo ""
         return
@@ -188,11 +213,13 @@ get_target_version() {
     echo "$version"
 }
 
+BINARY_DST="/usr/local/bin/sslctl"
+
 echo_info "获取目标版本..."
 VERSION=$(get_target_version)
 
 if [ -z "$VERSION" ]; then
-    echo_error "无法获取版本信息"
+    echo_error "无法获取版本信息: $RELEASE_URL/releases.json"
     exit 1
 fi
 
@@ -214,9 +241,8 @@ fi
 
 # 检测已安装版本
 CURRENT_VERSION=""
-if [ -x /usr/local/bin/sslctl ]; then
-    CURRENT_VERSION=$(/usr/local/bin/sslctl --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' || echo "")
-    # 规范化为带 v 前缀
+if [ -x "$BINARY_DST" ]; then
+    CURRENT_VERSION=$("$BINARY_DST" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' || echo "")
     [ -n "$CURRENT_VERSION" ] && CURRENT_VERSION=$(normalize_version "$CURRENT_VERSION")
 fi
 
@@ -234,13 +260,12 @@ if [ -n "$CURRENT_VERSION" ]; then
     fi
 fi
 
-# 下载
 FILENAME="sslctl-${OS}-${ARCH}.gz"
 DOWNLOAD_URL="$RELEASE_URL/$CHANNEL/$VERSION/$FILENAME"
 
 echo_info "下载 $FILENAME..."
 
-if ! curl -fsSL --connect-timeout 30 "$DOWNLOAD_URL" -o "/tmp/$FILENAME" 2>/dev/null; then
+if ! curl -fsSL --connect-timeout $TIMEOUT "$DOWNLOAD_URL" -o "/tmp/$FILENAME" 2>/dev/null; then
     echo_error "下载失败: $DOWNLOAD_URL"
     exit 1
 fi
@@ -248,7 +273,7 @@ fi
 # SHA256 校验（从 versions.$VERSION.checksums.$FILENAME 精确提取）
 EXPECTED_HASH=""
 if command -v python3 >/dev/null 2>&1; then
-    EXPECTED_HASH=$(curl -s --connect-timeout 10 "$RELEASE_URL/releases.json" 2>/dev/null | \
+    EXPECTED_HASH=$(curl -s --connect-timeout $TIMEOUT "$RELEASE_URL/releases.json" 2>/dev/null | \
         python3 -c "
 import sys, json
 try:
@@ -282,13 +307,77 @@ fi
 # 解压并安装
 echo_info "安装中..."
 gunzip -f "/tmp/$FILENAME"
-mv "/tmp/sslctl-${OS}-${ARCH}" /usr/local/bin/sslctl
-chmod +x /usr/local/bin/sslctl
+
+BINARY_SRC="/tmp/sslctl-${OS}-${ARCH}"
+
+if ! mv "$BINARY_SRC" "$BINARY_DST" 2>/dev/null; then
+    echo_error "无法安装到 $BINARY_DST，正在诊断原因..."
+
+    # 检查目录写权限
+    DST_DIR=$(dirname "$BINARY_DST")
+    if [ ! -w "$DST_DIR" ]; then
+        echo_error "原因: 目录 $DST_DIR 没有写权限"
+        echo_error "当前权限: $(ls -ld "$DST_DIR" 2>/dev/null)"
+        echo_error "提示: 宝塔面板「系统加固」或其他安全软件可能修改了系统目录权限"
+        echo_error "修复: 1. 有加固软件，关闭「系统加固」等安全软件，将 $BINARY_DST 加入工具「进程白名单」，然后重新运行安装脚本"
+        echo_error "      2. chmod 755 $DST_DIR 修复目录权限，然后重新运行安装脚本"
+        rm -f "$BINARY_SRC"
+        exit 1
+    fi
+
+    # 检查 immutable 属性
+    if [ -f "$BINARY_DST" ] && command -v lsattr >/dev/null 2>&1; then
+        ATTRS=$(lsattr "$BINARY_DST" 2>/dev/null || true)
+        if echo "$ATTRS" | grep -q -- '----i'; then
+            echo_error "原因: 文件有 immutable (不可变) 属性"
+            echo_error "提示: 可能由防篡改工具或安全加固软件设置"
+            echo_error "修复: 1. 有安全软件，关闭「防篡改」等安全软件，将 $BINARY_DST 加入工具「进程白名单」，然后重新运行安装脚本"
+            echo_error "      2. chattr -i $BINARY_DST，然后重新运行安装脚本"
+            rm -f "$BINARY_SRC"
+            exit 1
+        fi
+    fi
+
+    # 检查 SELinux
+    if command -v getenforce >/dev/null 2>&1; then
+        SE_STATUS=$(getenforce 2>/dev/null || true)
+        if [ "$SE_STATUS" = "Enforcing" ]; then
+            echo_error "原因: SELinux 处于 Enforcing 模式，可能阻止了文件写入"
+            if command -v ausearch >/dev/null 2>&1; then
+                DENIED=$(ausearch -m avc -ts recent 2>/dev/null | grep "$BINARY_DST" | tail -3)
+                [ -n "$DENIED" ] && echo_error "SELinux 拒绝记录:\n$DENIED"
+            fi
+            echo_error "修复: setenforce 0 (临时关闭) 然后重新安装，或调整 SELinux 策略"
+            rm -f "$BINARY_SRC"
+            exit 1
+        fi
+    fi
+
+    # 检查文件系统是否只读
+    if mount 2>/dev/null | grep -E ' /usr/local | /usr ' | grep -q '\bro\b'; then
+        echo_error "原因: 文件系统以只读方式挂载"
+        echo_error "修复: mount -o remount,rw /usr/local (或对应的挂载点)"
+        rm -f "$BINARY_SRC"
+        exit 1
+    fi
+
+    # 通用诊断信息
+    echo_error "无法确定具体原因，以下信息可能有帮助:"
+    [ -f "$BINARY_DST" ] && echo_error "已有文件: $(ls -la "$BINARY_DST" 2>/dev/null)"
+    echo_error "目标目录: $(ls -ld /usr/local/bin/ 2>/dev/null)"
+    echo_error "当前用户: $(id)"
+    echo_error "提示: 如使用安全防护工具，请将 $BINARY_DST 加入工具白名单后重试"
+    echo_error "建议: 手动执行 mv $BINARY_SRC $BINARY_DST 查看详细错误"
+    rm -f "$BINARY_SRC"
+    exit 1
+fi
+
+chmod +x "$BINARY_DST"
 
 # 创建工作目录
 mkdir -p /opt/sslctl/{logs,backup,certs}
 
-# 写入 release_url 到配置文件
+# 写入配置文件
 CONFIG_FILE="/opt/sslctl/config.json"
 if [ -f "$CONFIG_FILE" ]; then
     # 配置已存在，合并 release_url（不覆盖其他字段）

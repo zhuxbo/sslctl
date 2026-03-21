@@ -5,11 +5,13 @@
 ### 一键安装
 
 ```bash
-# Linux
-curl -fsSL https://example.com/install.sh | sudo bash
+# Linux（参数传域名，脚本自动拼接 https://<host>/sslctl）
+curl -fsSL https://example.com/sslctl/install.sh | sudo bash -s -- example.com
 
 # Windows (PowerShell)
-irm https://example.com/install.ps1 | iex
+.\install.ps1 -ReleaseHost example.com
+# 管道模式
+$env:SSLCTL_RELEASE_URL="https://example.com/sslctl"; irm https://example.com/sslctl/install.ps1 | iex
 ```
 
 ### 手动安装
@@ -286,7 +288,7 @@ sslctl                    Manager API                    CA
 - **systemd 安全加固**：NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单
 - **日志轮转**：自动清理旧日志文件（保留 30 天/10 个）
 - **重试限制**：CSR 签发重试次数上限（10 次）
-- **私钥保护**：本地私钥模式下，新私钥先保存到临时位置，签发成功后再替换
+- **私钥保护**：本机提交下，新私钥先保存到临时位置，签发成功后再替换
 - **环境变量**：支持通过环境变量配置敏感信息（优先级高于配置文件）
 
 ---
@@ -372,8 +374,8 @@ sslctl                    Manager API                    CA
 
 | 模式 | 说明 | 时间限制 | 默认值 |
 |------|------|----------|--------|
-| `local` | 本地私钥模式，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
-| `pull` | 拉取模式，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
+| `local` | 本机提交，本地生成私钥和 CSR | `renew_before_days >= 15` | 15 天 |
+| `pull` | 自动签发，从服务端拉取已签发证书 | `renew_before_days <= 13` | 13 天 |
 
 ### 配置级别
 
@@ -386,7 +388,7 @@ sslctl                    Manager API                    CA
 ### 命令行启用
 
 ```bash
-# 一键部署时启用本地私钥模式
+# 一键部署时启用本机提交
 sslctl setup --url <url> --token <token> --order <id> --local-key
 ```
 
@@ -401,7 +403,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 }
 ```
 
-### 本地私钥模式流程
+### 本机提交流程
 
 ```
 定时任务 → NeedsRenewal() == true
@@ -419,7 +421,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 
 关键方法：`issuer.CheckAndIssue()`
 
-### 拉取模式流程
+### 自动签发流程
 
 ```
 定时任务 → NeedsRenewal() == true
@@ -442,7 +444,7 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 
 1. **两种模式都保存 order_id** - 用于后续查询和重签
 2. **通过 order_id 查询** - 优先使用 `QueryOrder(order_id)`
-3. **本地私钥模式 POST 带 order_id** - `Update(order_id, csr)` 用于重签/续费
+3. **本机提交 POST 带 order_id** - `Update(order_id, csr)` 用于重签/续费
 4. **首次部署用域名查询** - `Query(domain)` 获取初始 order_id
 
 ### 验证方法校验
@@ -456,3 +458,59 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 | IP 地址 | ✅ | ❌ 报错 |
 
 **注意**：不兼容时直接报错，不自动切换验证方式。校验函数位于 `pkg/config/base.go`
+
+---
+
+## 集成测试
+
+覆盖证书获取、更新、部署、回调、续签等核心业务流，并提供可控的写入型测试开关，避免误操作生产数据。
+
+### 环境配置
+
+在仓库根目录维护 `.env` 文件（已加入 `.gitignore`），集成测试会自动加载。
+
+必填变量：
+- `TEST_API_URL`：部署 API 地址（例：`https://xxx/api/deploy`）
+- `TEST_API_TOKEN`：部署 Token
+- `TEST_API_DOMAIN`：用于校验的域名（例：`*.example.com`）
+
+可选变量（写入型测试）：
+- `TEST_API_ALLOW_WRITE=1`：允许调用更新接口
+- `TEST_API_METHOD=http`：更新时的验证方式（默认 `http`）
+- `TEST_API_DOMAINS`：更新时提交的域名列表（逗号分隔）
+- `TEST_API_ALLOW_CALLBACK=1`：允许回调接口测试
+
+### 覆盖的业务流
+
+只读/安全测试（默认执行）：
+- 获取证书信息（Info）
+- 按域名查询（Query）
+- 按订单号查询（QueryOrder）
+- API 响应解析与字段格式校验
+- 本地部署写入与权限校验
+- 备份/回滚路径校验
+- 扫描站点配置
+- 续签流程（自动签发、本机提交）
+
+写入型测试（需显式打开开关）：
+- 更新/续费（Update + CSR 生成）
+- 回调通知（CallbackNew）
+
+### 运行方式
+
+```bash
+# 运行全部测试（包含集成测试，默认跳过写入型）
+go test ./...
+
+# 仅运行证书相关集成测试（只读）
+go test ./pkg/certops -run TestIntegration
+
+# 启用写入型集成测试（Update/Callback）
+TEST_API_ALLOW_WRITE=1 TEST_API_ALLOW_CALLBACK=1 go test ./pkg/certops -run TestIntegration
+```
+
+### 风险控制
+
+- 写入型测试必须显式设置 `TEST_API_ALLOW_WRITE=1`，否则自动跳过
+- 回调测试需额外设置 `TEST_API_ALLOW_CALLBACK=1`
+- 不建议在生产环境执行写入型测试

@@ -127,10 +127,10 @@ test_setup_server_type() {
     return 1
 }
 
-# TC-SETUP-03: 本地私钥模式
+# TC-SETUP-03: 本机提交
 test_setup_local_key() {
     local test_id="TC-SETUP-03"
-    local test_name="本地私钥模式"
+    local test_name="本机提交"
 
     log_step "运行 $test_id: $test_name"
 

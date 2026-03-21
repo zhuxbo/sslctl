@@ -78,17 +78,18 @@ sslctl uninstall                                 # 卸载
 统一配置文件：`/opt/sslctl/config.json`
 
 - API 配置在**证书级别**（每个证书独立的 `api` 字段），不再有全局 API
-- `release_url`：升级发布地址（由 install.sh/install.ps1 安装时写入，升级模块从此读取，未配置时升级命令报错）
+- `release_url`：升级发布地址（安装时从参数自动生成并写入，未传参则留空；升级模块从此读取，未配置时交互提示输入）
 
 证书存储目录：`/opt/sslctl/certs/{server_name}/`
 
 ## 环境变量
 
-| 变量                      | 说明                             |
-|---------------------------|----------------------------------|
-| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）  |
-| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）    |
-| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出  |
+| 变量                 | 说明                                              |
+| -------------------- | ------------------------------------------------- |
+| `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://） |
+| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）              |
+| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）                |
+| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出                   |
 
 ## 测试
 
@@ -127,10 +128,10 @@ docker/test/
 
 ## 续签模式
 
-| 模式    | 说明           | 启用方式                 |
-|---------|----------------|--------------------------|
-| `local` | 本地私钥模式   | `--local-key` 或配置文件 |
-| `pull`  | 拉取模式（默认）| 默认行为                 |
+| 模式    | 说明             | 启用方式                 |
+| ------- | ---------------- | ------------------------ |
+| `local` | 本机提交         | `--local-key` 或配置文件 |
+| `pull`  | 自动签发（默认） | 默认行为                 |
 
 详见 `skills/deploy-ops/SKILL.md`
 
@@ -156,7 +157,7 @@ docker/test/
 - 文件操作安全（符号链接防护、TOCTOU 保护、AtomicWrite O_EXCL 防护）
 - 备份源文件符号链接检查（`pkg/backup` computeFileHash 拒绝符号链接）
 - 备份恢复安全（Restore 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份；`siteName`/`timestamp` 路径穿越防护）
-- 配置并发安全（深拷贝 + 双重锁 + mtime 检测外部修改）
+- 配置并发安全（深拷贝 + 双重锁 + mtime + SHA256 哈希检测外部修改）
 - 配置保存符号链接防护（saveLocked 拒绝写入符号链接目标）
 - 日志敏感信息过滤（私钥、Bearer Token、Basic Auth、JSON 敏感字段含复合词匹配、URL 参数）
 - 日志记录器并发安全（`minLevel`/`jsonMode` 使用 `atomic` 类型，`SetLevel`/`SetJSONMode` 线程安全）
@@ -173,7 +174,8 @@ docker/test/
 - 升级安装符号链接防护（`copyFile` 写入前检查目标路径，拒绝覆盖符号链接）
 - 升级签名密钥轮换（密钥不匹配时提示用 `install.sh` 重装；`ErrKeyNotFound`/`ErrNoPublicKeys` 统一处理）
 - 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 main/dev，防止路径遍历）
-- systemd 服务安全限制（NoNewPrivileges + ProtectSystem=strict + ReadWritePaths 白名单）
+- systemd 服务安全限制（NoNewPrivileges + ProtectSystem=strict + ProtectHome + PrivateTmp + ProtectKernelTunables/Modules + ReadWritePaths 白名单）
+- 升级安装权限安全（临时文件保持 0600，仅在最终路径设置 0755）
 - 日志 JSON 输出模式（`SSLCTL_LOG_FORMAT=json`，敏感信息过滤在两种模式下均生效）
 - 部署/续签结果 API 回调（`pkg/certops`，非关键路径，失败仅记录日志，状态枚举统一使用 `success`/`failure`/`pending`）
 

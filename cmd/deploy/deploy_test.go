@@ -514,3 +514,91 @@ func TestGetSiteBindingForLocal_DisabledBinding(t *testing.T) {
 		t.Error("binding.Enabled should be false")
 	}
 }
+
+func TestDetectServerType(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		content  string
+		path     string
+		isDocker bool
+		want     string
+	}{
+		{
+			name:    "Apache VirtualHost 关键词",
+			content: "<VirtualHost *:443>\n    ServerName example.com\n</VirtualHost>",
+			want:    config.ServerTypeApache,
+		},
+		{
+			name:    "Apache SSLCertificateFile 关键词",
+			content: "SSLCertificateFile /etc/ssl/cert.crt",
+			want:    config.ServerTypeApache,
+		},
+		{
+			name:    "Nginx server 块关键词",
+			content: "server {\n    listen 443 ssl;\n}",
+			want:    config.ServerTypeNginx,
+		},
+		{
+			name:    "Nginx ssl_certificate 关键词",
+			content: "ssl_certificate /etc/ssl/cert.crt;",
+			want:    config.ServerTypeNginx,
+		},
+		{
+			name:     "Docker + Apache",
+			content:  "<VirtualHost *:80>\n</VirtualHost>",
+			isDocker: true,
+			want:     config.ServerTypeDockerApache,
+		},
+		{
+			name:     "Docker + Nginx",
+			content:  "server {\n    listen 80;\n}",
+			isDocker: true,
+			want:     config.ServerTypeDockerNginx,
+		},
+		{
+			name: "路径包含 apache",
+			path: "/etc/apache2/sites-enabled/default.conf",
+			want: config.ServerTypeApache,
+		},
+		{
+			name: "路径包含 httpd",
+			path: "/etc/httpd/conf.d/ssl.conf",
+			want: config.ServerTypeApache,
+		},
+		{
+			name: "默认为 Nginx",
+			path: "/etc/some/unknown.conf",
+			want: config.ServerTypeNginx,
+		},
+		{
+			name:     "Docker 默认为 Docker Nginx",
+			path:     "/etc/some/unknown.conf",
+			isDocker: true,
+			want:     config.ServerTypeDockerNginx,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			site := &config.ScannedSite{}
+			if tt.isDocker {
+				site.Source = "docker"
+			}
+
+			if tt.content != "" {
+				confPath := filepath.Join(tmpDir, tt.name+".conf")
+				_ = os.WriteFile(confPath, []byte(tt.content), 0644)
+				site.ConfigFile = confPath
+			} else if tt.path != "" {
+				site.ConfigFile = tt.path
+			}
+
+			got := detectServerType(site)
+			if got != tt.want {
+				t.Errorf("detectServerType() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

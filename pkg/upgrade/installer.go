@@ -240,26 +240,28 @@ func installTo(gzData []byte, binPath string) (string, error) {
 		return "", fmt.Errorf("解压后文件大小超过限制 (%d bytes)", maxDownloadSize)
 	}
 
-	// 设置执行权限
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("设置权限失败: %w", err)
-	}
-
 	// 确保目录存在
 	if err := os.MkdirAll(filepath.Dir(binPath), 0755); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
 
-	// 移动文件到目标位置
+	// 移动文件到目标位置（临时文件保持 0600，在最终路径设置权限）
+	// 设计说明：Rename 和 Chmod 非原子，微秒级窗口内二进制为 0600 不可执行。
+	// 这是有意的安全取舍：避免在 /tmp 中出现 0755 的可执行文件。
+	// 若进程在窗口期崩溃，下次升级会覆盖。
 	if err := os.Rename(tmpPath, binPath); err != nil {
-		// 跨文件系统移动，使用复制
+		// 跨文件系统移动，使用复制（copyFile 内部设置 0755 权限）
 		if copyErr := copyFile(tmpPath, binPath); copyErr != nil {
 			_ = os.Remove(tmpPath)
 			return "", copyErr
 		}
 		_ = os.Remove(tmpPath)
+	} else {
+		// Rename 成功后在最终路径设置执行权限
+		if err := os.Chmod(binPath, 0755); err != nil {
+			return "", fmt.Errorf("设置权限失败: %w", err)
+		}
 	}
 
 	return binPath, nil

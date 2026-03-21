@@ -203,9 +203,8 @@ func TestIntegration_FetcherInfo(t *testing.T) {
 	t.Logf("获取到证书信息:")
 	t.Logf("  OrderID: %d", certData.OrderID)
 	t.Logf("  Status: %s", certData.Status)
-	t.Logf("  CommonName: %s", certData.CommonName)
-	t.Logf("  Domain: %s", certData.Domain)
 	t.Logf("  Domains: %s", certData.Domains)
+	t.Logf("  IssuedAt: %s", certData.IssuedAt)
 	t.Logf("  ExpiresAt: %s", certData.ExpiresAt)
 	t.Logf("  HasCert: %v", certData.Cert != "")
 	t.Logf("  HasKey: %v", certData.PrivateKey != "")
@@ -227,12 +226,6 @@ func TestIntegration_DomainMatch(t *testing.T) {
 	}
 
 	candidates := splitDomains(certData.Domains)
-	if certData.Domain != "" {
-		candidates = append(candidates, certData.Domain)
-	}
-	if certData.CommonName != "" {
-		candidates = append(candidates, certData.CommonName)
-	}
 
 	if !containsDomain(candidates, expectDomain) {
 		t.Fatalf("域名不匹配: want %q, got %v", expectDomain, candidates)
@@ -260,12 +253,6 @@ func TestIntegration_QueryByDomain(t *testing.T) {
 	}
 
 	candidates := splitDomains(certData.Domains)
-	if certData.Domain != "" {
-		candidates = append(candidates, certData.Domain)
-	}
-	if certData.CommonName != "" {
-		candidates = append(candidates, certData.CommonName)
-	}
 
 	if !containsDomain(candidates, expectDomain) {
 		t.Fatalf("查询结果域名不匹配: want %q, got %v", expectDomain, candidates)
@@ -326,7 +313,6 @@ func TestIntegration_CallbackNew(t *testing.T) {
 	requireWriteAccess(t)
 	requireCallbackAccess(t)
 	apiURL, token := getTestAPIConfig(t)
-	expectDomain := getTestAPIDomain(t)
 
 	f := fetcher.New(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -341,13 +327,9 @@ func TestIntegration_CallbackNew(t *testing.T) {
 	}
 
 	req := &fetcher.CallbackRequest{
-		OrderID:       infoData.OrderID,
-		Domain:        expectDomain,
-		Status:        "success",
-		DeployedAt:    time.Now().Format(time.RFC3339),
-		CertExpiresAt: infoData.ExpiresAt,
-		ServerType:    "nginx",
-		Message:       "integration test callback",
+		OrderID:    infoData.OrderID,
+		Status:     "success",
+		DeployedAt: time.Now().Format(time.RFC3339),
 	}
 
 	if err := f.CallbackNew(ctx, apiURL, token, req); err != nil {
@@ -386,7 +368,7 @@ func TestIntegration_QueryOrder(t *testing.T) {
 	t.Logf("QueryOrder 返回:")
 	t.Logf("  OrderID: %d", certData.OrderID)
 	t.Logf("  Status: %s", certData.Status)
-	t.Logf("  Domain: %s", certData.Domain)
+	t.Logf("  Domains: %s", certData.Domains)
 
 	// 验证返回的订单 ID 匹配
 	if certData.OrderID != infoData.OrderID {
@@ -420,8 +402,7 @@ func TestIntegration_DeployToLocal(t *testing.T) {
 	}
 
 	t.Logf("准备部署证书:")
-	t.Logf("  Domain: %s", certData.Domain)
-	t.Logf("  CommonName: %s", certData.CommonName)
+	t.Logf("  Domains: %s", certData.Domains)
 	t.Logf("  ExpiresAt: %s", certData.ExpiresAt)
 
 	// 创建临时目录进行部署
@@ -726,7 +707,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 	}
 }
 
-// TestIntegration_PreparePullRenew 测试拉取模式续签
+// TestIntegration_PreparePullRenew 测试自动签发续签
 func TestIntegration_PreparePullRenew(t *testing.T) {
 	apiURL, token := getTestAPIConfig(t)
 
@@ -881,7 +862,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 
 	// API 配置在证书级别设置
 
-	// 设置本地私钥模式
+	// 设置本机提交
 	cfg, _ := cm.Load()
 	cfg.Schedule = config.ScheduleConfig{
 		RenewMode:          config.RenewModeLocal,

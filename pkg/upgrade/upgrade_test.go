@@ -261,7 +261,7 @@ func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
 func TestDownloadVerifyInstall_InvalidChannel(t *testing.T) {
 	// 非法通道应被拒绝（防止路径遍历）
 	info := &ReleaseInfo{}
-	err := downloadVerifyInstall("v1.0.0", "../evil", info, nil, nil, "https://example.com", "curl -fsSL https://example.com/install.sh | sudo bash")
+	err := downloadVerifyInstall("v1.0.0", "../evil", info, nil, nil, "https://example.com", "curl -fsSL https://example.com/sslctl/install.sh | sudo bash -s -- example.com")
 	if err == nil {
 		t.Fatal("expected error for invalid channel")
 	}

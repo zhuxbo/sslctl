@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -25,7 +24,7 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		return nil, fmt.Errorf("获取证书配置失败: %w", err)
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(s.log)
 	if api.URL == "" || api.Token == "" {
 		return nil, fmt.Errorf("证书 %s 的 API 配置不完整", certName)
 	}
@@ -116,33 +115,18 @@ func (s *Service) DeployAllCerts(ctx context.Context) ([]*DeployResult, error) {
 // 非关键路径，失败仅记录日志不影响部署结果
 func (s *Service) sendDeployCallback(ctx context.Context, cert *config.CertConfig, result *DeployResult) {
 	status := "success"
-	msg := ""
 	if !result.Success {
 		status = "failure"
-		if result.Error != nil {
-			msg = result.Error.Error()
-		}
-	}
-
-	// 收集绑定的服务器类型
-	var serverTypes []string
-	for _, b := range cert.Bindings {
-		if b.Enabled && b.ServerType != "" {
-			serverTypes = append(serverTypes, b.ServerType)
-		}
 	}
 
 	callbackReq := &fetcher.CallbackRequest{
 		OrderID:    cert.OrderID,
-		Domain:     strings.Join(cert.Domains, ","),
 		Status:     status,
 		DeployedAt: time.Now().Format(time.RFC3339),
-		ServerType: strings.Join(serverTypes, ","),
-		Message:    msg,
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cert.GetAPI(), callbackReq)
+	s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
 }
 
 // deployToBinding 部署证书到绑定（带备份和回滚）

@@ -37,14 +37,12 @@ type FileChallenge struct {
 type CertData struct {
 	OrderID          int            `json:"order_id"`
 	Status           string         `json:"status"`
-	CommonName       string         `json:"common_name"`
-	Domain           string         `json:"domain,omitempty"`
 	Domains          string         `json:"domains,omitempty"`
-	Cert             string         `json:"certificate"`       // 注意：使用 certificate 而非 cert
-	IntermediateCert string         `json:"ca_certificate"`    // 注意：使用 ca_certificate 而非 intermediate_cert
+	Cert             string         `json:"certificate"`
+	IntermediateCert string         `json:"ca_certificate"`
 	PrivateKey       string         `json:"private_key"`
+	IssuedAt         string         `json:"issued_at,omitempty"`
 	ExpiresAt        string         `json:"expires_at"`
-	CreatedAt        string         `json:"created_at,omitempty"`
 	File             *FileChallenge `json:"file,omitempty"`
 }
 
@@ -69,13 +67,9 @@ type APIResponse struct {
 
 // CallbackRequest 部署回调请求
 type CallbackRequest struct {
-	Domain        string `json:"domain"`
-	Status        string `json:"status"`
-	DeployedAt    string `json:"deployed_at"`
-	CertExpiresAt string `json:"cert_expires_at,omitempty"`
-	CertSerial    string `json:"cert_serial,omitempty"`
-	ServerType    string `json:"server_type,omitempty"`
-	Message       string `json:"message,omitempty"`
+	OrderID    int    `json:"order_id"`
+	Status     string `json:"status"`
+	DeployedAt string `json:"deployed_at"`
 }
 
 // RenewRequest 续签请求
@@ -328,7 +322,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleDeploy 处理部署相关 API
 // GET /api/deploy - 获取订单列表
-// GET /api/deploy?order_id=xxx - 获取指定订单
+// GET /api/deploy?order=xxx - 获取指定订单
 // POST /api/deploy - 续签请求
 func handleDeploy(w http.ResponseWriter, r *http.Request) {
 	// 检查 Authorization
@@ -362,12 +356,12 @@ func handleGetOrders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// 检查是否请求特定订单
-	orderIDStr := r.URL.Query().Get("order_id")
+	orderIDStr := r.URL.Query().Get("order")
 	if orderIDStr != "" {
 		orderID, err := strconv.Atoi(orderIDStr)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Invalid order_id"})
+			_ = json.NewEncoder(w).Encode(APIResponse{Code: 0, Message: "Invalid order"})
 			return
 		}
 
@@ -385,20 +379,26 @@ func handleGetOrders(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(APIResponse{
 				Code:    1,
 				Message: "success",
-				Data:    certData,
+				Data: map[string]interface{}{
+					"total": 1, "currentPage": 1, "pageSize": 100,
+					"data": []interface{}{certData},
+				},
 			})
 		} else {
 			_ = json.NewEncoder(w).Encode(APIResponse{
 				Code:    1,
 				Message: "success",
-				Data:    order,
+				Data: map[string]interface{}{
+					"total": 1, "currentPage": 1, "pageSize": 100,
+					"data": []interface{}{order},
+				},
 			})
 		}
 		return
 	}
 
 	// 返回所有订单列表
-	var orderList []OrderData
+	var orderList []interface{}
 	for _, order := range orders {
 		orderList = append(orderList, *order)
 	}
@@ -406,7 +406,10 @@ func handleGetOrders(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(APIResponse{
 		Code:    1,
 		Message: "success",
-		Data:    orderList,
+		Data: map[string]interface{}{
+			"total": len(orderList), "currentPage": 1, "pageSize": 100,
+			"data": orderList,
+		},
 	})
 }
 
@@ -495,12 +498,9 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	callbacksMutex.Unlock()
 
 	log.Printf("=== Callback received ===")
-	log.Printf("  Domain: %s", req.Domain)
+	log.Printf("  OrderID: %d", req.OrderID)
 	log.Printf("  Status: %s", req.Status)
-	log.Printf("  ServerType: %s", req.ServerType)
 	log.Printf("  DeployedAt: %s", req.DeployedAt)
-	log.Printf("  CertExpiresAt: %s", req.CertExpiresAt)
-	log.Printf("  CertSerial: %s", req.CertSerial)
 	log.Printf("========================")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -657,21 +657,19 @@ func getCertDataWithOrder(cn string, orderID int) CertData {
 	scenario := getScenario()
 	cfg := scenarios[scenario]
 
-	expiresAt := time.Now().Add(cfg.expiresIn).Format(time.RFC3339)
-	createdAt := time.Now().AddDate(0, -1, 0).Format(time.RFC3339)
+	issuedAt := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	expiresAt := time.Now().Add(cfg.expiresIn).Format("2006-01-02")
 
 	// 使用启动时缓存的证书内容
 	return CertData{
 		OrderID:          orderID,
 		Status:           cfg.status,
-		CommonName:       cn,
-		Domain:           cn,
 		Domains:          cn + ",*." + cn,
 		Cert:             cachedCert,
 		IntermediateCert: cachedChain,
 		PrivateKey:       cachedKey,
+		IssuedAt:         issuedAt,
 		ExpiresAt:        expiresAt,
-		CreatedAt:        createdAt,
 	}
 }
 

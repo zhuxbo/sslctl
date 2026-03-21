@@ -129,7 +129,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher, log *logger.Logger) error {
 	fmt.Printf("部署证书: %s\n", cert.CertName)
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(log)
 	if api.URL == "" || api.Token == "" {
 		return fmt.Errorf("证书 %s 的 API 配置不完整，请先运行 setup 命令", cert.CertName)
 	}
@@ -328,7 +328,7 @@ func findSiteForBinding(cfgManager *config.ConfigManager, siteName string) (*con
 // 需要先写入证书文件，否则 nginx -t / apachectl -t 会失败
 func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *config.SiteBinding, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher) error {
 	// 获取证书数据
-	api := cert.GetAPI()
+	api := cert.GetAPI(nil)
 	if api.URL == "" || api.Token == "" {
 		return fmt.Errorf("证书 API 配置不完整")
 	}

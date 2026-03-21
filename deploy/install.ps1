@@ -1,8 +1,8 @@
 # sslctl Windows 安装脚本
 # 自动检测架构，下载部署工具
 # 使用方法:
-#   直接执行: .\install.ps1 [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
-#   管道模式: irm https://release.example.com/sslctl/install.ps1 | iex
+#   直接执行: .\install.ps1 -ReleaseHost release.example.com [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
+#   管道模式: $env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://release.example.com/sslctl/install.ps1 | iex
 #
 # 服务端要求:
 #   管道模式依赖服务端返回 Content-Type: text/plain; charset=utf-8，
@@ -14,6 +14,7 @@
 #     }
 
 param(
+    [string]$ReleaseHost,
     [switch]$Dev,
     [switch]$Stable,
     [string]$Version,
@@ -37,7 +38,10 @@ function Write-Err { param($msg) Write-Host "[ERROR] $msg" -ForegroundColor Red 
 
 # 帮助信息
 if ($Help) {
-    Write-Host "用法: install.ps1 [选项]"
+    Write-Host "用法: .\install.ps1 [-ReleaseHost <host>] [选项]"
+    Write-Host ""
+    Write-Host "参数:"
+    Write-Host "  -ReleaseHost   升级服务器（域名或域名+路径，默认 release.cnssl.com）"
     Write-Host ""
     Write-Host "选项:"
     Write-Host "  -Dev          安装测试版（dev 通道）"
@@ -47,25 +51,28 @@ if ($Help) {
     Write-Host "  -Help         显示此帮助信息"
     Write-Host ""
     Write-Host "示例:"
-    Write-Host "  .\install.ps1                              # 安装最新稳定版"
-    Write-Host "  .\install.ps1 -Dev                         # 安装最新测试版"
-    Write-Host "  .\install.ps1 -Version 1.0.0               # 安装指定版本"
-    Write-Host "  .\install.ps1 -Dev -Version 1.0.1-dev      # 安装指定测试版"
-    Write-Host "  .\install.ps1 -Force                       # 强制重新安装"
+    Write-Host "  .\install.ps1 -ReleaseHost release.example.com              # 安装最新稳定版"
+    Write-Host "  .\install.ps1 -ReleaseHost release.example.com -Dev         # 安装最新测试版"
+    Write-Host "  .\install.ps1 -ReleaseHost release.example.com -Version 1.0.0  # 安装指定版本"
+    Write-Host "  .\install.ps1 -ReleaseHost cdn.example.com/mirror           # 多层目录"
     Write-Host ""
-    Write-Host "管道模式 (irm ... | iex) 不支持参数，默认安装最新稳定版。"
+    Write-Host "管道模式 (irm ... | iex) 通过环境变量指定完整 URL："
+    Write-Host "  `$env:SSLCTL_RELEASE_URL='https://release.example.com/sslctl'; irm ... | iex"
     exit 0
 }
 
-# Release 服务器（由发布脚本自动替换，与 Linux 保持一致）
-$ReleaseUrl = "__RELEASE_URL__"
-# 去掉末尾斜杠，避免拼接出错
-$ReleaseUrl = $ReleaseUrl.TrimEnd("/")
+# 内置回落地址（未传参时使用此默认值）
+$FallbackHost = "release.cnssl.com"
 
-# 检测占位符未被替换（直接运行源码中的脚本）
-if (-not $ReleaseUrl.StartsWith("https://")) {
-    Write-Err "安装脚本未正确配置，请从官方渠道下载安装脚本"
-    exit 1
+# 构建升级地址（优先级：-ReleaseHost 参数 > 环境变量 > 回落）
+if ($ReleaseHost) {
+    $ReleaseHost = $ReleaseHost.TrimEnd("/")
+    $ReleaseUrl = "https://$ReleaseHost/sslctl"
+} elseif ($env:SSLCTL_RELEASE_URL) {
+    $ReleaseUrl = $env:SSLCTL_RELEASE_URL.TrimEnd("/")
+} else {
+    $ReleaseUrl = "https://$FallbackHost/sslctl"
+    Write-Warn "未指定升级服务器，使用默认地址: $ReleaseUrl"
 }
 
 # --- 辅助函数 ---
@@ -238,12 +245,29 @@ try {
     }
 } catch {}
 
+# 创建安装目录
+$InstallDir = "C:\sslctl"
+if (-not (Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+
+# 创建工作目录
+$WorkDir = "C:\sslctl"
+foreach ($dir in @("sites", "logs", "backup", "certs")) {
+    $path = Join-Path $WorkDir $dir
+    if (-not (Test-Path $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
+}
+
+$ExePath = "$InstallDir\sslctl.exe"
+
 # 获取目标版本
 Write-Info "获取目标版本..."
 $targetInfo = Get-TargetVersion -BaseUrl $ReleaseUrl -RequestedVersion $Version -UseDev:$Dev -UseStable:$Stable
 
 if (-not $targetInfo) {
-    Write-Err "无法获取版本信息"
+    Write-Err "无法获取版本信息: $ReleaseUrl/releases.json"
     exit 1
 }
 
@@ -271,21 +295,6 @@ if ($CurrentVersion) {
         }
     } else {
         Write-Info "升级: $CurrentVersion -> $TargetVersion"
-    }
-}
-
-# 创建安装目录
-$InstallDir = "C:\sslctl"
-if (-not (Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-}
-
-# 创建工作目录
-$WorkDir = "C:\sslctl"
-foreach ($dir in @("sites", "logs", "backup", "certs")) {
-    $path = Join-Path $WorkDir $dir
-    if (-not (Test-Path $path)) {
-        New-Item -ItemType Directory -Path $path -Force | Out-Null
     }
 }
 
@@ -332,7 +341,6 @@ if (-not $checksumOk) {
 Write-Info "安装中..."
 Add-Type -AssemblyName System.IO.Compression
 
-$ExePath = "$InstallDir\sslctl.exe"
 $inStream = [System.IO.File]::OpenRead($TempFile)
 $gzipStream = New-Object System.IO.Compression.GzipStream($inStream, [System.IO.Compression.CompressionMode]::Decompress)
 $outStream = [System.IO.File]::Create($ExePath)
@@ -348,7 +356,7 @@ try {
 # 清理临时文件
 Remove-Item $TempFile -Force -ErrorAction SilentlyContinue
 
-# 写入 release_url 到配置文件（解析失败不覆盖原文件）
+# 写入配置文件
 $ConfigFile = Join-Path $WorkDir "config.json"
 if (Test-Path $ConfigFile) {
     try {

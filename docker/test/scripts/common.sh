@@ -473,7 +473,7 @@ EOF
 |---------|----------|----------|
 | TC-SETUP-01 | Nginx 一键部署 | \`setup --url --token --order --yes\` |
 | TC-SETUP-02 | Apache 一键部署 | 同上，Apache 容器 |
-| TC-SETUP-03 | 本地私钥模式 | \`--local-key\` 参数 |
+| TC-SETUP-03 | 本机提交 | \`--local-key\` 参数 |
 | TC-SETUP-04 | 跳过服务安装 | \`--no-service\` 参数 |
 | TC-SETUP-05 | API 错误处理 | Mock 返回错误码 |
 | TC-SETUP-06 | 证书未就绪 | Mock 返回 processing |

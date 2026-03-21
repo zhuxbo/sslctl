@@ -487,25 +487,13 @@ upload_to_server() {
         fi
     done
 
-    # 校验 URL 不含 sed 分隔符，防止替换异常
-    if [[ "$SERVER_URL" == *"|"* ]]; then
-        log_error "SERVER_URL 包含非法字符 '|': $SERVER_NAME"
-        return 1
-    fi
-
-    # 上传 install.sh（替换占位符为实际发布地址）
+    # 上传 install.sh（通用脚本，用户通过参数传入域名）
     log_info "上传 install.sh..."
-    local tmp_install=$(mktemp)
-    sed "s|__RELEASE_URL__|$SERVER_URL|g" "$PROJECT_ROOT/deploy/install.sh" > "$tmp_install"
-    rsync_cmd "$tmp_install" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/install.sh"
-    rm -f "$tmp_install"
+    rsync_cmd "$PROJECT_ROOT/deploy/install.sh" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/install.sh"
 
-    # 上传 install.ps1（替换占位符为实际发布地址）
+    # 上传 install.ps1
     log_info "上传 install.ps1..."
-    local tmp_install_ps1=$(mktemp)
-    sed "s|__RELEASE_URL__|$SERVER_URL|g" "$PROJECT_ROOT/deploy/install.ps1" > "$tmp_install_ps1"
-    rsync_cmd "$tmp_install_ps1" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/install.ps1"
-    rm -f "$tmp_install_ps1"
+    rsync_cmd "$PROJECT_ROOT/deploy/install.ps1" "$SERVER_HOST" "$SERVER_PORT" "$SERVER_DIR/install.ps1"
 
     # 更新校验和和签名
     log_info "更新校验和和签名..."

@@ -40,7 +40,7 @@ func Run(args []string, debug bool) {
 	apiURL := fs.String("url", "", "证书 API 基础地址")
 	token := fs.String("token", "", "API 认证 Token")
 	order := fs.String("order", "", "订单 ID 或批量查询（支持 ID/域名/逗号分隔混合，不传则查询全部）")
-	localKey := fs.Bool("local-key", false, "使用本地私钥模式")
+	localKey := fs.Bool("local-key", false, "使用本机提交")
 	yes := fs.Bool("yes", false, "跳过确认提示")
 	noService := fs.Bool("no-service", false, "不安装守护服务")
 

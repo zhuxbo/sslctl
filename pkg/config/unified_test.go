@@ -299,7 +299,7 @@ func TestCertConfig_GetAPI_EnvOverride(t *testing.T) {
 		},
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(nil)
 
 	// 环境变量应该覆盖证书配置
 	if api.Token != envToken {
@@ -324,7 +324,7 @@ func TestCertConfig_GetAPI_NoEnv(t *testing.T) {
 		},
 	}
 
-	api := cert.GetAPI()
+	api := cert.GetAPI(nil)
 	if api.URL != "https://cert-api.com" {
 		t.Errorf("API.URL = %s, want https://cert-api.com", api.URL)
 	}
@@ -666,7 +666,7 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 	}
 }
 
-// TestCertConfig_NeedsRenewal_LocalMode 测试本地私钥模式的续签判断
+// TestCertConfig_NeedsRenewal_LocalMode 测试本机提交的续签判断
 func TestCertConfig_NeedsRenewal_LocalMode(t *testing.T) {
 	tests := []struct {
 		name           string

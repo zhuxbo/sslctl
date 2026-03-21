@@ -498,10 +498,16 @@ func resolveReleaseURL(cfgManager *config.ConfigManager, cfg *config.Config) (st
 
 	// 非交互环境无法安全提示输入
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("未配置升级地址，请在交互终端中运行并输入升级地址")
+		return "", fmt.Errorf("未配置升级地址（release_url），请使用安装脚本升级或在交互终端中运行 sslctl upgrade 输入地址")
 	}
 
-	fmt.Fprint(os.Stderr, "未配置升级地址，请输入升级地址: ")
+	fmt.Fprintln(os.Stderr, "未配置升级地址（release_url）。")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "地址格式示例: https://release.example.com/sslctl")
+	fmt.Fprintln(os.Stderr, "也可通过安装脚本直接升级:")
+	fmt.Fprintln(os.Stderr, "  curl -fsSL https://<host>/sslctl/install.sh | sudo bash -s -- <host>")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprint(os.Stderr, "请输入升级地址: ")
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
