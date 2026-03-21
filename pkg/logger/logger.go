@@ -190,7 +190,9 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 				// 成功打开新文件，关闭旧文件
 				_ = oldFile.Close()
 				// 日期切换时清理旧日志
-				l.cleanOldLogs()
+				if err := l.cleanOldLogs(); err != nil {
+					fmt.Fprintf(os.Stderr, "[WARN] %v\n", err)
+				}
 			}
 		}
 	} else if l.logDir != "" {
@@ -302,12 +304,14 @@ func NewNopLogger() *Logger {
 	return l
 }
 
-// cleanOldLogs 清理旧日志文件
-func (l *Logger) cleanOldLogs() {
+// cleanOldLogs 清理旧日志文件，返回清理过程中遇到的第一个错误
+// 设计说明：仅返回首个错误（后续错误通常同因），调用方用 stderr 输出（避免日志轮转时递归调用 logger）。
+// 删除失败的文件会在下次轮转时重试。
+func (l *Logger) cleanOldLogs() error {
 	pattern := filepath.Join(l.logDir, l.name+"-*.log")
 	files, err := filepath.Glob(pattern)
 	if err != nil || len(files) < MaxLogBackups {
-		return
+		return nil
 	}
 
 	// 获取文件信息并按修改时间排序（最新在前）
@@ -329,10 +333,11 @@ func (l *Logger) cleanOldLogs() {
 	})
 
 	// 删除超出保留数量的旧文件
+	var firstErr error
 	for i := MaxLogBackups; i < len(fileInfos); i++ {
-		if err := os.Remove(fileInfos[i].path); err != nil {
-			// 记录清理失败，避免磁盘空间泄漏被忽视
-			fmt.Fprintf(os.Stderr, "[LOG CLEANUP ERROR] 清理旧日志失败 %s: %v\n", fileInfos[i].path, err)
+		if err := os.Remove(fileInfos[i].path); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("清理旧日志失败 %s: %w", fileInfos[i].path, err)
 		}
 	}
+	return firstErr
 }

@@ -87,9 +87,9 @@ RUN mkdir -p /etc/apache2/ssl 2>/dev/null || \
     mkdir -p /etc/httpd/ssl 2>/dev/null || \
     true
 
-# 生成初始自签名证书
+# 生成初始自签名证书（10 年有效期，避免镜像长期存储后证书过期导致测试失败）
 RUN SSL_DIR=$([ -d /etc/apache2 ] && echo "/etc/apache2/ssl" || echo "/etc/httpd/ssl") && \
-    openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout ${SSL_DIR}/default.key \
         -out ${SSL_DIR}/default.crt \
         -subj "/CN=test.example.com/O=Test/C=CN"

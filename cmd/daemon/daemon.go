@@ -102,7 +102,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 			// 取消 context，通知正在运行的任务停止
 			cancel()
 
-			// 等待任务完成（最多等待 30 秒）
+			// 等待任务完成（最多等待 60 秒）
+			// TODO: 改为可配置的超时值，大量站点场景可能需要更长时间
 			done := make(chan struct{})
 			go func() {
 				wg.Wait()
@@ -112,8 +113,8 @@ func Run(args []string, version, buildTime string, debug bool) {
 			select {
 			case <-done:
 				log.Info("所有任务已完成，退出")
-			case <-time.After(30 * time.Second):
-				log.Warn("等待任务完成超时，强制退出")
+			case <-time.After(60 * time.Second):
+				log.Warn("等待任务完成超时（60s），强制退出")
 			}
 			return
 		}

@@ -2,7 +2,7 @@
 package config
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"time"
 
@@ -37,19 +37,20 @@ type CertConfig struct {
 }
 
 // GetAPI 获取 API 配置（环境变量优先覆盖所有证书）
+// TODO: 改为接受 *logger.Logger 参数，使用项目 logger 输出 WARN 级别日志（支持 JSON 格式和级别过滤）
 func (c *CertConfig) GetAPI() APIConfig {
 	api := c.API
 
 	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
 		if err := validateToken(envToken); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIToken, err)
+			fmt.Fprintf(os.Stderr, "[WARN] 环境变量 %s 校验失败: %v，使用证书配置\n", EnvAPIToken, err)
 		} else {
 			api.Token = envToken
 		}
 	}
 	if envURL := os.Getenv(EnvAPIURL); envURL != "" {
 		if err := validateAPIURL(envURL); err != nil {
-			log.Printf("[config] 环境变量 %s 校验失败: %v，使用证书配置", EnvAPIURL, err)
+			fmt.Fprintf(os.Stderr, "[WARN] 环境变量 %s 校验失败: %v，使用证书配置\n", EnvAPIURL, err)
 		} else {
 			api.URL = envURL
 		}

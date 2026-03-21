@@ -80,8 +80,8 @@ RUN mkdir -p \
     /opt/sslctl/certs \
     /reports
 
-# 生成初始自签名证书
-RUN openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+# 生成初始自签名证书（10 年有效期，避免镜像长期存储后证书过期导致测试失败）
+RUN openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/default.key \
     -out /etc/nginx/ssl/default.crt \
     -subj "/CN=test.example.com/O=Test/C=CN"

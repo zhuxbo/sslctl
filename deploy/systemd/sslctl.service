@@ -21,6 +21,11 @@ StandardError=journal
 # 安全限制
 NoNewPrivileges=true
 ProtectSystem=strict
+ProtectHome=yes
+# 设计说明：PrivateTmp 使 daemon 进程的 /tmp 隔离。升级操作通过独立的 sslctl upgrade 命令运行，不受影响。
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
 ReadWritePaths=/opt/sslctl
 ReadWritePaths=-/etc/nginx
 ReadWritePaths=-/etc/apache2

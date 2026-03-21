@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
-	"strings"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/errors"
@@ -31,12 +32,12 @@ type RetryConfig struct {
 	Multiplier  float64       // 退避乘数
 }
 
-// DefaultRetryConfig 默认重试配置（线性退避：1s, 2s, 3s）
+// DefaultRetryConfig 默认重试配置（指数退避：1s, 2s, 4s）
 var DefaultRetryConfig = RetryConfig{
 	MaxRetries:  3,
 	InitialWait: 1 * time.Second,
-	MaxWait:     3 * time.Second,
-	Multiplier:  1.0,
+	MaxWait:     10 * time.Second,
+	Multiplier:  2.0,
 }
 
 type FileChallenge struct {
@@ -322,8 +323,18 @@ func (f *Fetcher) doWithRetry(ctx context.Context, newRequest func() (*http.Requ
 			break
 		}
 
-		// 线性退避：1s, 2s, 3s（attempt 从 0 开始）
-		sleepTime := f.retryConfig.InitialWait + time.Duration(attempt)*time.Second
+		// 指数退避 + 抖动：InitialWait * Multiplier^attempt * (0.75~1.25)
+		multiplier := f.retryConfig.Multiplier
+		if multiplier < 1.0 {
+			multiplier = 2.0
+		}
+		wait := float64(f.retryConfig.InitialWait)
+		for i := 0; i < attempt; i++ {
+			wait *= multiplier
+		}
+		// ±25% 随机抖动，防止多实例同时重试的惊群效应
+		jitter := 0.75 + rand.Float64()*0.5 // [0.75, 1.25)
+		sleepTime := time.Duration(wait * jitter)
 		if sleepTime > f.retryConfig.MaxWait {
 			sleepTime = f.retryConfig.MaxWait
 		}

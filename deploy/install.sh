@@ -180,8 +180,9 @@ get_target_version() {
     fi
 
     # 获取最新版本
+    # TODO: 超时值改为可通过 SSLCTL_TIMEOUT 环境变量配置
     local json
-    json=$(curl -s --connect-timeout 10 "$RELEASE_URL/releases.json" 2>/dev/null)
+    json=$(curl -s --connect-timeout 30 "$RELEASE_URL/releases.json" 2>/dev/null)
     if [ -z "$json" ]; then
         echo ""
         return
@@ -270,7 +271,7 @@ fi
 # SHA256 校验（从 versions.$VERSION.checksums.$FILENAME 精确提取）
 EXPECTED_HASH=""
 if command -v python3 >/dev/null 2>&1; then
-    EXPECTED_HASH=$(curl -s --connect-timeout 10 "$RELEASE_URL/releases.json" 2>/dev/null | \
+    EXPECTED_HASH=$(curl -s --connect-timeout 30 "$RELEASE_URL/releases.json" 2>/dev/null | \
         python3 -c "
 import sys, json
 try:

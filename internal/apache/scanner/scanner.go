@@ -25,6 +25,8 @@ var (
 const maxTagDepth = 32
 
 // maxScanFiles 扫描文件数上限，防止恶意 Include 导致资源耗尽
+// 设计说明：Include 递归深度通过 scannedFiles 去重 + maxScanFiles 间接限制，无需显式深度计数。
+// TODO: 补充 Include 递归深度的回归测试用例
 const maxScanFiles = 1000
 
 // maxConfigFileSize 配置文件大小上限（10MB）

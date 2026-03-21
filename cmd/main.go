@@ -1,5 +1,6 @@
 // sslctl - SSL 证书自动部署工具
 // 支持 Nginx、Apache
+// TODO: cmd 包测试覆盖率 9.5%，需补充命令行参数解析和子命令集成测试（目标 25%+）
 package main
 
 import (

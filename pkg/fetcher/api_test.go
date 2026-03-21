@@ -893,8 +893,11 @@ func TestDefaultRetryConfig(t *testing.T) {
 	if DefaultRetryConfig.InitialWait != 1*time.Second {
 		t.Errorf("InitialWait = %v, want 1s", DefaultRetryConfig.InitialWait)
 	}
-	if DefaultRetryConfig.MaxWait != 3*time.Second {
-		t.Errorf("MaxWait = %v, want 3s", DefaultRetryConfig.MaxWait)
+	if DefaultRetryConfig.MaxWait != 10*time.Second {
+		t.Errorf("MaxWait = %v, want 10s", DefaultRetryConfig.MaxWait)
+	}
+	if DefaultRetryConfig.Multiplier != 2.0 {
+		t.Errorf("Multiplier = %v, want 2.0", DefaultRetryConfig.Multiplier)
 	}
 }
 

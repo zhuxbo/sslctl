@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,7 +27,8 @@ type ConfigManager struct {
 	backupDir  string
 	mu         sync.RWMutex
 	config     *Config
-	cachedAt   time.Time // 缓存加载时间，用于 mtime 检测
+	cachedAt   time.Time    // 缓存加载时间，用于 mtime 检测
+	cachedHash [sha256.Size]byte // 缓存内容哈希，防止 NFS/VM 环境 mtime 不准
 }
 
 // NewConfigManager 创建统一配置管理器
@@ -187,9 +189,19 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 				Certificates: []CertConfig{},
 			}
 			cm.cachedAt = time.Now()
+			cm.cachedHash = sha256.Sum256(nil)
 			return cm.config, nil
 		}
 		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+
+	// 计算内容哈希，防止 mtime 变更但内容未变时不必要的重新加载
+	// 设计说明：mtime 变更时仍需 ReadFile（无法避免 I/O），但哈希匹配时跳过 JSON 解析。
+	// 此检查仅在 mtime 触发重新加载时生效，正常缓存命中不涉及文件读取。
+	hash := sha256.Sum256(data)
+	if cm.cachedHash == hash && cm.config != nil {
+		cm.cachedAt = time.Now()
+		return cm.config, nil
 	}
 
 	var cfg Config
@@ -199,6 +211,7 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 
 	cm.config = &cfg
 	cm.cachedAt = time.Now()
+	cm.cachedHash = hash
 
 	return cm.config, nil
 }
