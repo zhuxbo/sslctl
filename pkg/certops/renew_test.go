@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -524,6 +525,59 @@ func TestCheckAndRenewAll_CertNotNeedRenewal(t *testing.T) {
 	// 证书不需要续签，不应有结果
 	if len(results) != 0 {
 		t.Errorf("有效期充足的证书不应有续签结果，实际: %d", len(results))
+	}
+}
+
+// TestCheckAndRenewAll_ContextCancelDuringDelay 测试 context 取消时中断证书间延迟
+func TestCheckAndRenewAll_ContextCancelDuringDelay(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	// 添加两个需要续期的证书，使用不可达的 API 地址
+	// 第一个证书的 API 请求会快速失败，设置 needsDelay=true
+	// 第二个证书处理前的延迟应被 context 取消中断
+	for i, name := range []string{"cert-a", "cert-b"} {
+		cert := &config.CertConfig{
+			CertName: name,
+			OrderID:  1000 + i,
+			Enabled:  true,
+			Domains:  []string{name + ".example.com"},
+			API:      config.APIConfig{URL: "http://127.0.0.1:1", Token: "test-token"},
+			Metadata: config.CertMetadata{
+				CertExpiresAt: time.Now().Add(3 * 24 * time.Hour), // 3 天后过期，需要续期
+			},
+		}
+		_ = cm.AddCert(cert)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 使用极短超时：第一个证书 API 失败后，延迟期间 context 应超时
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	results, err := svc.CheckAndRenewAll(ctx)
+	elapsed := time.Since(start)
+
+	// 应返回 context 超时错误
+	if err == nil {
+		t.Fatal("预期 context 超时错误，实际无错误")
+	}
+
+	// 第一个证书应有结果（API 失败）
+	if len(results) < 1 {
+		t.Errorf("预期至少 1 个结果，实际: %d", len(results))
+	}
+
+	// 不应等待完整的 30 秒延迟
+	if elapsed > 15*time.Second {
+		t.Errorf("context 取消应中断延迟，实际耗时: %v", elapsed)
 	}
 }
 

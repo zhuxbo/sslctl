@@ -135,6 +135,7 @@ docker/test/
 
 - 两种模式统一：`renew_before_days` 最大 13 天，默认 13 天
 - 定时检查：每天一次，随机选择明天的某个时间点执行
+- 多证书续签间隔：每个证书处理后随机延迟 30~90 秒，分散 API 请求压力
 
 详见 `skills/deploy-ops/SKILL.md`
 

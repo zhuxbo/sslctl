@@ -4,6 +4,7 @@ package certops
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,8 +34,23 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 	}
 
 	var results []*RenewResult
+	var needsDelay bool // 上一轮是否发起了 API 请求，需要延迟
 
 	for i := range cfg.Certificates {
+		// 上一轮处理了证书（发起过 API 请求），随机延迟后再继续
+		if needsDelay {
+			delay := time.Duration(30+rand.IntN(61)) * time.Second
+			s.log.Debug("等待 %d 秒后处理下一个证书...", int(delay.Seconds()))
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return results, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		needsDelay = false
+
 		// 使用值拷贝而非指针，确保深拷贝保护有效
 		cert := cfg.Certificates[i]
 		if !cert.Enabled {
@@ -53,6 +69,9 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 			s.log.Debug("证书 %s 有效期充足，跳过", cert.CertName)
 			continue
 		}
+
+		// 确认需要续期，将发起 API 请求
+		needsDelay = true
 
 		s.log.Info("证书 %s 需要续期，开始处理...", cert.CertName)
 
