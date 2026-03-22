@@ -262,6 +262,40 @@ func TestCheckExpiry_LoadFail(t *testing.T) {
 	}
 }
 
+// TestCheckExpiry_ExpiredMessage 测试已过期证书输出"已过期 N 天"而非"剩余 -N 天"
+func TestCheckExpiry_ExpiredMessage(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	cfg := &config.Config{
+		Certificates: []config.CertConfig{
+			{
+				CertName: "long-expired",
+				Enabled:  true,
+				Metadata: config.CertMetadata{
+					CertExpiresAt: time.Now().Add(-5 * 24 * time.Hour), // 过期 5 天
+				},
+			},
+		},
+	}
+	writeTestConfig(t, dir, cfg)
+
+	log, readLogs := captureLogger(t, dir)
+	svc := NewService(cm, log)
+	svc.CheckExpiry()
+
+	output := readLogs()
+	if !strings.Contains(output, "已过期") {
+		t.Errorf("应输出'已过期'，实际输出:\n%s", output)
+	}
+	if strings.Contains(output, "剩余 -") {
+		t.Errorf("不应出现'剩余 -'，实际输出:\n%s", output)
+	}
+}
+
 // TestPickKeyPath 测试选择私钥路径
 func TestPickKeyPath(t *testing.T) {
 	tests := []struct {

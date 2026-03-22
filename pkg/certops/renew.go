@@ -26,6 +26,36 @@ const pendingKeyDir = "pending-keys"
 // MaxIssueRetryCount 最大重试次数
 const MaxIssueRetryCount = 10
 
+// MaxRenewBatch 单次续签批量上限（借鉴 sslbt）
+const MaxRenewBatch = 100
+
+// 多证书分散延迟常量（借鉴 sslbt _calc_spread_delay 策略）
+const (
+	SpreadTotalMax = 600 // 总分散延迟上限（秒）
+	SpreadMin      = 5   // 最小延迟（秒）
+	SpreadMax      = 120 // 最大延迟（秒）
+)
+
+// calcSpreadDelay 根据待处理证书数量动态计算延迟范围
+// 少量证书使用较长间隔，大量证书自动缩短以控制总时长
+func calcSpreadDelay(count int) (int, int) {
+	if count <= 1 {
+		return SpreadMin, SpreadMax
+	}
+	sMax := SpreadTotalMax / (count - 1)
+	if sMax > SpreadMax {
+		sMax = SpreadMax
+	}
+	if sMax < SpreadMin {
+		sMax = SpreadMin
+	}
+	sMin := sMax / 4
+	if sMin < SpreadMin {
+		sMin = SpreadMin
+	}
+	return sMin, sMax
+}
+
 // CheckAndRenewAll 检查并续签所有证书
 func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) {
 	cfg, err := s.cfgManager.Load()
@@ -36,10 +66,28 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 	var results []*RenewResult
 	var needsDelay bool // 上一轮是否发起了 API 请求，需要延迟
 
+	// 收集需要处理的证书（续签 + 失败重试），计算动态延迟
+	pendingCount := 0
+	for i := range cfg.Certificates {
+		cert := cfg.Certificates[i]
+		if !cert.Enabled {
+			continue
+		}
+		if cert.NeedsRenewal(&cfg.Schedule) || len(cert.Metadata.FailedBindings) > 0 {
+			pendingCount++
+		}
+	}
+	if pendingCount > MaxRenewBatch {
+		s.log.Warn("待处理证书数 %d 超过批量上限 %d，本次仅处理前 %d 个", pendingCount, MaxRenewBatch, MaxRenewBatch)
+		pendingCount = MaxRenewBatch
+	}
+	spreadMin, spreadMax := calcSpreadDelay(pendingCount)
+
+	processedCount := 0
 	for i := range cfg.Certificates {
 		// 上一轮处理了证书（发起过 API 请求），随机延迟后再继续
 		if needsDelay {
-			delay := time.Duration(30+rand.IntN(61)) * time.Second
+			delay := time.Duration(spreadMin+rand.IntN(spreadMax-spreadMin+1)) * time.Second
 			s.log.Debug("等待 %d 秒后处理下一个证书...", int(delay.Seconds()))
 			timer := time.NewTimer(delay)
 			select {
@@ -64,11 +112,29 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 			continue
 		}
 
+		// 重试失败的绑定（证书有效但部分绑定上次部署失败）
+		if !cert.NeedsRenewal(&cfg.Schedule) && len(cert.Metadata.FailedBindings) > 0 {
+			if processedCount >= MaxRenewBatch {
+				continue
+			}
+			processedCount++
+			needsDelay = true
+			s.log.Info("证书 %s 重试 %d 个失败绑定...", cert.CertName, len(cert.Metadata.FailedBindings))
+			result := s.retryFailedBindings(ctx, &cert, api)
+			results = append(results, result)
+			continue
+		}
+
 		// 检查是否需要续期
 		if !cert.NeedsRenewal(&cfg.Schedule) {
 			s.log.Debug("证书 %s 有效期充足，跳过", cert.CertName)
 			continue
 		}
+
+		if processedCount >= MaxRenewBatch {
+			continue
+		}
+		processedCount++
 
 		// 确认需要续期，将发起 API 请求
 		needsDelay = true
@@ -107,7 +173,7 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		}
 
 		// 部署证书
-		deployCount, deployErr := s.deployCertToBindings(ctx, &cert, certData, privateKey)
+		deployCount, _, deployErr := s.deployCertToBindings(ctx, &cert, certData, privateKey)
 		result.DeployCount = deployCount
 		if deployErr != nil {
 			result.Status = "failure"
@@ -116,11 +182,9 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 			result.Status = "success"
 		}
 
-		// 部分成功时也需持久化元数据（deployCertToBindings 内部已更新 cert 的过期时间等）
-		if deployCount > 0 {
-			if err := s.cfgManager.UpdateCert(&cert); err != nil {
-				s.log.Warn("更新证书元数据失败: %v", err)
-			}
+		// 始终持久化元数据（deployCertToBindings 内部已更新 CertExpiresAt、FailedBindings 等）
+		if err := s.cfgManager.UpdateCert(&cert); err != nil {
+			s.log.Warn("更新证书元数据失败: %v", err)
 		}
 
 		// 发送续签回调（仅在有明确结果时）
@@ -137,6 +201,86 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 	})
 
 	return results, nil
+}
+
+// retryMaxDays 失败绑定重试的最大天数，超过后放弃重试
+const retryMaxDays = 7
+
+// retryFailedBindings 重试上次部署失败的绑定
+// 返回 RenewResult 供上层统计
+func (s *Service) retryFailedBindings(ctx context.Context, cert *config.CertConfig, api config.APIConfig) *RenewResult {
+	result := &RenewResult{
+		CertName: cert.CertName,
+		Mode:     "retry",
+	}
+
+	// 超过重试期限，放弃重试并清空
+	if !cert.Metadata.FailedBindingsAt.IsZero() &&
+		time.Since(cert.Metadata.FailedBindingsAt) > retryMaxDays*24*time.Hour {
+		s.log.Warn("证书 %s 失败绑定重试已超过 %d 天，放弃重试", cert.CertName, retryMaxDays)
+		cert.Metadata.FailedBindings = nil
+		cert.Metadata.FailedBindingsAt = time.Time{}
+		_ = s.cfgManager.UpdateCert(cert)
+		result.Status = "failure"
+		result.Error = fmt.Errorf("failed bindings retry expired after %d days", retryMaxDays)
+		return result
+	}
+
+	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	if err != nil {
+		s.log.Warn("重试失败绑定: 查询证书 %s 失败: %v", cert.CertName, err)
+		result.Status = "failure"
+		result.Error = err
+		return result
+	}
+	if certData.Status != "active" || certData.Cert == "" || certData.IntermediateCert == "" {
+		s.log.Warn("重试失败绑定: 证书 %s 未就绪 (status=%s)", cert.CertName, certData.Status)
+		result.Status = "pending"
+		return result
+	}
+
+	privateKey, err := GetPrivateKey(cert, certData.PrivateKey, s.log)
+	if err != nil {
+		s.log.Warn("重试失败绑定: 获取私钥失败: %v", err)
+		result.Status = "failure"
+		result.Error = err
+		return result
+	}
+
+	// 构建失败绑定集合用于快速查找
+	failedSet := make(map[string]bool, len(cert.Metadata.FailedBindings))
+	for _, name := range cert.Metadata.FailedBindings {
+		failedSet[name] = true
+	}
+
+	var stillFailed []string
+	for j := range cert.Bindings {
+		binding := cert.Bindings[j]
+		if !binding.Enabled || !failedSet[binding.ServerName] {
+			continue
+		}
+		if err := s.deployToBinding(ctx, &binding, certData, privateKey); err != nil {
+			s.log.Error("重试部署到 %s 失败: %v", binding.ServerName, err)
+			stillFailed = append(stillFailed, binding.ServerName)
+			continue
+		}
+		s.log.Info("重试部署到 %s 成功", binding.ServerName)
+		result.DeployCount++
+	}
+
+	cert.Metadata.FailedBindings = stillFailed
+	if len(stillFailed) == 0 {
+		cert.Metadata.LastDeployAt = time.Now()
+		cert.Metadata.FailedBindingsAt = time.Time{}
+		result.Status = "success"
+	} else {
+		result.Status = "failure"
+		result.Error = fmt.Errorf("%d 个绑定仍然失败", len(stillFailed))
+	}
+	if err := s.cfgManager.UpdateCert(cert); err != nil {
+		s.log.Warn("更新证书元数据失败: %v", err)
+	}
+	return result
 }
 
 // sendRenewCallback 向 API 发送续签结果回调
@@ -328,6 +472,15 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("提交待确认私钥失败: %w", err)
 	}
 
+	// 签发成功，清零续签状态并持久化（防止部署失败后状态丢失导致永久卡死）
+	cert.Metadata.CSRSubmittedAt = time.Time{}
+	cert.Metadata.LastCSRHash = ""
+	cert.Metadata.LastIssueState = ""
+	cert.Metadata.IssueRetryCount = 0
+	if err := s.cfgManager.UpdateCert(cert); err != nil {
+		s.log.Warn("保存证书元数据失败: %v", err)
+	}
+
 	if certData.IntermediateCert == "" {
 		return nil, "", fmt.Errorf("中间证书为空，等待下一周期重试")
 	}
@@ -336,20 +489,22 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 }
 
 // deployCertToBindings 部署证书到所有绑定
-func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertConfig, certData *fetcher.CertData, privateKey string) (int, error) {
+// 返回：成功部署数、失败的绑定 ServerName 列表、最后一个错误
+func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertConfig, certData *fetcher.CertData, privateKey string) (int, []string, error) {
 	// 验证证书与私钥
 	v := validator.New("")
 	parsedCert, err := v.ValidateCert(certData.Cert)
 	if err != nil || parsedCert == nil {
-		return 0, fmt.Errorf("证书验证失败: %w", err)
+		return 0, nil, fmt.Errorf("证书验证失败: %w", err)
 	}
 	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
-		return 0, fmt.Errorf("私钥不匹配: %w", err)
+		return 0, nil, fmt.Errorf("私钥不匹配: %w", err)
 	}
 
 	// 部署到所有绑定
 	deployCount := 0
 	var lastErr error
+	var failedBindings []string
 	for j := range cert.Bindings {
 		// 使用值拷贝而非指针，确保深拷贝保护有效
 		binding := cert.Bindings[j]
@@ -360,17 +515,25 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 		if err := s.deployToBinding(ctx, &binding, certData, privateKey); err != nil {
 			s.log.Error("部署到 %s 失败: %v", binding.ServerName, err)
 			lastErr = err
+			failedBindings = append(failedBindings, binding.ServerName)
 			continue
 		}
 		s.log.Info("证书已部署到 %s", binding.ServerName)
 		deployCount++
 	}
 
-	// 更新元数据
+	// 更新证书过期时间（证书本身有效，无论部署是否全部成功都应记录）
+	cert.Metadata.CertExpiresAt = parsedCert.NotAfter
+	cert.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
+	cert.Metadata.FailedBindings = failedBindings
+	if len(failedBindings) > 0 && cert.Metadata.FailedBindingsAt.IsZero() {
+		cert.Metadata.FailedBindingsAt = time.Now()
+	} else if len(failedBindings) == 0 {
+		cert.Metadata.FailedBindingsAt = time.Time{}
+	}
+
 	if deployCount > 0 {
 		cert.Metadata.LastDeployAt = time.Now()
-		cert.Metadata.CertExpiresAt = parsedCert.NotAfter
-		cert.Metadata.CertSerial = fmt.Sprintf("%X", parsedCert.SerialNumber)
 		// 成功后清理本地续签状态
 		cert.Metadata.CSRSubmittedAt = time.Time{}
 		cert.Metadata.LastCSRHash = ""
@@ -378,7 +541,7 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 		cert.Metadata.IssueRetryCount = 0
 	}
 
-	return deployCount, lastErr
+	return deployCount, failedBindings, lastErr
 }
 
 // getPendingKeyPath 获取待确认私钥路径
@@ -411,7 +574,7 @@ func readPendingKey(workDir, certName string) (string, error) {
 // 失败时错误信息包含相对路径（脱敏），便于手动恢复
 func commitPendingKey(workDir, certName, targetPath string) error {
 	pendingPath := getPendingKeyPath(workDir, certName)
-	if _, err := os.Stat(pendingPath); os.IsNotExist(err) {
+	if _, err := os.Lstat(pendingPath); os.IsNotExist(err) {
 		return nil // 不存在则跳过
 	}
 	// 相对路径用于错误消息（脱敏）

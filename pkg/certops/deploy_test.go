@@ -953,28 +953,3 @@ func TestSendDeployCallback_FailureResult(t *testing.T) {
 	svc.sendDeployCallback(t.Context(), cert, result)
 }
 
-// TestSendDeployCallback_WithCallbackURL 测试使用 CallbackURL 的回调
-func TestSendDeployCallback_WithCallbackURL(t *testing.T) {
-	tmpDir := t.TempDir()
-	cm, _ := config.NewConfigManagerWithDir(tmpDir)
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	// 使用自定义 CallbackURL
-	cert := &config.CertConfig{
-		CertName: "test-cert",
-		OrderID:  789,
-		Domains:  []string{"callback.com"},
-		API: config.APIConfig{
-			URL:         callbackServer.URL,
-			Token:       "test-token",
-			CallbackURL: callbackServer.URL + "/hook",
-		},
-	}
-	result := &DeployResult{CertName: "test-cert", Success: true}
-
-	svc.sendDeployCallback(t.Context(), cert, result)
-}

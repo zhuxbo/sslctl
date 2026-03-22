@@ -148,10 +148,13 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 
 	// 1. 备份现有证书（如果存在）
 	var backupPath string
-	if util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey) {
+	existingCert := util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey)
+	if existingCert {
 		result, err := s.backupMgr.Backup(binding.ServerName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
 		if err != nil {
-			s.log.Warn("备份证书失败（继续部署）: %v", err)
+			// 更新部署（已有证书文件）备份失败时中止，防止部署失败后无法回滚
+			return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseBackup,
+				fmt.Sprintf("备份现有证书失败，中止部署（请检查备份目录权限）: %v", err), err)
 		} else if result != nil {
 			backupPath = result.BackupPath
 			s.log.Debug("已备份证书到: %s", backupPath)

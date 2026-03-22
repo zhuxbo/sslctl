@@ -36,12 +36,7 @@ func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *f
 		return
 	}
 
-	var err error
-	if api.CallbackURL != "" {
-		err = s.fetcher.Callback(ctx, api.CallbackURL, api.Token, req)
-	} else {
-		err = s.fetcher.CallbackNew(ctx, api.URL, api.Token, req)
-	}
+	err := s.fetcher.CallbackNew(ctx, api.URL, api.Token, req)
 
 	if err != nil {
 		s.log.Warn("回调发送失败（不影响结果）: %v", err)
@@ -72,7 +67,11 @@ func (s *Service) CheckExpiry() {
 
 		remaining := cert.Metadata.CertExpiresAt.Sub(now)
 
-		if remaining < 7*24*time.Hour {
+		if remaining < 0 {
+			days := int(-remaining.Hours() / 24)
+			s.log.Error("证书 %s 已过期 %d 天! (过期时间: %s)",
+				cert.CertName, days, cert.Metadata.CertExpiresAt.Format("2006-01-02"))
+		} else if remaining < 7*24*time.Hour {
 			s.log.Error("证书 %s 即将过期! 剩余 %d 天 (过期时间: %s)",
 				cert.CertName, int(remaining.Hours()/24), cert.Metadata.CertExpiresAt.Format("2006-01-02"))
 		} else if remaining < 13*24*time.Hour {

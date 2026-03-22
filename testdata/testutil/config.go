@@ -19,9 +19,8 @@ type TestConfig struct {
 
 // TestAPIConfig 测试用 API 配置
 type TestAPIConfig struct {
-	URL         string `json:"url"`
-	Token       string `json:"token"`
-	CallbackURL string `json:"callback_url,omitempty"`
+	URL   string `json:"url"`
+	Token string `json:"token"`
 }
 
 // TestScheduleConfig 测试用调度配置

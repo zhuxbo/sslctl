@@ -95,9 +95,9 @@ func TestInfo(t *testing.T) {
 	ctx := context.Background()
 
 	// 使用 localhost HTTP 应该被允许
-	data, err := f.Info(ctx, server.URL, "test-token")
+	data, err := f.QueryOrder(ctx, server.URL, "test-token", 1)
 	if err != nil {
-		t.Fatalf("Info() error = %v", err)
+		t.Fatalf("QueryOrder() error = %v", err)
 	}
 
 	if data.OrderID != 12345 {
@@ -109,8 +109,8 @@ func TestInfo(t *testing.T) {
 	}
 }
 
-// TestInfo_APIError 测试 API 返回错误
-func TestInfo_APIError(t *testing.T) {
+// TestQueryOrder_APIError 测试 API 返回错误
+func TestQueryOrder_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := mockResponse{
 			Code:    0,
@@ -123,9 +123,9 @@ func TestInfo_APIError(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "bad-token")
+	_, err := f.QueryOrder(ctx, server.URL, "bad-token", 1)
 	if err == nil {
-		t.Error("Info() should return error for API error response")
+		t.Error("QueryOrder() should return error for API error response")
 	}
 
 	if !strings.Contains(err.Error(), "token invalid") {
@@ -133,8 +133,8 @@ func TestInfo_APIError(t *testing.T) {
 	}
 }
 
-// TestInfo_HTTPError 测试 HTTP 错误状态码
-func TestInfo_HTTPError(t *testing.T) {
+// TestQueryOrder_HTTPError 测试 HTTP 错误状态码
+func TestQueryOrder_HTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -143,9 +143,9 @@ func TestInfo_HTTPError(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
-		t.Error("Info() should return error for HTTP 404")
+		t.Error("QueryOrder() should return error for HTTP 404")
 	}
 }
 
@@ -202,50 +202,6 @@ func TestQueryOrder(t *testing.T) {
 	data, err := f.QueryOrder(ctx, server.URL, "token", 12345)
 	if err != nil {
 		t.Fatalf("QueryOrder() error = %v", err)
-	}
-
-	if data.OrderID != 12345 {
-		t.Errorf("OrderID = %d, want 12345", data.OrderID)
-	}
-}
-
-// TestStartOrUpdate 测试提交 CSR
-func TestStartOrUpdate(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 验证请求方法
-		if r.Method != http.MethodPost {
-			t.Errorf("Method = %s, want POST", r.Method)
-		}
-
-		// 验证 Content-Type
-		ct := r.Header.Get("Content-Type")
-		if ct != "application/json" {
-			t.Errorf("Content-Type = %s, want application/json", ct)
-		}
-
-		// 验证请求体
-		body, _ := io.ReadAll(r.Body)
-		var req PostRequest
-		_ = json.Unmarshal(body, &req)
-
-		if req.CSR != "test-csr" {
-			t.Errorf("CSR = %s, want test-csr", req.CSR)
-		}
-
-		resp := mockResponse{
-			Code: 1,
-			Data: mockCertData(),
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	f := New(30 * time.Second)
-	ctx := context.Background()
-
-	data, err := f.StartOrUpdate(ctx, server.URL, "token", "test-csr", "")
-	if err != nil {
-		t.Fatalf("StartOrUpdate() error = %v", err)
 	}
 
 	if data.OrderID != 12345 {
@@ -502,9 +458,9 @@ func TestRetry(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
-		t.Fatalf("Info() should succeed after retries, error = %v", err)
+		t.Fatalf("QueryOrder() should succeed after retries, error = %v", err)
 	}
 
 	if callCount != 3 {
@@ -530,9 +486,9 @@ func TestRetry_ExhaustedRetries(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
-		t.Error("Info() should fail after exhausting retries")
+		t.Error("QueryOrder() should fail after exhausting retries")
 	}
 
 	// 初始请求 + 2 次重试 = 3 次调用
@@ -554,9 +510,9 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
-		t.Error("Info() should fail when context is cancelled")
+		t.Error("QueryOrder() should fail when context is cancelled")
 	}
 }
 
@@ -610,9 +566,9 @@ func TestResponseSizeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	// 正常响应应该成功
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
-		t.Fatalf("Info() should succeed for normal response, error = %v", err)
+		t.Fatalf("QueryOrder() should succeed for normal response, error = %v", err)
 	}
 }
 
@@ -749,9 +705,9 @@ func TestFetcher_Timeout(t *testing.T) {
 	f := New(100 * time.Millisecond)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
-		t.Error("Info() 应因超时而失败")
+		t.Error("QueryOrder() 应因超时而失败")
 	}
 }
 
@@ -768,9 +724,9 @@ func TestFetcher_TimeoutWithContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
-		t.Error("Info() 应因上下文超时而失败")
+		t.Error("QueryOrder() 应因上下文超时而失败")
 	}
 }
 
@@ -799,9 +755,9 @@ func TestFetcher_LargeResponse(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.Info(ctx, server.URL, "token")
+	data, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
-		t.Fatalf("Info() 处理大响应失败: %v", err)
+		t.Fatalf("QueryOrder() 处理大响应失败: %v", err)
 	}
 
 	if data.OrderID != 12345 {
@@ -832,9 +788,9 @@ func TestRetry_429TooManyRequests(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.Info(ctx, server.URL, "token")
+	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
-		t.Fatalf("Info() 应在 429 后重试成功: %v", err)
+		t.Fatalf("QueryOrder() 应在 429 后重试成功: %v", err)
 	}
 
 	if callCount != 2 {
@@ -872,9 +828,9 @@ func TestRetry_NonRetryableErrors(t *testing.T) {
 			f := NewWithRetry(30*time.Second, retryConfig)
 			ctx := context.Background()
 
-			_, err := f.Info(ctx, server.URL, "token")
+			_, err := f.QueryOrder(ctx, server.URL, "token", 1)
 			if err == nil {
-				t.Error("Info() 应失败")
+				t.Error("QueryOrder() 应失败")
 			}
 
 			// 不可重试的错误应该只调用一次
@@ -922,9 +878,9 @@ func TestCertData_Fields(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.Info(ctx, server.URL, "token")
+	data, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
-		t.Fatalf("Info() error = %v", err)
+		t.Fatalf("QueryOrder() error = %v", err)
 	}
 
 	if data.OrderID != 99999 {

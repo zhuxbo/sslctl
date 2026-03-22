@@ -73,6 +73,9 @@ type CertMetadata struct {
 	LastCSRHash     string    `json:"last_csr_hash,omitempty"`
 	LastIssueState  string    `json:"last_issue_state,omitempty"`
 	IssueRetryCount int       `json:"issue_retry_count,omitempty"`
+	// 部署失败的绑定列表（ServerName），下次检查时重试
+	FailedBindings   []string  `json:"failed_bindings,omitempty"`
+	FailedBindingsAt time.Time `json:"failed_bindings_at,omitempty"` // 首次记录失败绑定的时间
 }
 
 // SiteBinding 站点绑定配置

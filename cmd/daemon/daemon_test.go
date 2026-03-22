@@ -32,7 +32,7 @@ func TestCheckAndDeploy_Success(t *testing.T) {
 	defer cancel()
 
 	// 调用 checkAndDeploy（无证书配置时应该正常返回）
-	checkAndDeploy(ctx, svc, log)
+	checkAndDeploy(ctx, svc, cfgManager, log)
 }
 
 // TestCheckAndDeploy_WithContext 测试带上下文的检查
@@ -47,7 +47,7 @@ func TestCheckAndDeploy_WithContext(t *testing.T) {
 	cancel() // 立即取消
 
 	// 应该能够处理取消的上下文
-	checkAndDeploy(ctx, svc, log)
+	checkAndDeploy(ctx, svc, cfgManager, log)
 }
 
 // TestNextRandomDaily 测试随机每日延迟
@@ -114,5 +114,35 @@ func TestContextTimeout(t *testing.T) {
 	diff := deadline.Sub(expected)
 	if diff < -time.Second || diff > time.Second {
 		t.Errorf("截止时间不正确: diff = %v，应在 ±1s 内", diff)
+	}
+}
+
+// TestCalcCheckTimeout 验证动态超时计算
+func TestCalcCheckTimeout(t *testing.T) {
+	tests := []struct {
+		certCount int
+		wantMin   time.Duration
+		wantMax   time.Duration
+	}{
+		{0, 30 * time.Minute, 30 * time.Minute},
+		{1, 30 * time.Minute, 30 * time.Minute},
+		{15, 30 * time.Minute, 30 * time.Minute},
+		{16, 32 * time.Minute, 32 * time.Minute},
+		{120, 200 * time.Minute, 200 * time.Minute}, // capped at 100 → 200min
+		{200, 200 * time.Minute, 200 * time.Minute}, // capped at 100 → 200min
+	}
+	for _, tt := range tests {
+		got := calcCheckTimeout(tt.certCount)
+		if got < tt.wantMin || got > tt.wantMax {
+			t.Errorf("calcCheckTimeout(%d) = %v, want [%v, %v]", tt.certCount, got, tt.wantMin, tt.wantMax)
+		}
+	}
+
+	// 验证下限和上限
+	if got := calcCheckTimeout(0); got < 30*time.Minute {
+		t.Errorf("最小超时应 >= 30 分钟, got %v", got)
+	}
+	if got := calcCheckTimeout(999); got > 4*time.Hour {
+		t.Errorf("最大超时应 <= 4 小时, got %v", got)
 	}
 }

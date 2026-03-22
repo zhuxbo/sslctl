@@ -119,13 +119,8 @@ func (r *APIResponse) ParsePaginatedData() ([]CertData, int, error) {
 	return nil, 0, fmt.Errorf("failed to parse paginated data")
 }
 
-// PostRequest POST 参数（兼容旧接口）
-type PostRequest struct {
-	CSR              string `json:"csr"`
-	ValidationMethod string `json:"validation_method,omitempty"`
-}
+// UpdateRequest 更新/续费证书请求
 
-// UpdateRequest 更新/续费证书请求（新 API）
 type UpdateRequest struct {
 	OrderID          int    `json:"order_id,omitempty"`
 	CSR              string `json:"csr,omitempty"`
@@ -405,57 +400,6 @@ func mustValidURL(apiURL string) error {
 	return validator.ValidateAPIURL(apiURL)
 }
 
-// Info 调用 GET 获取证书信息（兼容旧接口）
-// 自动处理 URL 路径：如果 apiURL 只有 host，会自动添加 /api/deploy
-func (f *Fetcher) Info(ctx context.Context, apiURL, token string) (*CertData, error) {
-	fullURL := buildAPIURL(apiURL, "")
-	if err := mustValidURL(fullURL); err != nil {
-		return nil, errors.NewNetworkError("invalid API URL", err)
-	}
-
-	newRequest := func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-		return req, nil
-	}
-
-	return f.doAPICall(ctx, newRequest, "failed to get certificate info")
-}
-
-// StartOrUpdate 调用 POST 提交 CSR 发起/更新签发（兼容旧接口）
-// 自动处理 URL 路径：如果 apiURL 只有 host，会自动添加 /api/deploy
-func (f *Fetcher) StartOrUpdate(ctx context.Context, apiURL, token, csrPEM, validationMethod string) (*CertData, error) {
-	fullURL := buildAPIURL(apiURL, "")
-	if err := mustValidURL(fullURL); err != nil {
-		return nil, errors.NewNetworkError("invalid API URL", err)
-	}
-	reqBody := PostRequest{CSR: csrPEM}
-	if validationMethod != "" {
-		reqBody.ValidationMethod = validationMethod
-	}
-	bodyData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, errors.NewNetworkError("failed to marshal request", err)
-	}
-
-	newRequest := func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(bodyData))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-		return req, nil
-	}
-
-	return f.doAPICall(ctx, newRequest, "failed to post CSR")
-}
-
 // Callback 调用回调接口通知部署结果
 func (f *Fetcher) Callback(ctx context.Context, callbackURL, token string, callbackReq *CallbackRequest) error {
 	if err := mustValidURL(callbackURL); err != nil {
@@ -500,7 +444,7 @@ func (f *Fetcher) Callback(ctx context.Context, callbackURL, token string, callb
 	return nil
 }
 
-// buildAPIURL 构建 API URL（支持新旧格式）
+// buildAPIURL 构建 API URL
 // 如果 baseURL 已包含路径（如 /api/deploy），直接使用
 // 如果只有 host，自动拼接 /api/deploy
 func buildAPIURL(baseURL, path string) string {
