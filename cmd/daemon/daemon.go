@@ -4,7 +4,7 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -78,7 +78,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 	go func() {
 		defer wg.Done()
 		defer func() { <-taskRunning }()
-		checkAndDeploy(ctx, svc, log)
+		checkAndDeploy(ctx, svc, cfgManager, log)
 	}()
 
 	for {
@@ -95,7 +95,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 				go func() {
 					defer wg.Done()
 					defer func() { <-taskRunning }()
-					checkAndDeploy(ctx, svc, log)
+					checkAndDeploy(ctx, svc, cfgManager, log)
 				}()
 			default:
 				log.Debug("上一次检查任务仍在运行，跳过本次检查")
@@ -129,7 +129,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 func nextRandomDaily() time.Duration {
 	now := time.Now()
 	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1,
-		rand.Intn(24), rand.Intn(60), 0, 0, now.Location())
+		rand.IntN(24), rand.IntN(60), 0, 0, now.Location())
 	delay := tomorrow.Sub(now)
 	if delay < time.Hour {
 		delay += 24 * time.Hour
@@ -137,16 +137,39 @@ func nextRandomDaily() time.Duration {
 	return delay
 }
 
+// calcCheckTimeout 根据证书数量动态计算检查超时
+// 最小 30 分钟，每个证书 2 分钟，上限 4 小时
+func calcCheckTimeout(certCount int) time.Duration {
+	count := certCount
+	if count > 100 {
+		count = 100
+	}
+	timeout := time.Duration(count) * 2 * time.Minute
+	if timeout < 30*time.Minute {
+		timeout = 30 * time.Minute
+	}
+	if timeout > 4*time.Hour {
+		timeout = 4 * time.Hour
+	}
+	return timeout
+}
+
 // checkAndDeploy 检查并部署证书
-func checkAndDeploy(parentCtx context.Context, svc *certops.Service, log *logger.Logger) {
+func checkAndDeploy(parentCtx context.Context, svc *certops.Service, cfgManager *config.ConfigManager, log *logger.Logger) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("检查任务 panic: %v", r)
 		}
 	}()
 
-	// 为每次检查任务设置 30 分钟超时，防止 API 卡死阻塞整个守护进程
-	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
+	// 动态计算超时：根据证书数量调整，防止大量证书场景超时
+	certCount := 0
+	if cfg, err := cfgManager.Load(); err == nil {
+		certCount = len(cfg.Certificates)
+	}
+	timeout := calcCheckTimeout(certCount)
+	log.Debug("检查超时: %v（证书数: %d）", timeout.Round(time.Minute), certCount)
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
 	log.Info("开始检查证书...")

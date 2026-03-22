@@ -2,6 +2,7 @@
 package certops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -527,6 +528,59 @@ func TestCheckAndRenewAll_CertNotNeedRenewal(t *testing.T) {
 	}
 }
 
+// TestCheckAndRenewAll_ContextCancelDuringDelay 测试 context 取消时中断证书间延迟
+func TestCheckAndRenewAll_ContextCancelDuringDelay(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	// 添加两个需要续期的证书，使用不可达的 API 地址
+	// 第一个证书的 API 请求会快速失败，设置 needsDelay=true
+	// 第二个证书处理前的延迟应被 context 取消中断
+	for i, name := range []string{"cert-a", "cert-b"} {
+		cert := &config.CertConfig{
+			CertName: name,
+			OrderID:  1000 + i,
+			Enabled:  true,
+			Domains:  []string{name + ".example.com"},
+			API:      config.APIConfig{URL: "http://127.0.0.1:1", Token: "test-token"},
+			Metadata: config.CertMetadata{
+				CertExpiresAt: time.Now().Add(3 * 24 * time.Hour), // 3 天后过期，需要续期
+			},
+		}
+		_ = cm.AddCert(cert)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 使用极短超时：第一个证书 API 失败后，延迟期间 context 应超时
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	results, err := svc.CheckAndRenewAll(ctx)
+	elapsed := time.Since(start)
+
+	// 应返回 context 超时错误
+	if err == nil {
+		t.Fatal("预期 context 超时错误，实际无错误")
+	}
+
+	// 第一个证书应有结果（API 失败）
+	if len(results) < 1 {
+		t.Errorf("预期至少 1 个结果，实际: %d", len(results))
+	}
+
+	// 不应等待完整的 30 秒延迟
+	if elapsed > 15*time.Second {
+		t.Errorf("context 取消应中断延迟，实际耗时: %v", elapsed)
+	}
+}
+
 // TestDeployCertToBindings_NoBindings 测试无绑定时的部署
 func TestDeployCertToBindings_NoBindings(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -555,7 +609,7 @@ func TestDeployCertToBindings_NoBindings(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	count, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
+	count, _, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
 
 	if err != nil {
 		t.Errorf("无绑定时不应返回错误: %v", err)
@@ -597,7 +651,7 @@ func TestDeployCertToBindings_AllDisabled(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	count, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
+	count, _, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
 
 	if err != nil {
 		t.Errorf("所有绑定禁用时不应返回错误: %v", err)
@@ -632,7 +686,7 @@ func TestDeployCertToBindings_InvalidCert(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	_, err = svc.deployCertToBindings(ctx, cert, certData, "invalid-key")
+	_, _, err = svc.deployCertToBindings(ctx, cert, certData, "invalid-key")
 
 	if err == nil {
 		t.Error("无效证书应返回错误")
@@ -675,7 +729,7 @@ func TestDeployCertToBindings_MismatchedKey(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	_, err = svc.deployCertToBindings(ctx, cert, certData, anotherCert.KeyPEM)
+	_, _, err = svc.deployCertToBindings(ctx, cert, certData, anotherCert.KeyPEM)
 
 	if err == nil {
 		t.Error("私钥不匹配应返回错误")
@@ -724,7 +778,7 @@ func TestDeployCertToBindings_SuccessfulDeploy(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	count, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
+	count, _, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
 
 	if err != nil {
 		t.Errorf("成功部署不应返回错误: %v", err)
@@ -803,7 +857,7 @@ func TestDeployCertToBindings_PartialSuccess(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	count, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
+	count, _, err := svc.deployCertToBindings(ctx, cert, certData, testCert.KeyPEM)
 
 	// 应该有一个成功
 	if count != 1 {
@@ -935,31 +989,6 @@ func TestSendRenewCallback_FailureResult(t *testing.T) {
 	svc.sendRenewCallback(t.Context(), cert, result)
 }
 
-// TestSendRenewCallback_WithCallbackURL 测试使用自定义 CallbackURL 的续签回调
-func TestSendRenewCallback_WithCallbackURL(t *testing.T) {
-	tmpDir := t.TempDir()
-	cm, _ := config.NewConfigManagerWithDir(tmpDir)
-	log := logger.NewNopLogger()
-	svc := NewService(cm, log)
-
-	callbackServer := newCallbackTestServer(t)
-	defer callbackServer.Close()
-
-	cert := &config.CertConfig{
-		CertName: "test-cert",
-		OrderID:  789,
-		Domains:  []string{"callback.com"},
-		API: config.APIConfig{
-			URL:         callbackServer.URL,
-			Token:       "test-token",
-			CallbackURL: callbackServer.URL + "/hook",
-		},
-	}
-	result := &RenewResult{CertName: "test-cert", Status: "success"}
-
-	svc.sendRenewCallback(t.Context(), cert, result)
-}
-
 // TestCommitPendingKey_ReadOnlyTargetDir 测试 commitPendingKey 目标目录不可写时的行为
 func TestCommitPendingKey_ReadOnlyTargetDir(t *testing.T) {
 	if os.Getuid() == 0 {
@@ -983,5 +1012,191 @@ func TestCommitPendingKey_ReadOnlyTargetDir(t *testing.T) {
 	err := commitPendingKey(workDir, certName, targetPath)
 	if err == nil {
 		t.Error("commitPendingKey() 目标不可写时应返回错误")
+	}
+}
+
+// TestCalcSpreadDelay_Single 单个证书使用默认范围
+func TestCalcSpreadDelay_Single(t *testing.T) {
+	sMin, sMax := calcSpreadDelay(1)
+	if sMin != SpreadMin || sMax != SpreadMax {
+		t.Errorf("calcSpreadDelay(1) = [%d, %d], want [%d, %d]", sMin, sMax, SpreadMin, SpreadMax)
+	}
+}
+
+// TestCalcSpreadDelay_Zero 零个证书使用默认范围
+func TestCalcSpreadDelay_Zero(t *testing.T) {
+	sMin, sMax := calcSpreadDelay(0)
+	if sMin != SpreadMin || sMax != SpreadMax {
+		t.Errorf("calcSpreadDelay(0) = [%d, %d], want [%d, %d]", sMin, sMax, SpreadMin, SpreadMax)
+	}
+}
+
+// TestCalcSpreadDelay_Few 少量证书总延迟未超限
+func TestCalcSpreadDelay_Few(t *testing.T) {
+	sMin, sMax := calcSpreadDelay(5)
+	if sMin < SpreadMin {
+		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
+	}
+	if sMax > SpreadMax {
+		t.Errorf("sMax = %d, should <= %d", sMax, SpreadMax)
+	}
+	// 4 gaps × sMax 应 ≤ SpreadTotalMax
+	if 4*sMax > SpreadTotalMax {
+		t.Errorf("总延迟 %d 超过上限 %d", 4*sMax, SpreadTotalMax)
+	}
+}
+
+// TestCalcSpreadDelay_Many 大量证书自动缩短延迟
+func TestCalcSpreadDelay_Many(t *testing.T) {
+	sMin, sMax := calcSpreadDelay(50)
+	// 49 gaps × sMax 应 ≤ SpreadTotalMax
+	if 49*sMax > SpreadTotalMax {
+		t.Errorf("总延迟 %d 超过上限 %d", 49*sMax, SpreadTotalMax)
+	}
+	if sMin < SpreadMin {
+		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
+	}
+}
+
+// TestCalcSpreadDelay_Max 上限证书数
+func TestCalcSpreadDelay_Max(t *testing.T) {
+	sMin, sMax := calcSpreadDelay(100)
+	// sMax = 600 / 99 ≈ 6
+	if sMax < SpreadMin {
+		t.Errorf("sMax = %d, should >= %d", sMax, SpreadMin)
+	}
+	if sMin < SpreadMin {
+		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
+	}
+	// 99 gaps × sMax 应 ≤ SpreadTotalMax
+	if 99*sMax > SpreadTotalMax {
+		t.Errorf("总延迟 %d 超过上限 %d", 99*sMax, SpreadTotalMax)
+	}
+}
+
+// TestDeployCertToBindings_FailedBindings 测试返回失败绑定列表
+func TestDeployCertToBindings_FailedBindings(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	testCert, err := certs.GenerateValidCert("test.com", []string{"test.com"})
+	if err != nil {
+		t.Fatalf("生成测试证书失败: %v", err)
+	}
+
+	validCertPath := filepath.Join(tmpDir, "ssl", "cert.pem")
+	validKeyPath := filepath.Join(tmpDir, "ssl", "key.pem")
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		Bindings: []config.SiteBinding{
+			{
+				ServerName: "good-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths:      config.BindingPaths{Certificate: validCertPath, PrivateKey: validKeyPath},
+			},
+			{
+				ServerName: "bad-site",
+				ServerType: config.ServerTypeNginx,
+				Enabled:    true,
+				Paths:      config.BindingPaths{Certificate: "/nonexistent/cert.pem", PrivateKey: "/nonexistent/key.pem"},
+			},
+		},
+	}
+
+	certData := &fetcher.CertData{Cert: testCert.CertPEM}
+
+	count, failedBindings, deployErr := svc.deployCertToBindings(t.Context(), cert, certData, testCert.KeyPEM)
+
+	if count != 1 {
+		t.Errorf("deployCount = %d, want 1", count)
+	}
+	if deployErr == nil {
+		t.Error("应有部署错误")
+	}
+	if len(failedBindings) != 1 || failedBindings[0] != "bad-site" {
+		t.Errorf("failedBindings = %v, want [bad-site]", failedBindings)
+	}
+	// 验证元数据：CertExpiresAt 应已更新（即使有部分失败）
+	if cert.Metadata.CertExpiresAt.IsZero() {
+		t.Error("CertExpiresAt 应已更新")
+	}
+	if len(cert.Metadata.FailedBindings) != 1 {
+		t.Errorf("cert.Metadata.FailedBindings = %v, want 1 entry", cert.Metadata.FailedBindings)
+	}
+}
+
+// TestDeployCertToBindings_AllFailed 测试所有绑定失败时的返回
+func TestDeployCertToBindings_AllFailed(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	testCert, err := certs.GenerateValidCert("test.com", []string{"test.com"})
+	if err != nil {
+		t.Fatalf("生成测试证书失败: %v", err)
+	}
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		Bindings: []config.SiteBinding{
+			{ServerName: "bad1", ServerType: config.ServerTypeNginx, Enabled: true,
+				Paths: config.BindingPaths{Certificate: "/nonexistent/a/cert.pem", PrivateKey: "/nonexistent/a/key.pem"}},
+			{ServerName: "bad2", ServerType: config.ServerTypeNginx, Enabled: true,
+				Paths: config.BindingPaths{Certificate: "/nonexistent/b/cert.pem", PrivateKey: "/nonexistent/b/key.pem"}},
+		},
+	}
+
+	certData := &fetcher.CertData{Cert: testCert.CertPEM}
+
+	count, failedBindings, _ := svc.deployCertToBindings(t.Context(), cert, certData, testCert.KeyPEM)
+
+	if count != 0 {
+		t.Errorf("deployCount = %d, want 0", count)
+	}
+	if len(failedBindings) != 2 {
+		t.Errorf("failedBindings count = %d, want 2", len(failedBindings))
+	}
+	// CertExpiresAt 应已更新（证书本身有效）
+	if cert.Metadata.CertExpiresAt.IsZero() {
+		t.Error("CertExpiresAt 应已更新（即使部署全部失败）")
+	}
+	// LastDeployAt 不应更新（没有成功部署）
+	if !cert.Metadata.LastDeployAt.IsZero() {
+		t.Error("LastDeployAt 不应更新（全部部署失败）")
+	}
+}
+
+// TestMaxRenewBatch 验证常量值
+func TestMaxRenewBatch(t *testing.T) {
+	if MaxRenewBatch != 100 {
+		t.Errorf("MaxRenewBatch = %d, want 100", MaxRenewBatch)
+	}
+}
+
+// TestSpreadConstants 验证分散延迟常量
+func TestSpreadConstants(t *testing.T) {
+	if SpreadTotalMax != 600 {
+		t.Errorf("SpreadTotalMax = %d, want 600", SpreadTotalMax)
+	}
+	if SpreadMin < 1 {
+		t.Error("SpreadMin 应 >= 1")
+	}
+	if SpreadMax <= SpreadMin {
+		t.Error("SpreadMax 应 > SpreadMin")
 	}
 }

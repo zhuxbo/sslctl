@@ -140,7 +140,7 @@ func (cm *ConfigManager) Load() (*Config, error) {
 // 维护注意事项：
 // - 如果向 CertConfig 或 SiteBinding 添加新的引用类型字段（map、slice、指针），
 //   必须在此函数中添加对应的深拷贝逻辑，否则会破坏并发安全保证！
-// - 当前已处理的引用类型：Certificates(slice)、Bindings(slice)、Domains(slice)、Docker(*DockerInfo)
+// - 当前已处理的引用类型：Certificates(slice)、Bindings(slice)、Domains(slice)、Docker(*DockerInfo)、FailedBindings(slice)
 func (cm *ConfigManager) copyConfig(src *Config) *Config {
 	if src == nil {
 		return nil
@@ -167,6 +167,11 @@ func (cm *ConfigManager) copyConfig(src *Config) *Config {
 			if cert.Domains != nil {
 				dst.Certificates[i].Domains = make([]string, len(cert.Domains))
 				copy(dst.Certificates[i].Domains, cert.Domains)
+			}
+			// 深拷贝 FailedBindings 切片
+			if cert.Metadata.FailedBindings != nil {
+				dst.Certificates[i].Metadata.FailedBindings = make([]string, len(cert.Metadata.FailedBindings))
+				copy(dst.Certificates[i].Metadata.FailedBindings, cert.Metadata.FailedBindings)
 			}
 		}
 	}

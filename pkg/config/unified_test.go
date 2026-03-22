@@ -1566,6 +1566,9 @@ func TestDeepCopyCompleteness(t *testing.T) {
 		Enabled:   true,
 		RenewMode: RenewModeLocal,
 		Domains:   []string{"domain1.com", "domain2.com", "domain3.com"},
+		Metadata: CertMetadata{
+			FailedBindings: []string{"failed-site1.com", "failed-site2.com"},
+		},
 		Bindings: []SiteBinding{
 			{
 				ServerName:   "binding1.com",
@@ -1603,6 +1606,8 @@ func TestDeepCopyCompleteness(t *testing.T) {
 	}
 
 	// 修改所有引用类型字段
+	cfg1.Certificates[0].Metadata.FailedBindings[0] = "modified-site.com"
+	cfg1.Certificates[0].Metadata.FailedBindings = append(cfg1.Certificates[0].Metadata.FailedBindings, "new-site.com")
 	cfg1.Certificates[0].Domains[0] = "modified-domain.com"
 	cfg1.Certificates[0].Domains = append(cfg1.Certificates[0].Domains, "new-domain.com")
 	cfg1.Certificates[0].Bindings[0].ServerName = "modified-binding.com"
@@ -1632,6 +1637,14 @@ func TestDeepCopyCompleteness(t *testing.T) {
 	}
 	if cfg2.Certificates[0].Bindings[0].ServerName != "binding1.com" {
 		t.Errorf("Bindings[0].ServerName = %s, 期望 binding1.com", cfg2.Certificates[0].Bindings[0].ServerName)
+	}
+
+	// 验证 FailedBindings slice 独立
+	if len(cfg2.Certificates[0].Metadata.FailedBindings) != 2 {
+		t.Errorf("FailedBindings 长度 = %d, 期望 2", len(cfg2.Certificates[0].Metadata.FailedBindings))
+	}
+	if cfg2.Certificates[0].Metadata.FailedBindings[0] != "failed-site1.com" {
+		t.Errorf("FailedBindings[0] = %s, 期望 failed-site1.com", cfg2.Certificates[0].Metadata.FailedBindings[0])
 	}
 
 	// 验证 Docker 指针独立

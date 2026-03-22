@@ -98,6 +98,19 @@ func getTestAPIConfig(t *testing.T) (string, string) {
 	return url, token
 }
 
+func getTestOrderID(t *testing.T) int {
+	ensureTestEnv(t)
+	orderStr := strings.TrimSpace(os.Getenv("TEST_ORDER_ID"))
+	if orderStr == "" {
+		t.Skip("跳过集成测试: 未设置 TEST_ORDER_ID 环境变量")
+	}
+	id, err := strconv.Atoi(orderStr)
+	if err != nil {
+		t.Fatalf("TEST_ORDER_ID 格式错误: %v", err)
+	}
+	return id
+}
+
 func getTestAPIDomain(t *testing.T) string {
 	ensureTestEnv(t)
 	domain := strings.TrimSpace(os.Getenv("TEST_API_DOMAIN"))
@@ -194,7 +207,7 @@ func TestIntegration_FetcherInfo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("Info() 失败（API 可能不支持此接口）: %v", err)
 		return
@@ -220,7 +233,7 @@ func TestIntegration_DomainMatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Fatalf("Info() 失败: %v", err)
 	}
@@ -269,7 +282,7 @@ func TestIntegration_UpdateWithCSR(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Fatalf("Info() 失败: %v", err)
 	}
@@ -318,7 +331,7 @@ func TestIntegration_CallbackNew(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Fatalf("Info() 失败: %v", err)
 	}
@@ -346,7 +359,7 @@ func TestIntegration_QueryOrder(t *testing.T) {
 	defer cancel()
 
 	// 先获取一个有效的订单 ID
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取订单信息: %v", err)
 		return
@@ -385,7 +398,7 @@ func TestIntegration_DeployToLocal(t *testing.T) {
 	defer cancel()
 
 	// 获取证书数据
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取证书信息: %v", err)
 		return
@@ -493,7 +506,7 @@ func TestIntegration_FullDeployWorkflow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取证书信息: %v", err)
 		return
@@ -601,7 +614,7 @@ func TestIntegration_APIResponseParsing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("API 调用失败: %v", err)
 		return
@@ -652,7 +665,7 @@ func TestIntegration_DeployWithBackup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	certData, err := f.Info(ctx, apiURL, token)
+	certData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil || certData.Cert == "" || certData.PrivateKey == "" {
 		t.Log("无法获取有效证书，跳过备份测试")
 		return
@@ -727,7 +740,7 @@ func TestIntegration_PreparePullRenew(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取订单信息: %v", err)
 		return
@@ -795,7 +808,7 @@ func TestIntegration_CheckAndRenewAll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取订单信息: %v", err)
 		return
@@ -875,7 +888,7 @@ func TestIntegration_RenewWithLocalKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	infoData, err := f.Info(ctx, apiURL, token)
+	infoData, err := f.QueryOrder(ctx, apiURL, token, getTestOrderID(t))
 	if err != nil {
 		t.Logf("无法获取订单信息: %v", err)
 		return
