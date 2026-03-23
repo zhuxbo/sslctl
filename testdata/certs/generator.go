@@ -9,7 +9,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
@@ -321,6 +323,60 @@ func (c *CertChain) FullChainPEM() string {
 // IntermediateChainPEM 返回中间证书链 PEM（Leaf + Intermediate）
 func (c *CertChain) IntermediateChainPEM() string {
 	return c.LeafCertPEM + c.IntermediateCertPEM
+}
+
+// GenerateIPCert 生成 IP 证书（CN 为 IP，SAN 包含 IP）
+func GenerateIPCert(ipStr string, notBefore, notAfter time.Time) (*TestCert, error) {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid IP address: %s", ipStr)
+	}
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: ipStr,
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IPAddresses:           []net.IP{ip},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TestCert{
+		CertPEM: string(certPEM),
+		KeyPEM:  string(keyPEM),
+		Cert:    cert,
+	}, nil
+}
+
+// GenerateValidIPCert 生成有效期内的 IP 证书
+func GenerateValidIPCert(ipStr string) (*TestCert, error) {
+	now := time.Now()
+	return GenerateIPCert(ipStr, now.Add(-time.Hour), now.Add(365*24*time.Hour))
 }
 
 // GenerateSelfSignedCA 生成自签名 CA 证书

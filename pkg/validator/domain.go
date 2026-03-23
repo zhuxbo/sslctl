@@ -4,6 +4,7 @@ package validator
 import (
 	"crypto/x509"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/zhuxbo/sslctl/pkg/errors"
@@ -38,15 +39,34 @@ func (v *DomainValidator) ValidateDomainCoverage(cert *x509.Certificate) error {
 		certDomains[strings.ToLower(san)] = true
 	}
 
+	// IP SANs
+	for _, ip := range cert.IPAddresses {
+		certDomains[ip.String()] = true
+	}
+
 	// 检查站点的每个域名是否被证书覆盖
 	var uncovered []string
 	for _, siteDomain := range v.domains {
 		covered := false
 
-		for certDomain := range certDomains {
-			if MatchDomain(siteDomain, certDomain) {
-				covered = true
-				break
+		// IP 地址使用精确匹配
+		if siteIP := net.ParseIP(siteDomain); siteIP != nil {
+			for _, certIP := range cert.IPAddresses {
+				if siteIP.Equal(certIP) {
+					covered = true
+					break
+				}
+			}
+			// 也检查 CN（CN 可能是 IP）
+			if !covered && net.ParseIP(cert.Subject.CommonName) != nil {
+				covered = siteIP.Equal(net.ParseIP(cert.Subject.CommonName))
+			}
+		} else {
+			for certDomain := range certDomains {
+				if MatchDomain(siteDomain, certDomain) {
+					covered = true
+					break
+				}
 			}
 		}
 
@@ -73,10 +93,17 @@ func (v *DomainValidator) ValidateDomainCoverage(cert *x509.Certificate) error {
 	return nil
 }
 
-// MatchDomain 检查域名是否匹配(支持通配符)
+// MatchDomain 检查域名是否匹配(支持通配符和 IP 精确匹配)
 func MatchDomain(siteDomain, certDomain string) bool {
 	siteDomain = strings.ToLower(siteDomain)
 	certDomain = strings.ToLower(certDomain)
+
+	// IP 精确匹配（IP 不支持通配符）
+	siteIP := net.ParseIP(siteDomain)
+	certIP := net.ParseIP(certDomain)
+	if siteIP != nil || certIP != nil {
+		return siteIP != nil && certIP != nil && siteIP.Equal(certIP)
+	}
 
 	// 精确匹配
 	if siteDomain == certDomain {
@@ -101,7 +128,7 @@ func MatchDomain(siteDomain, certDomain string) bool {
 	return false
 }
 
-// ExtractCertDomains 提取证书支持的所有域名
+// ExtractCertDomains 提取证书支持的所有域名（含 IP 地址）
 func ExtractCertDomains(cert *x509.Certificate) []string {
 	domains := make(map[string]bool)
 
@@ -110,9 +137,14 @@ func ExtractCertDomains(cert *x509.Certificate) []string {
 		domains[cert.Subject.CommonName] = true
 	}
 
-	// SANs
+	// DNS SANs
 	for _, san := range cert.DNSNames {
 		domains[san] = true
+	}
+
+	// IP SANs
+	for _, ip := range cert.IPAddresses {
+		domains[ip.String()] = true
 	}
 
 	// 转换为切片

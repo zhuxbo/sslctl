@@ -457,6 +457,7 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 			Certificate: certPath,
 			PrivateKey:  keyPath,
 			ConfigFile:  site.ConfigFile,
+			Webroot:     site.Webroot,
 		},
 	}
 

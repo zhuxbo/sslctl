@@ -26,14 +26,15 @@ type ConfigMetadata struct {
 
 // CertConfig 证书配置
 type CertConfig struct {
-	CertName  string        `json:"cert_name"`            // 证书名称（如 example.com-12345）
-	OrderID   int           `json:"order_id"`             // 订单 ID
-	Enabled   bool          `json:"enabled"`              // 是否启用
-	Domains   []string      `json:"domains"`              // 证书域名列表
-	RenewMode string        `json:"renew_mode,omitempty"` // 续签模式: local | pull（优先于全局配置）
-	API       APIConfig     `json:"api"`                  // 证书级别的 API 配置
-	Bindings  []SiteBinding `json:"bindings"`             // 站点绑定
-	Metadata  CertMetadata  `json:"metadata,omitempty"`
+	CertName         string        `json:"cert_name"`                    // 证书名称（如 example.com-12345）
+	OrderID          int           `json:"order_id"`                     // 订单 ID
+	Enabled          bool          `json:"enabled"`                      // 是否启用
+	Domains          []string      `json:"domains"`                      // 证书域名列表
+	RenewMode        string        `json:"renew_mode,omitempty"`         // 续签模式: local | pull（优先于全局配置）
+	ValidationMethod string        `json:"validation_method,omitempty"`  // 验证方法: file | delegation
+	API              APIConfig     `json:"api"`                          // 证书级别的 API 配置
+	Bindings         []SiteBinding `json:"bindings"`                     // 站点绑定
+	Metadata         CertMetadata  `json:"metadata,omitempty"`
 }
 
 // GetAPI 获取 API 配置（环境变量优先覆盖所有证书）
@@ -76,6 +77,8 @@ type CertMetadata struct {
 	// 部署失败的绑定列表（ServerName），下次检查时重试
 	FailedBindings   []string  `json:"failed_bindings,omitempty"`
 	FailedBindingsAt time.Time `json:"failed_bindings_at,omitempty"` // 首次记录失败绑定的时间
+	// 文件验证相关
+	ValidationFiles []string `json:"validation_files,omitempty"` // 已写入的验证文件路径（部署成功后清理）
 }
 
 // SiteBinding 站点绑定配置
@@ -94,6 +97,7 @@ type BindingPaths struct {
 	PrivateKey  string `json:"private_key"`           // 私钥文件路径
 	ChainFile   string `json:"chain_file,omitempty"`  // 证书链文件路径（Apache）
 	ConfigFile  string `json:"config_file,omitempty"` // 配置文件路径
+	Webroot     string `json:"webroot,omitempty"`     // Web 根目录(用于文件验证)
 }
 
 // DockerInfo Docker 部署信息

@@ -333,7 +333,7 @@ safePath, err := util.JoinUnderDir(baseDir, userInput)
 
 ### 域名匹配
 
-`matcher.MatchDomain` 是域名匹配的唯一正确实现（支持精确匹配和通配符单级子域名匹配），scanner 等模块应复用此函数，不要自行实现通配符逻辑。
+`matcher.MatchDomain` 是域名匹配的唯一正确实现（支持精确匹配、通配符单级子域名匹配和 IP 精确匹配），scanner 等模块应复用此函数，不要自行实现匹配逻辑。`validator.MatchDomain` 是同等语义的实现（两个包各自维护，逻辑一致）。IP 地址使用 `net.IP.Equal()` 精确比较，不走通配符逻辑。
 
 ### Token 安全
 

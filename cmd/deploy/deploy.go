@@ -641,6 +641,7 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 			Certificate: certPath,
 			PrivateKey:  keyPath,
 			ConfigFile:  site.ConfigFile,
+			Webroot:     site.Webroot,
 		},
 	}
 

@@ -312,6 +312,16 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 		return nil, "", err
 	}
 	if certData.Status != "active" || certData.Cert == "" {
+		// processing + 文件验证：放置验证文件
+		if certData.Status == "processing" && certData.File != nil {
+			placed := placeValidationFiles(cert, certData.File, s.log)
+			if len(placed) > 0 {
+				cert.Metadata.ValidationFiles = placed
+				if err := s.cfgManager.UpdateCert(cert); err != nil {
+					s.log.Warn("持久化验证文件路径失败: %v", err)
+				}
+			}
+		}
 		s.log.Debug("证书 %s 状态: %s，跳过", cert.CertName, certData.Status)
 		return nil, "", nil
 	}
@@ -371,6 +381,14 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 				return nil, "", fmt.Errorf("查询订单失败: %w", err)
 			}
 			if certData.Status == "processing" {
+				// 放置验证文件（如果有）
+				if certData.File != nil {
+					placed := placeValidationFiles(cert, certData.File, s.log)
+					if len(placed) > 0 {
+						cert.Metadata.ValidationFiles = placed
+						_ = s.cfgManager.UpdateCert(cert)
+					}
+				}
 				s.log.Debug("证书 %s CSR 正在处理，跳过", cert.CertName)
 				return nil, "", nil
 			}
@@ -441,7 +459,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("持久化重试计数失败: %w", err)
 	}
 
-	certData, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), "")
+	certData, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), cert.ValidationMethod)
 	if err != nil {
 		// 提交失败，清理待确认私钥（重试计数已持久化，下次重试会使用）
 		if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
@@ -459,7 +477,14 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 	cert.Metadata.LastIssueState = certData.Status
 
 	if certData.Status != "active" || certData.Cert == "" {
-		// 保存元数据变更（OrderID、CSRSubmittedAt 等）
+		// 放置验证文件（如果有）
+		if certData.File != nil {
+			placed := placeValidationFiles(cert, certData.File, s.log)
+			if len(placed) > 0 {
+				cert.Metadata.ValidationFiles = placed
+			}
+		}
+		// 保存元数据变更（OrderID、CSRSubmittedAt、ValidationFiles 等）
 		if err := s.cfgManager.UpdateCert(cert); err != nil {
 			s.log.Warn("保存证书元数据失败: %v", err)
 		}
@@ -539,6 +564,11 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 		cert.Metadata.LastCSRHash = ""
 		cert.Metadata.LastIssueState = ""
 		cert.Metadata.IssueRetryCount = 0
+		// 清理验证文件
+		if len(cert.Metadata.ValidationFiles) > 0 {
+			cleanupValidationFiles(cert.Metadata.ValidationFiles, s.log)
+			cert.Metadata.ValidationFiles = nil
+		}
 	}
 
 	return deployCount, failedBindings, lastErr
