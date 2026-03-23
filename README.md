@@ -113,8 +113,7 @@ sslctl upgrade                                       # 升级到最新版本
 sslctl upgrade --check                               # 检查更新
 sslctl service repair                                # 修复 systemd 服务
 sslctl --debug scan                                  # 调试模式
-sslctl uninstall                                     # 卸载
-sslctl uninstall --purge                             # 卸载并清理配置
+sslctl uninstall                                     # 卸载（交互确认是否清理配置）
 ```
 
 ## 平台支持

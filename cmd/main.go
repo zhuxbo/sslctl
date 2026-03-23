@@ -143,8 +143,7 @@ func printUsage() {
   sslctl setup --url <url> --token <token> --order <order_id> --yes --no-service
 
 卸载:
-  sslctl uninstall           # 卸载程序
-  sslctl uninstall --purge   # 卸载并清理配置
+  sslctl uninstall           # 卸载程序（交互确认是否清理配置）
 
 示例:
   sslctl scan
@@ -657,11 +656,9 @@ func runRollback(args []string) {
 // runUninstall 卸载命令
 func runUninstall(args []string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	purge := fs.Bool("purge", false, "同时删除配置文件和数据")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "用法: sslctl uninstall [--purge]\n\n选项:\n")
-		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "用法: sslctl uninstall\n")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -692,16 +689,19 @@ func runUninstall(args []string) {
 		_ = os.Remove(binPath)
 	}
 
-	// 3. 清理配置目录（仅在 --purge 时）
-	if *purge {
-		workDir := cfg.WorkDir
-		fmt.Printf("删除配置目录 %s...\n", workDir)
-		_ = os.RemoveAll(workDir)
+	// 3. 询问是否清理配置目录
+	workDir := cfg.WorkDir
+	if _, err := os.Stat(workDir); err == nil {
+		fmt.Printf("是否删除配置目录 %s？[Y/n] ", workDir)
+		var answer string
+		fmt.Scanln(&answer)
+		if answer == "" || answer == "y" || answer == "Y" {
+			fmt.Printf("删除配置目录 %s...\n", workDir)
+			_ = os.RemoveAll(workDir)
+		} else {
+			fmt.Printf("配置文件保留在 %s\n", workDir)
+		}
 	}
 
 	fmt.Println("卸载完成！")
-	if !*purge {
-		cfg := service.DefaultConfig()
-		fmt.Printf("配置文件保留在 %s，使用 --purge 可删除\n", cfg.WorkDir)
-	}
 }

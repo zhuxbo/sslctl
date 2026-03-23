@@ -539,20 +539,20 @@ test_uninstall() {
     return 0
 }
 
-# 测试函数: TC-06 uninstall --purge
+# 测试函数: TC-06 uninstall 并清理配置
 test_purge() {
     local container="$1"
     local init_system="$2"
     local arch="$3"
 
-    echo_step "  TC-06: 测试 uninstall --purge 命令..."
+    echo_step "  TC-06: 测试 uninstall 并清理配置..."
 
     # 重新安装
     docker exec "$container" cp /test/sslctl /usr/local/bin/sslctl
     docker exec "$container" chmod +x /usr/local/bin/sslctl
 
-    # 执行 purge 卸载
-    docker exec "$container" /usr/local/bin/sslctl uninstall --purge 2>&1 || true
+    # 执行卸载（自动回答 Y 清理配置）
+    echo "Y" | docker exec -i "$container" /usr/local/bin/sslctl uninstall 2>&1 || true
 
     sleep 1
 
@@ -746,7 +746,7 @@ finalize_report() {
 | TC-03 | service repair | 验证服务修复功能 |
 | TC-04 | upgrade --check | 验证升级检查功能 |
 | TC-05 | uninstall | 验证标准卸载 |
-| TC-06 | uninstall --purge | 验证完全卸载 |
+| TC-06 | uninstall + 清理 | 验证完全卸载 |
 EOF
 
     echo ""
