@@ -433,7 +433,42 @@ func scanSites(serverType string, log *logger.Logger) []*matcher.ScannedSiteInfo
 		})
 	}
 
+	// 合并同域名站点（处理 80/443 分开的 server block）
+	sites = mergeSameNameSites(sites)
+
 	return sites
+}
+
+// mergeSameNameSites 合并同域名的站点
+// 同一域名有多个 server block 时（如 80 和 443 分开），合并为一条，优先保留 SSL 条目的信息
+func mergeSameNameSites(sites []*matcher.ScannedSiteInfo) []*matcher.ScannedSiteInfo {
+	seen := make(map[string]int) // ServerName -> result 中的索引
+	var result []*matcher.ScannedSiteInfo
+
+	for _, site := range sites {
+		if idx, exists := seen[site.ServerName]; exists {
+			existing := result[idx]
+			if site.HasSSL && !existing.HasSSL {
+				// 当前条目有 SSL，替换已有的非 SSL 条目
+				// 继承非 SSL 条目的 Webroot（HTTP block 通常有 root 指令）
+				if site.Webroot == "" && existing.Webroot != "" {
+					site.Webroot = existing.Webroot
+				}
+				result[idx] = site
+			} else if !existing.HasSSL || !site.HasSSL {
+				// 已有条目有 SSL、当前没有：仅继承 Webroot
+				if existing.Webroot == "" && site.Webroot != "" {
+					existing.Webroot = site.Webroot
+				}
+			}
+			// 两个都有 SSL：保持已有条目（先出现的优先）
+		} else {
+			seen[site.ServerName] = len(result)
+			result = append(result, site)
+		}
+	}
+
+	return result
 }
 
 // createBinding 创建站点绑定
@@ -457,6 +492,7 @@ func createBinding(site *matcher.ScannedSiteInfo, cm *config.ConfigManager) conf
 			Certificate: certPath,
 			PrivateKey:  keyPath,
 			ConfigFile:  site.ConfigFile,
+			Webroot:     site.Webroot,
 		},
 	}
 

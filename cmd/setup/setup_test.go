@@ -379,6 +379,106 @@ func TestInstallSSLConfig_Apache(t *testing.T) {
 	}
 }
 
+// TestMergeSameNameSites 测试同域名站点合并
+func TestMergeSameNameSites(t *testing.T) {
+	t.Run("80和443分开的server block合并", func(t *testing.T) {
+		sites := []*matcher.ScannedSiteInfo{
+			{
+				ServerName: "example.com",
+				ConfigFile: "/etc/nginx/conf.d/example.conf",
+				HasSSL:     true,
+				CertPath:   "/etc/ssl/cert.pem",
+				KeyPath:    "/etc/ssl/key.pem",
+				ServerType: "nginx",
+			},
+			{
+				ServerName: "example.com",
+				ConfigFile: "/etc/nginx/conf.d/example.conf",
+				HasSSL:     false,
+				ServerType: "nginx",
+				Webroot:    "/var/www/html",
+			},
+		}
+
+		result := mergeSameNameSites(sites)
+		if len(result) != 1 {
+			t.Fatalf("合并后应有 1 个站点，实际 %d", len(result))
+		}
+		if !result[0].HasSSL {
+			t.Error("合并后应保留 SSL 状态")
+		}
+		if result[0].CertPath != "/etc/ssl/cert.pem" {
+			t.Errorf("合并后 CertPath = %s，期望 /etc/ssl/cert.pem", result[0].CertPath)
+		}
+		if result[0].Webroot != "/var/www/html" {
+			t.Errorf("合并后应继承 Webroot = /var/www/html，实际 %s", result[0].Webroot)
+		}
+	})
+
+	t.Run("80在前443在后", func(t *testing.T) {
+		sites := []*matcher.ScannedSiteInfo{
+			{
+				ServerName: "example.com",
+				ConfigFile: "/etc/nginx/conf.d/example.conf",
+				HasSSL:     false,
+				ServerType: "nginx",
+				Webroot:    "/var/www/html",
+			},
+			{
+				ServerName: "example.com",
+				ConfigFile: "/etc/nginx/conf.d/example.conf",
+				HasSSL:     true,
+				CertPath:   "/etc/ssl/cert.pem",
+				KeyPath:    "/etc/ssl/key.pem",
+				ServerType: "nginx",
+			},
+		}
+
+		result := mergeSameNameSites(sites)
+		if len(result) != 1 {
+			t.Fatalf("合并后应有 1 个站点，实际 %d", len(result))
+		}
+		if !result[0].HasSSL {
+			t.Error("合并后应保留 SSL 状态")
+		}
+		if result[0].CertPath != "/etc/ssl/cert.pem" {
+			t.Errorf("合并后 CertPath = %s", result[0].CertPath)
+		}
+		if result[0].Webroot != "/var/www/html" {
+			t.Errorf("合并后应继承 Webroot，实际 %s", result[0].Webroot)
+		}
+	})
+
+	t.Run("不同域名不合并", func(t *testing.T) {
+		sites := []*matcher.ScannedSiteInfo{
+			{ServerName: "a.com", HasSSL: true, CertPath: "/a.pem", KeyPath: "/a.key", ServerType: "nginx"},
+			{ServerName: "b.com", HasSSL: false, ServerType: "nginx"},
+		}
+
+		result := mergeSameNameSites(sites)
+		if len(result) != 2 {
+			t.Fatalf("不同域名不应合并，期望 2 实际 %d", len(result))
+		}
+	})
+
+	t.Run("单条目不变", func(t *testing.T) {
+		sites := []*matcher.ScannedSiteInfo{
+			{ServerName: "a.com", HasSSL: true, CertPath: "/a.pem", KeyPath: "/a.key", ServerType: "nginx"},
+		}
+		result := mergeSameNameSites(sites)
+		if len(result) != 1 {
+			t.Fatalf("单条目应保持，期望 1 实际 %d", len(result))
+		}
+	})
+
+	t.Run("空列表", func(t *testing.T) {
+		result := mergeSameNameSites(nil)
+		if len(result) != 0 {
+			t.Fatalf("空列表应返回空，实际 %d", len(result))
+		}
+	})
+}
+
 // TestBuildCertName 测试证书名称生成
 func TestBuildCertName(t *testing.T) {
 	tests := []struct {

@@ -405,11 +405,13 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
     └─ renewLocalKeyMode() → issuer.CheckAndIssue()
         │
         ├─ OrderID > 0 → QueryOrder(order_id)
-        │   ├─ processing → 跳过，等待下次
+        │   ├─ processing + File → 放置验证文件，等待下次
+        │   ├─ processing 无 File → 等待下次
         │   ├─ active → 检查私钥匹配 → 部署
         │   └─ 失败/其他 → Update(order_id, csr) 重签
         │
         └─ OrderID == 0 → Update(0, csr) 首次提交
+            ├─ processing + File → 放置验证文件，等待下次
             └─ 保存返回的 order_id
 ```
 
@@ -452,6 +454,29 @@ sslctl setup --url <url> --token <token> --order <id> --local-key
 | IP 地址 | ✅ | ❌ 报错 |
 
 **注意**：不兼容时直接报错，不自动切换验证方式。校验函数位于 `pkg/config/base.go`
+
+### 文件验证处理
+
+当 API 返回 `status=processing` 且包含 `file` 字段时，自动放置验证文件：
+
+1. 从 `cert.Bindings` 收集所有已启用绑定的 `Paths.Webroot`（去重）
+2. 对每个 webroot：`util.JoinUnderDir(webroot, file.Path)` 防目录穿越 → `util.AtomicWrite` 写入（0644）
+3. 记录已写入路径到 `cert.Metadata.ValidationFiles` → 持久化到 config.json
+4. 返回等待下次检查（次日 CA 完成验证后 status 变为 active）
+5. 部署成功后 `cleanupValidationFiles()` 删除文件并清理空目录
+
+**配置字段**：
+- `certificates[].validation_method`：验证方法（`file` | `delegation`），传递给 API 的 `validation_method` 参数
+- `certificates[].bindings[].paths.webroot`：Web 根目录，setup/deploy 时从扫描结果自动获取
+- `certificates[].metadata.validation_files`：已写入的验证文件路径列表（部署成功后自动清空）
+
+### IP 证书支持
+
+- CSR 只写 CN（即使 CN 是 IP），CA 签发证书 SAN 必定包含 CN
+- 证书验证：`validator.validateDomain()` 检查 `cert.IPAddresses`（`net.IP.Equal` 精确匹配）
+- 域名覆盖：`ValidateDomainCoverage()` 和 `ExtractCertDomains()` 同时处理 DNS SAN 和 IP SAN
+- 域名匹配：`matcher.MatchDomain()` 和 `validator.MatchDomain()` 对 IP 使用精确匹配，不走通配符逻辑
+- 验证方法：IP 地址支持 `file` 验证，不支持 `delegation` 验证
 
 ---
 

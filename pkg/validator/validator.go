@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/errors"
@@ -69,14 +70,14 @@ func (v *Validator) ValidateCert(certPEM string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// validateDomain 校验证书域名
+// validateDomain 校验证书域名（支持域名和 IP 地址）
 func (v *Validator) validateDomain(cert *x509.Certificate) error {
 	// 检查 CN
 	if cert.Subject.CommonName == v.expectedDomain {
 		return nil
 	}
 
-	// 检查 SAN (Subject Alternative Name)
+	// 检查 DNS SAN (Subject Alternative Name)
 	for _, san := range cert.DNSNames {
 		// 支持通配符证书
 		if MatchDomain(v.expectedDomain, san) {
@@ -84,9 +85,18 @@ func (v *Validator) validateDomain(cert *x509.Certificate) error {
 		}
 	}
 
+	// 检查 IP SAN
+	if expectedIP := net.ParseIP(v.expectedDomain); expectedIP != nil {
+		for _, certIP := range cert.IPAddresses {
+			if expectedIP.Equal(certIP) {
+				return nil
+			}
+		}
+	}
+
 	return errors.NewValidateError(
-		fmt.Sprintf("domain mismatch: expected %s, got CN=%s, SAN=%v",
-			v.expectedDomain, cert.Subject.CommonName, cert.DNSNames),
+		fmt.Sprintf("domain mismatch: expected %s, got CN=%s, DNS SAN=%v, IP SAN=%v",
+			v.expectedDomain, cert.Subject.CommonName, cert.DNSNames, cert.IPAddresses),
 		nil,
 	)
 }

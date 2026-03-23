@@ -2,6 +2,7 @@
 package matcher
 
 import (
+	"net"
 	"strings"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -23,7 +24,12 @@ func New(certDomains []string) *Matcher {
 }
 
 // toASCIILower 将域名转为小写 ASCII（Punycode），转换失败时保留原始字符串
+// IP 地址直接返回原字符串（无需 IDNA 转换）
 func toASCIILower(domain string) string {
+	// IP 地址不需要 IDNA 转换
+	if net.ParseIP(domain) != nil {
+		return domain
+	}
 	lower := strings.ToLower(domain)
 	// 通配符域名：对 baseDomain 部分做 IDN 转换
 	if strings.HasPrefix(lower, "*.") {
@@ -99,6 +105,13 @@ func (m *Matcher) matchesDomain(domain string) bool {
 // certDomain: 证书域名（或站点域名），可能是通配符（如 *.example.com）
 // targetDomain: 目标域名（如 www.example.com）
 func MatchDomain(certDomain, targetDomain string) bool {
+	// IP 精确匹配（IP 不支持通配符）
+	certIP := net.ParseIP(certDomain)
+	targetIP := net.ParseIP(targetDomain)
+	if certIP != nil || targetIP != nil {
+		return certIP != nil && targetIP != nil && certIP.Equal(targetIP)
+	}
+
 	// 精确匹配
 	if certDomain == targetDomain {
 		return true

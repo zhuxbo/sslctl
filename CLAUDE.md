@@ -136,6 +136,8 @@ docker/test/
 - 两种模式统一：`renew_before_days` 最大 13 天，默认 13 天
 - 定时检查：每天一次，随机选择明天的某个时间点执行
 - 多证书续签间隔：每个证书处理后随机延迟 30~90 秒，分散 API 请求压力
+- 文件验证支持：`status=processing` 且 API 返回 `file` 字段时，自动将验证文件写入 webroot（`util.JoinUnderDir` 防目录穿越），部署成功后自动清理
+- IP 证书支持：证书验证和域名匹配支持 `cert.IPAddresses`，IP 使用精确匹配（不走通配符逻辑）
 
 详见 `skills/deploy-ops/SKILL.md`
 
@@ -185,7 +187,8 @@ docker/test/
 
 ## CSR 生成
 
-- CSR 只需要 Common Name（CN），**不需要** SAN（Subject Alternative Name）
+- CSR 只需要 Common Name（CN），**不需要** SAN（Subject Alternative Name），包括 IP 证书也只写 CN
+- CA 签发证书的 SAN 必定包含 CN
 - 默认密钥类型：RSA 2048，支持 ECDSA
 
 ## 开发规范
