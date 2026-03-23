@@ -694,7 +694,7 @@ func runUninstall(args []string) {
 	if _, err := os.Stat(workDir); err == nil {
 		fmt.Printf("是否删除配置目录 %s？[Y/n] ", workDir)
 		var answer string
-		fmt.Scanln(&answer)
+		_, _ = fmt.Scanln(&answer)
 		if answer == "" || answer == "y" || answer == "Y" {
 			fmt.Printf("删除配置目录 %s...\n", workDir)
 			_ = os.RemoveAll(workDir)
