@@ -4,6 +4,7 @@ package webserver
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,12 +119,14 @@ func TestGetApacheConfigPath_WithMockPaths(t *testing.T) {
 func TestDetectNginxCommands(t *testing.T) {
 	cmds := DetectNginxCommands()
 
-	if cmds.TestCmd != "nginx -t" {
-		t.Errorf("TestCmd = %s, want 'nginx -t'", cmds.TestCmd)
+	// 命令应以 "nginx" 结尾 + " -t"（可能包含完整路径）
+	if !strings.HasSuffix(cmds.TestCmd, " -t") || !strings.Contains(cmds.TestCmd, "nginx") {
+		t.Errorf("TestCmd = %s, 应包含 nginx 和 -t", cmds.TestCmd)
 	}
-	if cmds.ReloadCmd != "nginx -s reload" {
-		t.Errorf("ReloadCmd = %s, want 'nginx -s reload'", cmds.ReloadCmd)
+	if !strings.HasSuffix(cmds.ReloadCmd, " -s reload") || !strings.Contains(cmds.ReloadCmd, "nginx") {
+		t.Errorf("ReloadCmd = %s, 应包含 nginx 和 -s reload", cmds.ReloadCmd)
 	}
+	t.Logf("TestCmd = %s, ReloadCmd = %s", cmds.TestCmd, cmds.ReloadCmd)
 }
 
 // TestDetectApacheCommands 测试 Apache 命令检测

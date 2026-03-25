@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 )
@@ -59,15 +60,21 @@ type ServiceConfig struct {
 }
 
 // DefaultConfig 默认服务配置
+// Windows 上从当前运行的二进制路径推导，避免与安装目录不一致
 func DefaultConfig() *ServiceConfig {
 	execPath := "/usr/local/bin/sslctl"
-	if runtime.GOOS == "windows" {
-		execPath = `C:\Program Files\sslctl\sslctl.exe`
-	}
-
 	workDir := "/opt/sslctl"
+
 	if runtime.GOOS == "windows" {
-		workDir = `C:\ProgramData\sslctl`
+		// 优先使用当前二进制的实际路径
+		if selfPath, err := os.Executable(); err == nil {
+			selfPath, _ = filepath.EvalSymlinks(selfPath)
+			execPath = selfPath
+			workDir = filepath.Dir(selfPath)
+		} else {
+			execPath = `C:\sslctl\sslctl.exe`
+			workDir = `C:\sslctl`
+		}
 	}
 
 	return &ServiceConfig{

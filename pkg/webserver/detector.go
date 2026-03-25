@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
@@ -79,7 +80,19 @@ func isNginxInstalled() bool {
 		return true
 	}
 
-	// 检查常见安装路径
+	if runtime.GOOS == "windows" {
+		// Windows: nginx 可安装在任意路径，通过进程检测最可靠
+		// tasklist 是所有 Windows 版本内置命令，输出格式用 CSV 避免语言差异
+		cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq nginx.exe", "/FO", "CSV", "/NH")
+		if output, err := cmd.Output(); err == nil {
+			if strings.Contains(strings.ToLower(string(output)), "nginx.exe") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Linux/macOS: 检查常见安装路径
 	nginxPaths := []string{
 		"/usr/sbin/nginx",
 		"/usr/local/nginx/sbin/nginx",
@@ -90,6 +103,11 @@ func isNginxInstalled() bool {
 		if _, err := os.Stat(p); err == nil {
 			return true
 		}
+	}
+
+	// 兜底：检查进程是否在运行（处理非标准安装路径）
+	if output, err := executor.RunOutput("ps -C nginx -o pid="); err == nil && len(strings.TrimSpace(string(output))) > 0 {
+		return true
 	}
 
 	return false
@@ -105,7 +123,18 @@ func isApacheInstalled() bool {
 		}
 	}
 
-	// 检查常见安装路径
+	if runtime.GOOS == "windows" {
+		// Windows: 通过进程检测
+		cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq httpd.exe", "/FO", "CSV", "/NH")
+		if output, err := cmd.Output(); err == nil {
+			if strings.Contains(strings.ToLower(string(output)), "httpd.exe") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Linux/macOS: 检查常见安装路径
 	apachePaths := []string{
 		"/usr/sbin/httpd",
 		"/usr/sbin/apache2",
@@ -118,14 +147,38 @@ func isApacheInstalled() bool {
 		}
 	}
 
+	// 兜底：检查进程是否在运行
+	for _, name := range []string{"ps -C httpd -o pid=", "ps -C apache2 -o pid="} {
+		if output, err := executor.RunOutput(name); err == nil && len(strings.TrimSpace(string(output))) > 0 {
+			return true
+		}
+	}
+
 	return false
 }
 
 // GetNginxConfigPath 获取 Nginx 配置文件路径
 func GetNginxConfigPath() string {
-	// 尝试从 nginx -t 输出获取（使用 executor 白名单）
-	output, err := executor.RunOutput("nginx -t")
-	if err == nil {
+	// 尝试从 nginx -t 输出获取
+	// 优先使用动态路径（处理 Windows nginx 不在 PATH 或需要 -p 的情况）
+	nginxBin := findNginxBin()
+	var output []byte
+	if filepath.IsAbs(nginxBin) {
+		// 动态路径：构建带 -p 的参数
+		args := []string{"-t"}
+		if runtime.GOOS == "windows" {
+			dir := filepath.Dir(nginxBin)
+			if _, err := os.Stat(filepath.Join(dir, "conf", "nginx.conf")); err == nil {
+				args = []string{"-p", dir + string(filepath.Separator), "-t"}
+			}
+		}
+		output, _ = executor.RunScan(nginxBin, args...)
+	}
+	if len(output) == 0 {
+		output, _ = executor.RunOutput("nginx -t")
+	}
+
+	if len(output) > 0 {
 		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
 			if strings.Contains(line, "configuration file") {
@@ -144,6 +197,10 @@ func GetNginxConfigPath() string {
 		"/etc/nginx/nginx.conf",
 		"/usr/local/nginx/conf/nginx.conf",
 		"/opt/nginx/conf/nginx.conf",
+	}
+	if runtime.GOOS == "windows" && filepath.IsAbs(nginxBin) {
+		// Windows: 优先检查 nginx 安装目录
+		commonPaths = append([]string{filepath.Join(filepath.Dir(nginxBin), "conf", "nginx.conf")}, commonPaths...)
 	}
 
 	for _, p := range commonPaths {
@@ -204,12 +261,80 @@ type ServerCommands struct {
 }
 
 // DetectNginxCommands 检测当前系统可用的 Nginx 命令
-// nginx -t 和 nginx -s reload 在所有安装方式下均可用，是最通用的方式
+// 查找 nginx 实际路径，避免 nginx 不在 PATH 时命令执行失败
+// Windows 上自动添加 -p prefix（nginx 默认用当前目录作为 prefix）
 func DetectNginxCommands() ServerCommands {
+	nginxBin := findNginxBin()
+	prefixArgs := getNginxPrefixArgs(nginxBin)
 	return ServerCommands{
-		TestCmd:   "nginx -t",
-		ReloadCmd: "nginx -s reload",
+		TestCmd:   nginxBin + prefixArgs + " -t",
+		ReloadCmd: nginxBin + prefixArgs + " -s reload",
 	}
+}
+
+// getNginxPrefixArgs 获取 nginx -p 参数（含前导空格）
+// Windows 上 nginx 默认用当前工作目录作为 prefix，需显式指定 -p
+// 返回 " -p D:\path\to\nginx\" 或 ""
+func getNginxPrefixArgs(nginxBin string) string {
+	if runtime.GOOS != "windows" || !filepath.IsAbs(nginxBin) {
+		return ""
+	}
+	dir := filepath.Dir(nginxBin)
+	confPath := filepath.Join(dir, "conf", "nginx.conf")
+	if _, err := os.Stat(confPath); err == nil {
+		return " -p " + dir + string(filepath.Separator)
+	}
+	return ""
+}
+
+// findNginxBin 查找 nginx 可执行文件路径
+func findNginxBin() string {
+	// 1. PATH 查找
+	if path, err := exec.LookPath("nginx"); err == nil {
+		return path
+	}
+
+	if runtime.GOOS == "windows" {
+		// Windows: 从运行中的进程获取路径
+		// tasklist 无法获取路径，用 wmic
+		cmd := exec.Command("wmic", "process", "where", "name='nginx.exe'", "get", "ExecutablePath")
+		if output, err := cmd.Output(); err == nil {
+			for _, line := range strings.Split(string(output), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" && line != "ExecutablePath" && strings.HasSuffix(strings.ToLower(line), "nginx.exe") {
+					return line
+				}
+			}
+		}
+		return "nginx"
+	}
+
+	// Linux/macOS: 检查常见路径
+	for _, p := range []string{
+		"/usr/sbin/nginx",
+		"/usr/local/nginx/sbin/nginx",
+		"/opt/nginx/sbin/nginx",
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	// 从运行中的进程获取路径
+	if output, err := executor.RunOutput("ps -C nginx -o pid="); err == nil {
+		if pid := strings.TrimSpace(string(output)); pid != "" {
+			pids := strings.Fields(pid)
+			if len(pids) > 0 {
+				if realPath, err := os.Readlink("/proc/" + pids[0] + "/exe"); err == nil {
+					if _, err := os.Stat(realPath); err == nil {
+						return realPath
+					}
+				}
+			}
+		}
+	}
+
+	return "nginx"
 }
 
 // DetectApacheCommands 检测当前系统可用的 Apache 命令

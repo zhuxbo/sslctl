@@ -4,6 +4,7 @@ package scanner
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/zhuxbo/sslctl/internal/executor"
 	"github.com/zhuxbo/sslctl/pkg/matcher"
@@ -118,10 +120,18 @@ func DetectNginx() (configPath string, err error) {
 
 // getNginxConfigFromTest 通过 nginx -t 获取配置路径
 func getNginxConfigFromTest() (string, error) {
-	// nginx -t 输出: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-	output, _ := executor.RunOutput("nginx -t") // 忽略错误，即使配置有问题也能获取路径
+	// 优先使用动态路径（避免 PATH 里的 nginx 不可用）
+	nginxPath := findNginxBinary()
+	var output []byte
+	if nginxPath != "" {
+		args := buildNginxArgs(nginxPath, "-t")
+		output, _ = executor.RunScan(nginxPath, args...)
+	}
+	if len(output) == 0 {
+		output, _ = executor.RunOutput("nginx -t")
+	}
 
-	// 匹配配置文件路径
+	// nginx -t 输出: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 	re := regexp.MustCompile(`configuration file (.+?) `)
 	matches := re.FindSubmatch(output)
 	if len(matches) > 1 {
@@ -136,9 +146,17 @@ func getNginxConfigFromTest() (string, error) {
 
 // getNginxConfigFromVersion 通过 nginx -V 获取配置路径
 func getNginxConfigFromVersion() (string, error) {
-	// nginx -V 输出包含: --conf-path=/etc/nginx/nginx.conf
-	output, err := executor.RunOutput("nginx -V")
-	if err != nil {
+	// nginx -V 输出编译信息，不需要 -p（与运行时目录无关）
+	nginxPath := findNginxBinary()
+	var output []byte
+	var err error
+	if nginxPath != "" {
+		output, err = executor.RunScan(nginxPath, "-V")
+	}
+	if len(output) == 0 {
+		output, err = executor.RunOutput("nginx -V")
+	}
+	if err != nil && len(output) == 0 {
 		return "", err
 	}
 
@@ -185,9 +203,17 @@ func getCommonNginxPaths() []string {
 // GetMergedConfig 使用 nginx -T 获取合并后的完整配置
 // 返回配置内容和各配置文件的位置映射
 func GetMergedConfig() (string, map[int]string, error) {
-	output, err := executor.RunOutput("nginx -T")
+	// 优先使用动态路径（处理 Windows nginx 不在 PATH 或需要 -p 的情况）
+	var output []byte
+	var err error
+	if nginxPath := findNginxBinary(); nginxPath != "" {
+		args := buildNginxArgs(nginxPath, "-T")
+		output, err = executor.RunScan(nginxPath, args...)
+	}
+	if len(output) == 0 {
+		output, err = executor.RunOutput("nginx -T")
+	}
 	if err != nil {
-		// 即使有警告也可能输出配置，检查是否有内容
 		if len(output) == 0 {
 			return "", nil, fmt.Errorf("nginx -T 执行失败: %w", err)
 		}
@@ -375,7 +401,7 @@ var (
 	sslKeyRe       = regexp.MustCompile(`^\s*ssl_certificate_key\s+([^;]+);`)
 	rootRe         = regexp.MustCompile(`^\s*root\s+([^;]+);`)
 	locationRe     = regexp.MustCompile(`^\s*location\s+`)
-	configFileRe   = regexp.MustCompile(`# configuration file ([^:]+):`)
+	configFileRe   = regexp.MustCompile(`# configuration file (.+):`)
 )
 
 // parseServerBlocks 统一的 server 块解析引擎
@@ -834,6 +860,41 @@ func findNginxBinary() string {
 	return ""
 }
 
+// buildNginxArgs 构建 nginx 命令参数
+// Windows 上 nginx 默认用当前工作目录作为 prefix，需要 -p 指定实际安装目录
+// 仅当二进制路径是绝对路径且其目录下存在 conf/nginx.conf 时才加 -p
+func buildNginxArgs(nginxPath string, args ...string) []string {
+	if runtime.GOOS == "windows" && filepath.IsAbs(nginxPath) {
+		dir := filepath.Dir(nginxPath)
+		confPath := filepath.Join(dir, "conf", "nginx.conf")
+		if _, err := os.Stat(confPath); err == nil {
+			return append([]string{"-p", dir + string(filepath.Separator)}, args...)
+		}
+	}
+	return args
+}
+
+// getNginxPrefix 从 nginx 二进制路径推导 prefix 目录
+// 返回空字符串表示不需要特殊处理（Linux 或路径无效）
+func getNginxPrefix(nginxPath string) string {
+	if !filepath.IsAbs(nginxPath) {
+		return ""
+	}
+	dir := filepath.Dir(nginxPath)
+	if _, err := os.Stat(filepath.Join(dir, "conf", "nginx.conf")); err == nil {
+		return dir
+	}
+	return ""
+}
+
+// resolveNginxPath 将 nginx 配置中的相对路径解析为绝对路径
+func resolveNginxPath(prefix, path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(prefix, path)
+}
+
 // findNginxFromProcess 从运行中的进程查找 nginx 路径
 func findNginxFromProcess() string {
 	if runtime.GOOS == "windows" {
@@ -908,10 +969,14 @@ func findNginxFromProcessWindows() string {
 	return findNginxFromProcessWMIC()
 }
 
+// processTimeout Windows 进程查找命令的超时时间（防止控制台损坏导致卡死）
+const processTimeout = 10 * time.Second
+
 // findNginxFromProcessPowerShell 使用 PowerShell 查找 nginx 进程
 func findNginxFromProcessPowerShell() string {
-	// PowerShell: Get-Process nginx -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"Get-Process -Name nginx -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1")
 	output, err := cmd.Output()
 	if err != nil {
@@ -928,8 +993,9 @@ func findNginxFromProcessPowerShell() string {
 
 // findNginxFromProcessWMIC 使用 wmic 查找 nginx 进程（兼容旧版 Windows）
 func findNginxFromProcessWMIC() string {
-	// wmic process where "name='nginx.exe'" get ExecutablePath
-	cmd := exec.Command("wmic", "process", "where", "name='nginx.exe'", "get", "ExecutablePath")
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "wmic", "process", "where", "name='nginx.exe'", "get", "ExecutablePath")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -974,7 +1040,9 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 		return nil, fmt.Errorf("未找到 nginx 可执行文件")
 	}
 
-	output, err := executor.RunScan(nginxPath, "-T")
+	// Windows 上 nginx 默认用当前工作目录作为 prefix，需要显式指定 -p
+	args := buildNginxArgs(nginxPath, "-T")
+	output, err := executor.RunScan(nginxPath, args...)
 	if err != nil {
 		if !strings.Contains(string(output), "server") {
 			return nil, fmt.Errorf("nginx -T 执行失败: %w", err)
@@ -987,7 +1055,18 @@ func (s *Scanner) scanWithNginxT() ([]*Site, error) {
 		trackConfigFile: true,
 	})
 
-	return rawBlocksToSites(blocks), nil
+	sites := rawBlocksToSites(blocks)
+
+	// 解析相对路径：Windows 上 nginx 配置常用相对路径，需基于 prefix 目录转为绝对路径
+	if prefix := getNginxPrefix(nginxPath); prefix != "" {
+		for _, site := range sites {
+			site.CertificatePath = resolveNginxPath(prefix, site.CertificatePath)
+			site.PrivateKeyPath = resolveNginxPath(prefix, site.PrivateKeyPath)
+			site.Webroot = resolveNginxPath(prefix, site.Webroot)
+		}
+	}
+
+	return sites, nil
 }
 
 // scanAllConfigFile 扫描配置文件中的所有站点（递归处理 include）

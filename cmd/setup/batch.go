@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -258,8 +259,13 @@ func runBatch(p *setupParams, query string) {
 
 	if !p.noService {
 		fmt.Println("\n守护服务命令:")
-		fmt.Println("  systemctl status sslctl    # 查看状态")
-		fmt.Println("  journalctl -u sslctl -f    # 查看日志")
+		if runtime.GOOS == "windows" {
+			fmt.Println("  sc query sslctl              # 查看状态")
+			fmt.Println("  sslctl status                # 查看证书状态")
+		} else {
+			fmt.Println("  systemctl status sslctl    # 查看状态")
+			fmt.Println("  journalctl -u sslctl -f    # 查看日志")
+		}
 	}
 }
 

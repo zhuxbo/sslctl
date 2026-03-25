@@ -129,15 +129,26 @@ esac
 echo_info "系统: $OS, 架构: $ARCH"
 
 # 检测 Web 服务
+# 三级检测: PATH → 常见路径 → 运行中的进程
 detect_webserver() {
     local services=""
-    if command -v nginx >/dev/null 2>&1; then
+
+    # 检测 Nginx: PATH → 常见路径 → 进程
+    if command -v nginx >/dev/null 2>&1 || \
+       [ -x /usr/sbin/nginx ] || \
+       [ -x /usr/local/nginx/sbin/nginx ] || \
+       [ -x /opt/nginx/sbin/nginx ] || \
+       pgrep -x nginx >/dev/null 2>&1; then
         services="nginx"
     fi
 
+    # 检测 Apache: PATH → 常见路径 → 进程
     if command -v apache2ctl >/dev/null 2>&1 || \
        command -v apachectl >/dev/null 2>&1 || \
-       command -v httpd >/dev/null 2>&1; then
+       command -v httpd >/dev/null 2>&1 || \
+       [ -x /usr/sbin/httpd ] || \
+       [ -x /usr/sbin/apache2 ] || \
+       pgrep -x 'httpd|apache2' >/dev/null 2>&1; then
         if [ -n "$services" ]; then
             services="$services, apache"
         else
