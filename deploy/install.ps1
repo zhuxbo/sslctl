@@ -1,8 +1,11 @@
-# sslctl Windows 安装脚本
+﻿# sslctl Windows 安装脚本
 # 自动检测架构，下载部署工具
 # 使用方法:
 #   直接执行: .\install.ps1 -ReleaseHost release.example.com [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
 #   管道模式: $env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://release.example.com/sslctl/install.ps1 | iex
+#
+# 注意: PowerShell 5.1 默认不启用 TLS 1.2，下载脚本前需先执行:
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 #
 # 服务端要求:
 #   管道模式依赖服务端返回 Content-Type: text/plain; charset=utf-8，
@@ -24,6 +27,11 @@ param(
 
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
+
+# 强制启用 TLS 1.2（PowerShell 5.1 默认仅 SSL3/TLS 1.0，无法连接现代 HTTPS 服务）
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
 
 # 设置控制台编码为 UTF-8，解决中文乱码
 try {
@@ -400,3 +408,5 @@ Write-Host "配置目录: C:\sslctl\sites\"
 Write-Host "日志目录: C:\sslctl\logs\"
 Write-Host ""
 Write-Host "IIS 用户请使用 sslctlw 工具"
+Write-Host ""
+Write-Warn "请重新打开 PowerShell 窗口，使 PATH 生效"
