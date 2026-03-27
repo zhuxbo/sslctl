@@ -87,8 +87,8 @@ func TestRun_NotAllowed(t *testing.T) {
 			if err == nil {
 				t.Errorf("Run(%q) 应该返回错误，但返回了 nil", tt.cmd)
 			}
-			if err != nil && !contains(err.Error(), "not in whitelist") {
-				t.Errorf("Run(%q) 错误信息应包含 'not in whitelist'，实际: %v", tt.cmd, err)
+			if err != nil && !contains(err.Error(), "whitelist") {
+				t.Errorf("Run(%q) 错误信息应包含 'whitelist'，实际: %v", tt.cmd, err)
 			}
 		})
 	}
@@ -111,8 +111,8 @@ func TestRunOutput_NotAllowed(t *testing.T) {
 			if err == nil {
 				t.Errorf("RunOutput(%q) 应该返回错误，但返回了 nil", tt.cmd)
 			}
-			if err != nil && !contains(err.Error(), "not in whitelist") {
-				t.Errorf("RunOutput(%q) 错误信息应包含 'not in whitelist'，实际: %v", tt.cmd, err)
+			if err != nil && !contains(err.Error(), "whitelist") {
+				t.Errorf("RunOutput(%q) 错误信息应包含 'whitelist'，实际: %v", tt.cmd, err)
 			}
 		})
 	}
@@ -257,8 +257,8 @@ func TestRunContext_NotAllowed(t *testing.T) {
 	if err == nil {
 		t.Error("RunContext() 不在白名单的命令应返回错误")
 	}
-	if err != nil && !contains(err.Error(), "not in whitelist") {
-		t.Errorf("RunContext() 错误应包含 'not in whitelist': %v", err)
+	if err != nil && !contains(err.Error(), "whitelist") {
+		t.Errorf("RunContext() 错误应包含 'whitelist': %v", err)
 	}
 }
 

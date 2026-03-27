@@ -456,8 +456,14 @@ func runUpgrade(args []string) {
 		os.Exit(1)
 	}
 
+	// 通道优先级: 命令行参数 > 配置文件 > 自动判断
+	effectiveChannel := *channel
+	if effectiveChannel == "" {
+		effectiveChannel = cfg.UpgradeChannel
+	}
+
 	opts := upgrade.Options{
-		Channel:        *channel,
+		Channel:        effectiveChannel,
 		TargetVersion:  *targetVersion,
 		Force:          *force,
 		CheckOnly:      *checkOnly,
@@ -470,9 +476,23 @@ func runUpgrade(args []string) {
 		fmt.Printf(format+"\n", args...)
 	}
 
-	if _, err := upgrade.Execute(opts, logFunc); err != nil {
+	result, err := upgrade.Execute(opts, logFunc)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
+	}
+
+	// 显式传了 --channel 时始终保存；升级成功时也保存实际通道
+	saveChannel := ""
+	if *channel != "" {
+		saveChannel = *channel
+	} else if result != nil && result.NeedUpgrade && !*checkOnly {
+		saveChannel = result.Channel
+	}
+	if saveChannel != "" {
+		if saveErr := cfgManager.SetUpgradeChannel(saveChannel); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "保存升级通道失败: %v\n", saveErr)
+		}
 	}
 }
 
@@ -694,7 +714,7 @@ func runUninstall(args []string) {
 	if _, err := os.Stat(workDir); err == nil {
 		fmt.Printf("是否删除配置目录 %s？[Y/n] ", workDir)
 		var answer string
-		fmt.Scanln(&answer)
+		_, _ = fmt.Scanln(&answer)
 		if answer == "" || answer == "y" || answer == "Y" {
 			fmt.Printf("删除配置目录 %s...\n", workDir)
 			_ = os.RemoveAll(workDir)

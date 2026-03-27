@@ -233,6 +233,7 @@ func (s *Service) retryFailedBindings(ctx context.Context, cert *config.CertConf
 		result.Error = err
 		return result
 	}
+	s.syncOrderID(cert, certData)
 	if certData.Status != "active" || certData.Cert == "" || certData.IntermediateCert == "" {
 		s.log.Warn("重试失败绑定: 证书 %s 未就绪 (status=%s)", cert.CertName, certData.Status)
 		result.Status = "pending"
@@ -311,6 +312,7 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	if err != nil {
 		return nil, "", err
 	}
+	s.syncOrderID(cert, certData)
 	if certData.Status != "active" || certData.Cert == "" {
 		// processing + 文件验证：放置验证文件
 		if certData.Status == "processing" && certData.File != nil {
@@ -380,6 +382,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 			if err != nil {
 				return nil, "", fmt.Errorf("查询订单失败: %w", err)
 			}
+			s.syncOrderID(cert, certData)
 			if certData.Status == "processing" {
 				// 放置验证文件（如果有）
 				if certData.File != nil {
@@ -468,9 +471,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("提交 CSR 失败: %w", err)
 	}
 
-	if certData.OrderID > 0 {
-		cert.OrderID = certData.OrderID
-	}
+	s.syncOrderID(cert, certData)
 
 	cert.Metadata.CSRSubmittedAt = time.Now()
 	cert.Metadata.LastCSRHash = csrHash

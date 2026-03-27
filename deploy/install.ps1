@@ -1,8 +1,11 @@
-# sslctl Windows 安装脚本
+﻿# sslctl Windows 安装脚本
 # 自动检测架构，下载部署工具
 # 使用方法:
 #   直接执行: .\install.ps1 -ReleaseHost release.example.com [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
 #   管道模式: $env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://release.example.com/sslctl/install.ps1 | iex
+#
+# 注意: PowerShell 5.1 默认不启用 TLS 1.2，下载脚本前需先执行:
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 #
 # 服务端要求:
 #   管道模式依赖服务端返回 Content-Type: text/plain; charset=utf-8，
@@ -25,12 +28,43 @@ param(
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
 
+# 强制启用 TLS 1.2（PowerShell 5.1 默认仅 SSL3/TLS 1.0，无法连接现代 HTTPS 服务）
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
+
+# 保存原始控制台编码（StreamWriter 降级时使用，避免 UTF-8 与 GBK 不匹配导致乱码）
+$script:OrigConsoleEncoding = [Console]::OutputEncoding
+
 # 设置控制台编码为 UTF-8，解决中文乱码
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch {}
+
+# 兼容控制台缓冲区损坏的 Windows 终端（0x1F 错误）
+# 创建底层输出流作为备用，覆盖 Write-Host：每次调用先尝试原生，失败自动降级
+# StreamWriter 使用原始编码，因为降级时 raw stdout 不经过 PowerShell 编码转换
+$script:RawOut = try {
+    $w = [System.IO.StreamWriter]::new([Console]::OpenStandardOutput(), $script:OrigConsoleEncoding)
+    $w.AutoFlush = $true; $w
+} catch { $null }
+$script:OrigWriteHost = $ExecutionContext.InvokeCommand.GetCommand('Microsoft.PowerShell.Utility\Write-Host', 'Cmdlet')
+function Write-Host {
+    param([Parameter(Position=0)]$Object = '', $ForegroundColor, $BackgroundColor, [switch]$NoNewline, $Separator)
+    try {
+        $p = @{ Object = $Object }
+        if ($ForegroundColor) { $p.ForegroundColor = $ForegroundColor }
+        if ($NoNewline) { $p.NoNewline = $true }
+        & $script:OrigWriteHost @p
+    } catch {
+        if ($script:RawOut) {
+            $t = if ($Object -ne $null) { $Object.ToString() } else { '' }
+            if ($NoNewline) { $script:RawOut.Write($t) } else { $script:RawOut.WriteLine($t) }
+        }
+    }
+}
 
 function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -221,13 +255,14 @@ if ($Arch -ne "amd64") {
 
 Write-Info "系统: windows, 架构: $Arch"
 
-# 检测 Web 服务
+# 检测 Web 服务（PATH 查找 + 进程检测）
 $services = @()
-if (Get-Command nginx -ErrorAction SilentlyContinue) {
+if ((Get-Command nginx -ErrorAction SilentlyContinue) -or
+    (Get-Process -Name nginx -ErrorAction SilentlyContinue)) {
     $services += "nginx"
 }
-$apacheServices = Get-Service -Name "Apache*" -ErrorAction SilentlyContinue
-if ($apacheServices) {
+if ((Get-Service -Name "Apache*" -ErrorAction SilentlyContinue) -or
+    (Get-Process -Name httpd -ErrorAction SilentlyContinue)) {
     $services += "apache"
 }
 
@@ -366,11 +401,14 @@ if (Test-Path $ConfigFile) {
         exit 1
     }
 } else {
-    $cfg = @{ version = "1.0" }
+    $cfg = @{}
 }
 $cfg.release_url = $ReleaseUrl
 $ConfigTmpFile = "$ConfigFile.tmp"
-$cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigTmpFile -Encoding UTF8
+# PowerShell 5.1 的 -Encoding UTF8 会写 BOM，Go JSON 解析器不支持 BOM
+# 使用 .NET 直接写入 UTF-8 无 BOM
+$json = $cfg | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText($ConfigTmpFile, $json, (New-Object System.Text.UTF8Encoding $false))
 Move-Item -Path $ConfigTmpFile -Destination $ConfigFile -Force
 
 # 添加到 PATH
@@ -400,3 +438,5 @@ Write-Host "配置目录: C:\sslctl\sites\"
 Write-Host "日志目录: C:\sslctl\logs\"
 Write-Host ""
 Write-Host "IIS 用户请使用 sslctlw 工具"
+Write-Host ""
+Write-Warn "请重新打开 PowerShell 窗口，使 PATH 生效"

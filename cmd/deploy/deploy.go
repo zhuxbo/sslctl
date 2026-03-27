@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhuxbo/sslctl/pkg/backup"
 	"github.com/zhuxbo/sslctl/pkg/certops"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
@@ -85,6 +86,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 
 	ctx := context.Background()
 	f := fetcher.New(30 * time.Second)
+	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), 5)
 
 	if *all {
 		// 部署所有证书
@@ -95,7 +97,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 		}
 		for i := range certs {
 			cert := &certs[i]
-			if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
+			if err := fetchAndDeployCert(ctx, cfgManager, cert, f, backupMgr, log); err != nil {
 				fmt.Fprintf(os.Stderr, "  失败: %v\n", err)
 				log.Error("部署证书 %s 失败: %v", cert.CertName, err)
 			}
@@ -116,7 +118,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 			}
 		}
 
-		if err := fetchAndDeployCert(ctx, cfgManager, cert, f, log); err != nil {
+		if err := fetchAndDeployCert(ctx, cfgManager, cert, f, backupMgr, log); err != nil {
 			fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -126,7 +128,7 @@ func Run(args []string, version, buildTime string, debug bool) {
 }
 
 // fetchAndDeployCert 从 API 获取并部署单个证书到所有绑定
-func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher, log *logger.Logger) error {
+func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher, backupMgr *backup.Manager, log *logger.Logger) error {
 	fmt.Printf("部署证书: %s\n", cert.CertName)
 
 	api := cert.GetAPI(log)
@@ -139,6 +141,16 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	if err != nil {
 		return fmt.Errorf("查询证书失败: %w", err)
 	}
+
+	// 订单续费后 API 返回新订单号，同步更新 order_id
+	if certData.OrderID > 0 && certData.OrderID != cert.OrderID {
+		fmt.Printf("  订单已续费，订单号更新: %d -> %d\n", cert.OrderID, certData.OrderID)
+		log.Info("证书 %s 订单已续费，订单号更新: %d -> %d", cert.CertName, cert.OrderID, certData.OrderID)
+		cert.OrderID = certData.OrderID
+	}
+
+	// 修正 cert_name：确保与 order_id 一致
+	fixCertName(cfgManager, cert, log)
 
 	if certData.Status != "active" || certData.Cert == "" {
 		return fmt.Errorf("证书未就绪: status=%s", certData.Status)
@@ -191,7 +203,7 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 
 		fmt.Printf("  部署到: %s\n", binding.ServerName)
 
-		if err := deployToBinding(binding, certData, privateKey, log); err != nil {
+		if err := deployToBinding(binding, certData, privateKey, backupMgr, log); err != nil {
 			fmt.Printf("    失败: %v\n", err)
 			continue
 		}
@@ -209,15 +221,43 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	return cfgManager.UpdateCert(cert)
 }
 
-// deployToBinding 部署到绑定
-// 错误处理设计说明：
-// - 目录创建和部署器创建使用 fmt.Errorf（环境/配置错误，非部署阶段）
-// - deployer.Deploy() 返回 StructuredDeployError（部署阶段错误），直接透传保留错误类型
-// - 这种分层设计使调用方可以区分错误来源和阶段
-func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, log *logger.Logger) error {
+// fixCertName 修正 cert_name 使其与 order_id 一致
+// cert_name 格式: {domain}-{order_id}
+func fixCertName(cfgManager *config.ConfigManager, cert *config.CertConfig, log *logger.Logger) {
+	idx := strings.LastIndex(cert.CertName, "-")
+	if idx < 0 {
+		return
+	}
+	expectedName := fmt.Sprintf("%s-%d", cert.CertName[:idx], cert.OrderID)
+	if expectedName == cert.CertName {
+		return
+	}
+	oldName := cert.CertName
+	cert.CertName = expectedName
+	fmt.Printf("  证书名称修正: %s -> %s\n", oldName, expectedName)
+	if err := cfgManager.RenameCert(oldName, cert); err != nil {
+		log.Warn("重命名证书配置失败: %v", err)
+	}
+}
+
+// deployToBinding 部署到绑定（带备份和回滚）
+func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, backupMgr *backup.Manager, log *logger.Logger) error {
 	certDir := filepath.Dir(binding.Paths.Certificate)
 	if err := util.EnsureDir(certDir, 0700); err != nil {
 		return fmt.Errorf("创建证书目录失败: %w", err)
+	}
+
+	// 备份现有证书（如果存在）
+	var backupPath string
+	if util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey) {
+		result, err := backupMgr.Backup(binding.ServerName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
+		if err != nil {
+			return fmt.Errorf("备份现有证书失败，中止部署: %w", err)
+		}
+		if result != nil {
+			backupPath = result.BackupPath
+			log.Info("已备份证书到: %s", backupPath)
+		}
 	}
 
 	deployer, err := webserver.NewDeployer(
@@ -232,8 +272,22 @@ func deployToBinding(binding *config.SiteBinding, certData *fetcher.CertData, pr
 		return fmt.Errorf("创建部署器失败: %w", err)
 	}
 
-	// 直接返回 deployer.Deploy 的结果，保留 StructuredDeployError 类型
-	return deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
+	deployErr := deployer.Deploy(certData.Cert, certData.IntermediateCert, privateKey)
+
+	// 部署失败时回滚
+	if deployErr != nil && backupPath != "" {
+		log.Warn("部署失败，尝试回滚: %v", deployErr)
+		certPath, keyPath, chainPath := backupMgr.GetBackupPathsWithChain(backupPath)
+		rollbackErr := deployer.Rollback(certPath, keyPath, chainPath)
+		if rollbackErr != nil {
+			log.Error("回滚失败: %v", rollbackErr)
+			return fmt.Errorf("部署失败且回滚失败: deploy=%v, rollback=%v", deployErr, rollbackErr)
+		}
+		log.Info("已回滚到备份: %s", backupPath)
+		return fmt.Errorf("部署失败（已回滚）: %w", deployErr)
+	}
+
+	return deployErr
 }
 
 // bindSiteToCert 绑定站点到证书
@@ -545,7 +599,8 @@ func runLocal(args []string, debug bool) {
 		IntermediateCert: caData,
 	}
 
-	if err := deployToBinding(binding, certDataStruct, keyPEM, log); err != nil {
+	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), 5)
+	if err := deployToBinding(binding, certDataStruct, keyPEM, backupMgr, log); err != nil {
 		fmt.Fprintf(os.Stderr, "部署失败: %v\n", err)
 		os.Exit(1)
 	}

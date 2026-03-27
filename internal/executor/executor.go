@@ -78,7 +78,9 @@ var AllowedCommands = map[string]bool{
 	"net start Apache2.4":                     true,
 
 	// ========== 系统扫描命令（只读） ==========
-	"ps -C nginx -o pid=": true, // 查找 nginx 进程
+	"ps -C nginx -o pid=":   true, // 查找 nginx 进程
+	"ps -C httpd -o pid=":   true, // 查找 Apache 进程 (CentOS/RHEL)
+	"ps -C apache2 -o pid=": true, // 查找 Apache 进程 (Debian/Ubuntu)
 	"ss -tlnp":            true, // 查看监听端口
 	"netstat -tlnp":       true, // 查看监听端口（备用）
 
@@ -119,11 +121,21 @@ var AllowedScanExecutables = map[string]bool{
 	"/usr/sbin/nginx": true,
 }
 
-// AllowedScanArgs 扫描器允许的参数组合
+// AllowedScanArgs 允许的参数（用于动态路径命令）
 var AllowedScanArgs = map[string]bool{
 	"-t": true, // 测试配置
 	"-T": true, // 获取合并配置
 	"-V": true, // 获取版本信息
+	"-s": true, // 信号控制（如 -s reload）
+	"-v": true, // 版本号
+	"-p": true, // prefix 路径（Windows 上指定 nginx 工作目录）
+
+	"reload": true, // reload 信号参数
+}
+
+// argsWithValueParam 带值参数（下一个参数是值，跳过白名单检查）
+var argsWithValueParam = map[string]bool{
+	"-p": true, // -p <prefix_path>
 }
 
 // ParseCommand 解析命令字符串为可执行文件和参数
@@ -144,20 +156,30 @@ func Run(cmdStr string) error {
 }
 
 // RunContext 执行命令（带 context 超时控制）
-// 使用白名单机制防止命令注入
+// 优先匹配静态白名单，不匹配时回退到动态路径校验（basename + args 白名单）
+// 动态路径校验支持 nginx 安装在非标准路径的场景（如 /usr/local/nginx/sbin/nginx -t）
 func RunContext(ctx context.Context, cmdStr string) error {
-	if !AllowedCommands[cmdStr] {
-		return fmt.Errorf("command not in whitelist: %s", cmdStr)
+	if AllowedCommands[cmdStr] {
+		executable, args := ParseCommand(cmdStr)
+		cmd := exec.CommandContext(ctx, executable, args...)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, string(output))
+		}
+		return nil
 	}
 
+	// 回退：动态路径校验（复用 RunScan 的 basename + args 白名单机制）
 	executable, args := ParseCommand(cmdStr)
-	cmd := exec.CommandContext(ctx, executable, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, string(output))
+	if executable != "" && len(args) > 0 {
+		output, err := RunScanContext(ctx, executable, args...)
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, string(output))
+		}
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("command not in whitelist: %s", cmdStr)
 }
 
 // IsAllowed 检查命令是否在白名单中
@@ -213,9 +235,13 @@ func RunScanContext(ctx context.Context, executable string, args ...string) ([]b
 	}
 
 	// 检查参数是否允许
-	for _, arg := range args {
-		if !AllowedScanArgs[arg] {
-			return nil, fmt.Errorf("argument not in scan whitelist: %s", arg)
+	for i := 0; i < len(args); i++ {
+		if !AllowedScanArgs[args[i]] {
+			return nil, fmt.Errorf("argument not in scan whitelist: %s", args[i])
+		}
+		// 带值参数（如 -p <path>）：跳过下一个参数的白名单检查
+		if argsWithValueParam[args[i]] && i+1 < len(args) {
+			i++
 		}
 	}
 

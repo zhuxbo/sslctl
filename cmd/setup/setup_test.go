@@ -47,12 +47,12 @@ func TestCreateBinding_Nginx(t *testing.T) {
 		t.Errorf("Certificate = %s", binding.Paths.Certificate)
 	}
 
-	if binding.Reload.TestCommand != "nginx -t" {
-		t.Errorf("TestCommand = %s, want 'nginx -t'", binding.Reload.TestCommand)
+	if !strings.HasSuffix(binding.Reload.TestCommand, " -t") || !strings.Contains(binding.Reload.TestCommand, "nginx") {
+		t.Errorf("TestCommand = %s, 应包含 nginx 和 -t", binding.Reload.TestCommand)
 	}
 
-	if binding.Reload.ReloadCommand != "nginx -s reload" {
-		t.Errorf("ReloadCommand = %s, want 'nginx -s reload'", binding.Reload.ReloadCommand)
+	if !strings.HasSuffix(binding.Reload.ReloadCommand, " -s reload") || !strings.Contains(binding.Reload.ReloadCommand, "nginx") {
+		t.Errorf("ReloadCommand = %s, 应包含 nginx 和 -s reload", binding.Reload.ReloadCommand)
 	}
 }
 
