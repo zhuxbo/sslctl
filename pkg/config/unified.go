@@ -328,6 +328,19 @@ func (cm *ConfigManager) UpdateMetadata(fn func(*ConfigMetadata)) error {
 	return cm.saveLocked(cfg)
 }
 
+// SetUpgradeChannel 保存升级通道到配置
+func (cm *ConfigManager) SetUpgradeChannel(channel string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return err
+	}
+	cfg.UpgradeChannel = channel
+	return cm.saveLocked(cfg)
+}
+
 // Reload 重新加载配置
 // 注意：在持有锁时完成重新加载，避免竞态条件
 func (cm *ConfigManager) Reload() (*Config, error) {
@@ -431,6 +444,25 @@ func (cm *ConfigManager) UpdateCert(cert *CertConfig) error {
 		}
 	}
 	return fmt.Errorf("certificate not found: %s", cert.CertName)
+}
+
+// RenameCert 按旧名查找证书并替换为新配置（支持 cert_name 变更）
+func (cm *ConfigManager) RenameCert(oldName string, cert *CertConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return err
+	}
+
+	for i := range cfg.Certificates {
+		if cfg.Certificates[i].CertName == oldName {
+			cfg.Certificates[i] = *cert
+			return cm.saveLocked(cfg)
+		}
+	}
+	return fmt.Errorf("certificate not found: %s", oldName)
 }
 
 // DeleteCert 删除证书配置

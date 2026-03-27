@@ -73,20 +73,18 @@ var (
 
 ### 标准发布步骤
 
+**测试版**（含 `-`，如 `beta`/`rc`）：无需提交推送，直接从本地工作区构建发布
+
 ```bash
-# 1. 推送代码
-git push origin dev
-
-# 2. 构建并远程发布（自动测试 SSH → 构建 → 上传 → 更新 releases.json）
-# 正式版在 main 分支上会自动创建/更新 tag 并 push
 bash build/release.sh v1.0.0-beta
-
-# 3. 可选：签名发布包
-bash build/sign-release.sh --key ~/release-key.pem --dir /path/to/release --version v1.0.0-beta --key-id key-1
 ```
 
-- **正式版**（不含 `-`）：在 main 分支发布时，脚本自动创建/更新 `v{版本号}` tag 并 push，无需手动操作
-- **测试版**（含 `-`）：无需 tag，直接发布
+**正式版**（不含 `-`）：需先提交推送，脚本自动创建/更新 tag 并 push
+
+```bash
+git push origin dev
+bash build/release.sh v1.0.0
+```
 
 ### release.sh 选项
 

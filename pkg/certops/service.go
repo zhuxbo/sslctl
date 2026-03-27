@@ -3,6 +3,8 @@ package certops
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/backup"
@@ -42,6 +44,36 @@ func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *f
 		s.log.Warn("回调发送失败（不影响结果）: %v", err)
 	} else {
 		s.log.Debug("回调成功: order=%d status=%s", req.OrderID, req.Status)
+	}
+}
+
+// syncOrderID 同步 API 返回的订单号到本地配置
+// 订单续费后 API 会返回新的订单号，需要及时更新 order_id 和 cert_name
+func (s *Service) syncOrderID(cert *config.CertConfig, certData *fetcher.CertData) {
+	if certData.OrderID > 0 && certData.OrderID != cert.OrderID {
+		s.log.Info("证书 %s 订单已续费，订单号更新: %d -> %d", cert.CertName, cert.OrderID, certData.OrderID)
+		cert.OrderID = certData.OrderID
+	}
+	// 修正 cert_name 使其与 order_id 一致
+	s.fixCertName(cert)
+}
+
+// fixCertName 修正 cert_name 中的订单号后缀，使其与 order_id 一致
+// cert_name 格式: {domain}-{order_id}
+func (s *Service) fixCertName(cert *config.CertConfig) {
+	idx := strings.LastIndex(cert.CertName, "-")
+	if idx < 0 {
+		return
+	}
+	expectedName := fmt.Sprintf("%s-%d", cert.CertName[:idx], cert.OrderID)
+	if expectedName == cert.CertName {
+		return
+	}
+	oldName := cert.CertName
+	cert.CertName = expectedName
+	s.log.Info("证书名称修正: %s -> %s", oldName, expectedName)
+	if err := s.cfgManager.RenameCert(oldName, cert); err != nil {
+		s.log.Warn("重命名证书配置失败: %v", err)
 	}
 }
 

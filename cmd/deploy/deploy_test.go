@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zhuxbo/sslctl/pkg/backup"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/testdata/certs"
@@ -42,7 +43,7 @@ func TestDeployToBinding_Nginx(t *testing.T) {
 		IntermediateCert: "",
 	}
 
-	err = deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err = deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err != nil {
 		t.Fatalf("deployToBinding() error = %v", err)
 	}
@@ -99,7 +100,7 @@ func TestDeployToBinding_Apache(t *testing.T) {
 		IntermediateCert: intermediateCert.CertPEM,
 	}
 
-	err = deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err = deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err != nil {
 		t.Fatalf("deployToBinding() error = %v", err)
 	}
@@ -132,7 +133,7 @@ func TestDeployToBinding_UnsupportedType(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err := deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err == nil {
 		t.Error("期望返回错误，但实际成功")
 	}
@@ -161,7 +162,7 @@ func TestDeployToBinding_CreateDirectory(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err := deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err != nil {
 		t.Fatalf("deployToBinding() error = %v", err)
 	}
@@ -194,7 +195,7 @@ func TestDeployToBinding_DockerNginx(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err := deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err != nil {
 		t.Fatalf("deployToBinding() error = %v", err)
 	}
@@ -227,7 +228,7 @@ func TestDeployToBinding_DockerApache(t *testing.T) {
 		Cert: testCert.CertPEM,
 	}
 
-	err := deployToBinding(binding, certData, testCert.KeyPEM, nil)
+	err := deployToBinding(binding, certData, testCert.KeyPEM, backup.NewManager(t.TempDir(), 5), nil)
 	if err != nil {
 		t.Fatalf("deployToBinding() error = %v", err)
 	}

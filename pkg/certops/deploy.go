@@ -35,6 +35,9 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 		return nil, fmt.Errorf("获取证书失败: %w", err)
 	}
 
+	// 订单续费后 API 返回新订单号，同步更新
+	s.syncOrderID(cert, certData)
+
 	if certData.Status != "active" || certData.Cert == "" {
 		return nil, fmt.Errorf("证书未就绪 (status=%s)", certData.Status)
 	}
@@ -74,6 +77,11 @@ func (s *Service) DeployOne(ctx context.Context, certName string) (*DeployResult
 			s.log.Info("证书已部署到 %s", binding.ServerName)
 			successCount++
 		}
+	}
+
+	// 持久化配置变更（订单号更新等）
+	if err := s.cfgManager.UpdateCert(cert); err != nil {
+		s.log.Warn("更新证书配置失败: %v", err)
 	}
 
 	// 发送部署回调（非关键路径，失败仅记录日志）

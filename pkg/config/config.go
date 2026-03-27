@@ -11,10 +11,11 @@ import (
 
 // Config 统一配置结构（config.json）
 type Config struct {
-	ReleaseURL   string         `json:"release_url,omitempty"`
-	Schedule     ScheduleConfig `json:"schedule"`
-	Certificates []CertConfig   `json:"certificates"`
-	Metadata     ConfigMetadata `json:"metadata,omitempty"`
+	ReleaseURL    string         `json:"release_url,omitempty"`
+	UpgradeChannel string        `json:"upgrade_channel,omitempty"` // 升级通道: main/dev，空值跟随当前版本号自动判断
+	Schedule      ScheduleConfig `json:"schedule"`
+	Certificates  []CertConfig   `json:"certificates"`
+	Metadata      ConfigMetadata `json:"metadata,omitempty"`
 }
 
 // ConfigMetadata 配置元数据

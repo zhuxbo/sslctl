@@ -118,6 +118,8 @@ func Run(args []string, debug bool) {
 
 // runSingle 单证书部署（保持原有 7 步流程）
 func runSingle(p *setupParams, orderID int) {
+	p.log.Info("开始 setup: order_id=%d, api_url=%s", orderID, p.apiURL)
+
 	// 1. 检测 Web 服务器
 	fmt.Println("步骤 1/7: 检测 Web 服务器...")
 	serverType := webserver.DetectWebServerType()
@@ -134,6 +136,12 @@ func runSingle(p *setupParams, orderID int) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询订单失败: %v\n", err)
 		os.Exit(1)
+	}
+
+	// 订单续费后 API 返回新订单号
+	if certData.OrderID > 0 && certData.OrderID != orderID {
+		fmt.Printf("  订单已续费，使用新订单号: %d -> %d\n", orderID, certData.OrderID)
+		orderID = certData.OrderID
 	}
 
 	if certData.Status != "active" || certData.Cert == "" {
@@ -343,9 +351,12 @@ func runSingle(p *setupParams, orderID int) {
 
 	// 全部失败时退出
 	if successCount == 0 && failCount > 0 {
+		p.log.Error("setup 失败: 所有 %d 个站点部署均失败", failCount)
 		fmt.Fprintln(os.Stderr, "\n一键部署失败! 所有站点部署均失败")
 		os.Exit(1)
 	}
+
+	p.log.Info("setup 部署完成: 成功=%d, 失败=%d", successCount, failCount)
 
 	// 保存配置
 	fmt.Println("\n步骤 6/7: 保存配置...")
