@@ -640,6 +640,14 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 			want: true,
 		},
 		{
+			name:      "已过期证书不续签",
+			expiresAt: time.Now().Add(-3 * 24 * time.Hour), // 3 天前已过期
+			schedule: ScheduleConfig{
+				RenewBeforeDays: 13,
+			},
+			want: false,
+		},
+		{
 			name:      "Pull模式-全局配置为local天数时应使用pull默认值",
 			expiresAt: time.Now().Add(20 * 24 * time.Hour), // 20 天后过期
 			schedule: ScheduleConfig{

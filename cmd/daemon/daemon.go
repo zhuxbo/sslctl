@@ -125,11 +125,13 @@ func Run(args []string, version, buildTime string, debug bool) {
 }
 
 // nextRandomDaily 计算到明天随机时刻的延迟
-// 在明天 00:00~23:59 之间随机选择一个时间点，最短不低于 1 小时
+// 在明天 09:00~23:59 之间随机选择一个时间点，最短不低于 1 小时
+// 避开 0:00~8:59：服务端 0:00~7:59 执行续签，预留 1 小时签发时间
 func nextRandomDaily() time.Duration {
 	now := time.Now()
+	hour := 9 + rand.IntN(15) // 9~23
 	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1,
-		rand.IntN(24), rand.IntN(60), 0, 0, now.Location())
+		hour, rand.IntN(60), 0, 0, now.Location())
 	delay := tomorrow.Sub(now)
 	if delay < time.Hour {
 		delay += 24 * time.Hour
