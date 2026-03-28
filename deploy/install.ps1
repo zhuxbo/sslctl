@@ -2,7 +2,8 @@
 # 自动检测架构，下载部署工具
 # 使用方法:
 #   直接执行: .\install.ps1 -ReleaseHost release.example.com [-Dev] [-Stable] [-Version <ver>] [-Force] [-Help]
-#   管道模式: $env:SSLCTL_RELEASE_URL="https://release.example.com/sslctl"; irm https://release.example.com/sslctl/install.ps1 | iex
+#   管道模式: irm https://release.example.com/sslctl/install.ps1 | iex
+#   不传 -ReleaseHost 时使用内置默认地址
 #
 # 注意: PowerShell 5.1 默认不启用 TLS 1.2，下载脚本前需先执行:
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -90,23 +91,17 @@ if ($Help) {
     Write-Host "  .\install.ps1 -ReleaseHost release.example.com -Version 1.0.0  # 安装指定版本"
     Write-Host "  .\install.ps1 -ReleaseHost cdn.example.com/mirror           # 多层目录"
     Write-Host ""
-    Write-Host "管道模式 (irm ... | iex) 通过环境变量指定完整 URL："
-    Write-Host "  `$env:SSLCTL_RELEASE_URL='https://release.example.com/sslctl'; irm ... | iex"
+    Write-Host "未指定 -ReleaseHost 时使用内置默认地址。"
     exit 0
 }
 
-# 内置回落地址（未传参时使用此默认值）
+# 构建升级地址（参数传入 > 内置回落）
 $FallbackHost = "release.cnssl.com"
-
-# 构建升级地址（优先级：-ReleaseHost 参数 > 环境变量 > 回落）
 if ($ReleaseHost) {
     $ReleaseHost = $ReleaseHost.TrimEnd("/")
     $ReleaseUrl = "https://$ReleaseHost/sslctl"
-} elseif ($env:SSLCTL_RELEASE_URL) {
-    $ReleaseUrl = $env:SSLCTL_RELEASE_URL.TrimEnd("/")
 } else {
     $ReleaseUrl = "https://$FallbackHost/sslctl"
-    Write-Warn "未指定升级服务器，使用默认地址: $ReleaseUrl"
 }
 
 # --- 辅助函数 ---
@@ -393,6 +388,7 @@ Remove-Item $TempFile -Force -ErrorAction SilentlyContinue
 
 # 写入配置文件
 $ConfigFile = Join-Path $WorkDir "config.json"
+# 写入配置文件（ReleaseUrl 始终有值：参数传入或内置回落）
 if (Test-Path $ConfigFile) {
     try {
         $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
