@@ -84,12 +84,11 @@ sslctl uninstall                                 # 卸载
 
 ## 环境变量
 
-| 变量                 | 说明                                              |
-| -------------------- | ------------------------------------------------- |
-| `SSLCTL_RELEASE_URL` | Release URL（安装脚本使用，完整 URL 含 https://） |
-| `SSLCTL_API_TOKEN`   | API Token（覆盖所有证书的 API 配置）              |
-| `SSLCTL_API_URL`     | API URL（覆盖所有证书的 API 配置）                |
-| `SSLCTL_LOG_FORMAT`  | 日志格式：`json` 启用 JSON 输出                   |
+| 变量               | 说明                                 |
+| ------------------ | ------------------------------------ |
+| `SSLCTL_API_TOKEN` | API Token（覆盖所有证书的 API 配置） |
+| `SSLCTL_API_URL`   | API URL（覆盖所有证书的 API 配置）   |
+| `SSLCTL_LOG_FORMAT`| 日志格式：`json` 启用 JSON 输出      |
 
 ## 测试
 

@@ -60,8 +60,7 @@ while [[ $# -gt 0 ]]; do
             echo "  bash -s -- release.example.com --version 1.0.0     # 安装指定版本"
             echo "  bash -s -- cdn.example.com/mirror                  # 多层目录"
             echo ""
-            echo "也可通过环境变量指定完整 URL（含 https://）："
-            echo "  curl -fsSL <url>/install.sh | sudo SSLCTL_RELEASE_URL=https://release.example.com/sslctl bash -s --"
+            echo "未指定域名时使用内置默认地址。"
             exit 0
             ;;
         --*)
@@ -84,18 +83,13 @@ done
 # 网络超时（秒），可通过环境变量覆盖
 TIMEOUT=${SSLCTL_TIMEOUT:-30}
 
-# 内置回落地址（未传参时使用此默认值）
+# 构建升级地址（参数传入 > 内置回落）
 FALLBACK_HOST="release.cnssl.com"
-
-# 构建升级地址（优先级：位置参数 > 环境变量 > 回落）
 if [ -n "$RELEASE_HOST" ]; then
     RELEASE_HOST="${RELEASE_HOST%/}"
     RELEASE_URL="https://$RELEASE_HOST/sslctl"
-elif [ -n "${SSLCTL_RELEASE_URL:-}" ]; then
-    RELEASE_URL="${SSLCTL_RELEASE_URL%/}"
 else
     RELEASE_URL="https://$FALLBACK_HOST/sslctl"
-    echo_warn "未指定升级服务器，使用默认地址: $RELEASE_URL"
 fi
 
 # 检查 root 权限
@@ -388,38 +382,25 @@ chmod +x "$BINARY_DST"
 # 创建工作目录
 mkdir -p /opt/sslctl/{logs,backup,certs}
 
-# 写入配置文件
+# 写入配置文件（RELEASE_URL 始终有值：参数传入或内置回落）
 CONFIG_FILE="/opt/sslctl/config.json"
 if [ -f "$CONFIG_FILE" ]; then
     # 配置已存在，合并 release_url（不覆盖其他字段）
     if command -v python3 >/dev/null 2>&1; then
-        # 使用 python3 解析并原子写回，解析失败不覆盖原文件
         if ! python3 - "$CONFIG_FILE" "$RELEASE_URL" << 'PYEOF'
-import json
-import os
-import sys
-import tempfile
-
-config_path = sys.argv[1]
-release_url = sys.argv[2]
-
+import json, os, sys, tempfile
+config_path, release_url = sys.argv[1], sys.argv[2]
 try:
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
-except json.JSONDecodeError:
+except (json.JSONDecodeError, FileNotFoundError):
     print("配置解析失败，未修改 release_url", file=sys.stderr)
     sys.exit(1)
-except FileNotFoundError:
-    print("配置文件不存在", file=sys.stderr)
-    sys.exit(1)
-
 cfg["release_url"] = release_url
-
 dir_path = os.path.dirname(config_path) or "."
 with tempfile.NamedTemporaryFile("w", delete=False, dir=dir_path, encoding="utf-8") as tmp:
     json.dump(cfg, tmp, indent=2, ensure_ascii=False)
     tmp_path = tmp.name
-
 os.replace(tmp_path, config_path)
 PYEOF
         then
@@ -428,7 +409,6 @@ PYEOF
         fi
         chmod 600 "$CONFIG_FILE"
     elif command -v jq >/dev/null 2>&1; then
-        # 使用 jq 解析并原子写回，解析失败不覆盖原文件
         tmp_file=$(mktemp)
         if jq --arg url "$RELEASE_URL" '.release_url = $url' "$CONFIG_FILE" > "$tmp_file"; then
             mv "$tmp_file" "$CONFIG_FILE"
@@ -443,7 +423,7 @@ PYEOF
         exit 1
     fi
 else
-    # 首次安装，创建最小配置
+    # 首次安装，创建配置
     cat > "$CONFIG_FILE" << CFGEOF
 {
   "release_url": "$RELEASE_URL"

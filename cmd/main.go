@@ -26,7 +26,6 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
-	"golang.org/x/term"
 )
 
 var (
@@ -478,8 +477,26 @@ func runUpgrade(args []string) {
 
 	result, err := upgrade.Execute(opts, logFunc)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		// 升级失败，交互终端下提示输入新域名重试
+		if isTerminalFunc() {
+			newURL := promptNewReleaseURL(err)
+			if newURL != "" {
+				opts.ReleaseURL = newURL
+				result, err = upgrade.Execute(opts, logFunc)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%v\n", err)
+					os.Exit(1)
+				}
+				// 重试成功，保存新地址
+				cfg.ReleaseURL = newURL
+				_ = cfgManager.Save(cfg)
+			} else {
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// 显式传了 --channel 时始终保存；升级成功时也保存实际通道
@@ -496,41 +513,31 @@ func runUpgrade(args []string) {
 	}
 }
 
-// resolveReleaseURL 获取并校验升级地址，必要时提示用户输入并保存。
+// resolveReleaseURL 从配置文件读取升级地址。
+// 未配置时在交互终端提示输入并保存，非交互环境返回错误。
 func resolveReleaseURL(cfgManager *config.ConfigManager, cfg *config.Config) (string, error) {
-	// 统一处理末尾斜杠，避免拼接出错
 	releaseURL := strings.TrimRight(strings.TrimSpace(cfg.ReleaseURL), "/")
 	if releaseURL != "" {
-		// SSRF 防护：校验配置文件中的 URL
 		if err := validator.ValidateAPIURL(releaseURL); err != nil {
 			return "", fmt.Errorf("配置文件中的升级地址不安全: %w", err)
-		}
-		// 若配置中存在尾部斜杠，顺便纠正并落盘
-		if cfg.ReleaseURL != releaseURL {
-			cfg.ReleaseURL = releaseURL
-			if err := cfgManager.Save(cfg); err != nil {
-				return "", fmt.Errorf("保存升级地址失败: %w", err)
-			}
 		}
 		return releaseURL, nil
 	}
 
-	// 非交互环境无法安全提示输入
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("未配置升级地址（release_url），请使用安装脚本升级或在交互终端中运行 sslctl upgrade 输入地址")
+	// 非交互环境直接报错
+	if !isTerminalFunc() {
+		return "", fmt.Errorf("未配置升级地址（release_url），请在交互终端运行 sslctl upgrade 输入，或使用安装脚本传入参数")
 	}
 
+	// 交互提示输入
 	fmt.Fprintln(os.Stderr, "未配置升级地址（release_url）。")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "地址格式示例: https://release.example.com/sslctl")
-	fmt.Fprintln(os.Stderr, "也可通过安装脚本直接升级:")
-	fmt.Fprintln(os.Stderr, "  curl -fsSL https://<host>/sslctl/install.sh | sudo bash -s -- <host>")
-	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "格式示例: https://release.example.com/sslctl")
 	fmt.Fprint(os.Stderr, "请输入升级地址: ")
+
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("读取升级地址失败: %w", err)
+		return "", fmt.Errorf("读取输入失败: %w", err)
 	}
 
 	releaseURL = strings.TrimRight(strings.TrimSpace(input), "/")
@@ -538,22 +545,56 @@ func resolveReleaseURL(cfgManager *config.ConfigManager, cfg *config.Config) (st
 		return "", fmt.Errorf("升级地址不能为空")
 	}
 
-	// SSRF 防护：校验用户输入的 URL
 	if err := validator.ValidateAPIURL(releaseURL); err != nil {
 		return "", fmt.Errorf("升级地址不安全: %w", err)
 	}
 
-	// 校验升级地址可用性（releases.json 可访问且可解析）
+	// 校验可用性
 	if _, err := upgrade.FetchReleaseInfo(releaseURL); err != nil {
 		return "", fmt.Errorf("升级地址校验失败: %w", err)
 	}
 
+	// 保存到配置
 	cfg.ReleaseURL = releaseURL
 	if err := cfgManager.Save(cfg); err != nil {
 		return "", fmt.Errorf("保存升级地址失败: %w", err)
 	}
 
 	return releaseURL, nil
+}
+
+// promptNewReleaseURL 升级失败后提示输入新的升级域名
+// 返回新的完整 URL，用户取消则返回空字符串
+func promptNewReleaseURL(origErr error) string {
+	fmt.Fprintf(os.Stderr, "\n升级失败: %v\n", origErr)
+	fmt.Fprint(os.Stderr, "输入新的升级域名（直接回车取消）: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return ""
+	}
+
+	host := strings.TrimSpace(input)
+	if host == "" {
+		return ""
+	}
+	host = strings.TrimRight(host, "/")
+
+	// 支持输入完整 URL 或纯域名
+	if strings.HasPrefix(host, "https://") {
+		return strings.TrimRight(host, "/")
+	}
+	return "https://" + host + "/sslctl"
+}
+
+// isTerminalFunc 检查 stdin 是否为交互终端（可在测试中替换）
+var isTerminalFunc = func() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // runRollback 回滚命令
