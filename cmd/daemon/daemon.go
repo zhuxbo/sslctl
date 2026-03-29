@@ -157,12 +157,34 @@ func calcCheckTimeout(certCount int) time.Duration {
 }
 
 // checkAndDeploy 检查并部署证书
+// 使用文件锁防止多进程同时执行续签
 func checkAndDeploy(parentCtx context.Context, svc *certops.Service, cfgManager *config.ConfigManager, log *logger.Logger) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("检查任务 panic: %v", r)
 		}
 	}()
+
+	// 进程级文件锁：防止 cron 重叠、手动与 daemon 并发
+	lockPath := filepath.Join(cfgManager.GetWorkDir(), "renewal.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		log.Warn("创建锁文件失败: %v，继续执行", err)
+	} else {
+		locked, lockErr := config.TryLockFile(lockFile)
+		if lockErr != nil {
+			_ = lockFile.Close()
+			log.Warn("获取文件锁失败: %v，继续执行", lockErr)
+		} else if !locked {
+			_ = lockFile.Close()
+			log.Info("另一个续签进程正在运行，跳过本次检查")
+			return
+		} else {
+			defer func() {
+				_ = lockFile.Close() // 关闭文件自动释放锁
+			}()
+		}
+	}
 
 	// 动态计算超时：根据证书数量调整，防止大量证书场景超时
 	certCount := 0

@@ -31,16 +31,26 @@ func TestNormalizeVersion(t *testing.T) {
 }
 
 func TestResolveTarget(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v1.0.0",
-		LatestDev:    "v1.1.0-beta",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "1.0.0",
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:abc"}},
+			},
+		},
+		"dev": &ChannelInfo{
+			Latest: "1.1.0-beta",
+			Versions: []VersionInfo{
+				{Version: "1.1.0-beta", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:def"}},
+			},
+		},
 	}
 
 	tests := []struct {
 		name          string
 		targetVersion string
 		channel       string
-		info          *ReleaseInfo
+		index         ReleaseIndex
 		wantVersion   string
 		wantChannel   string
 		wantErr       bool
@@ -49,7 +59,7 @@ func TestResolveTarget(t *testing.T) {
 			name:          "指定版本无通道",
 			targetVersion: "1.2.0",
 			channel:       "",
-			info:          info,
+			index:         index,
 			wantVersion:   "v1.2.0",
 			wantChannel:   "main",
 		},
@@ -57,7 +67,7 @@ func TestResolveTarget(t *testing.T) {
 			name:          "指定 dev 版本自动检测通道",
 			targetVersion: "1.2.0-beta",
 			channel:       "",
-			info:          info,
+			index:         index,
 			wantVersion:   "v1.2.0-beta",
 			wantChannel:   "dev",
 		},
@@ -65,42 +75,63 @@ func TestResolveTarget(t *testing.T) {
 			name:          "指定版本和通道",
 			targetVersion: "1.2.0",
 			channel:       "dev",
-			info:          info,
+			index:         index,
 			wantVersion:   "v1.2.0",
 			wantChannel:   "dev",
 		},
 		{
-			name:        "默认通道取 main",
+			name:        "默认通道取 main Latest",
 			channel:     "",
-			info:        info,
+			index:       index,
 			wantVersion: "v1.0.0",
 			wantChannel: "main",
 		},
 		{
-			name:        "指定 dev 通道",
+			name:        "dev 通道取 Latest",
 			channel:     "dev",
-			info:        info,
+			index:       index,
 			wantVersion: "v1.1.0-beta",
 			wantChannel: "dev",
 		},
 		{
-			name:        "main 为空回退 dev",
-			channel:     "",
-			info:        &ReleaseInfo{LatestMain: "", LatestDev: "v2.0.0-dev"},
-			wantVersion: "v2.0.0-dev",
-			wantChannel: "dev",
+			name:    "main 为空回退列表第一个",
+			channel: "",
+			index: ReleaseIndex{
+				"main": &ChannelInfo{Latest: "", Versions: []VersionInfo{{Version: "2.0.0"}}},
+			},
+			wantVersion: "v2.0.0",
+			wantChannel: "main",
 		},
 		{
-			name:    "无可用版本",
-			channel: "",
-			info:    &ReleaseInfo{},
+			name:    "通道不存在",
+			channel: "main",
+			index:   ReleaseIndex{},
 			wantErr: true,
+		},
+		{
+			name:    "通道存在但无版本",
+			channel: "main",
+			index:   ReleaseIndex{"main": &ChannelInfo{}},
+			wantErr: true,
+		},
+		{
+			name:    "无效通道被拒绝",
+			channel: "staging",
+			index:   ReleaseIndex{"staging": &ChannelInfo{Latest: "1.0.0"}},
+			wantErr: true,
+		},
+		{
+			name:          "指定版本时无效通道被拒绝",
+			targetVersion: "1.0.0",
+			channel:       "beta",
+			index:         index,
+			wantErr:       true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ver, ch, err := ResolveTarget(tt.targetVersion, tt.channel, tt.info)
+			ver, ch, err := ResolveTarget(tt.targetVersion, tt.channel, tt.index)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -120,81 +151,91 @@ func TestResolveTarget(t *testing.T) {
 	}
 }
 
-func TestGetChecksum(t *testing.T) {
-	info := &ReleaseInfo{
-		Versions: map[string]VersionInfo{
-			"v1.0.0": {
-				Checksums: map[string]string{
-					"sslctl-linux-amd64.gz": "sha256:abc123",
-				},
+func TestFindVersion(t *testing.T) {
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:abc123"}},
+				{Version: "0.9.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:def456"}},
 			},
 		},
 	}
 
-	tests := []struct {
-		name     string
-		info     *ReleaseInfo
-		version  string
-		filename string
-		want     string
-	}{
-		{"有版本有文件", info, "v1.0.0", "sslctl-linux-amd64.gz", "sha256:abc123"},
-		{"有版本无文件", info, "v1.0.0", "nonexistent.gz", ""},
-		{"无版本", info, "v9.9.9", "sslctl-linux-amd64.gz", ""},
-		{"nil Versions", &ReleaseInfo{}, "v1.0.0", "sslctl-linux-amd64.gz", ""},
+	// 找到
+	v := index.FindVersion("main", "v1.0.0")
+	if v == nil {
+		t.Fatal("应找到 v1.0.0")
+	}
+	if v.Checksums["sslctl-linux-amd64.gz"] != "sha256:abc123" {
+		t.Errorf("Checksum = %q, want sha256:abc123", v.Checksums["sslctl-linux-amd64.gz"])
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.info.GetChecksum(tt.version, tt.filename)
-			if got != tt.want {
-				t.Errorf("GetChecksum(%q, %q) = %q, want %q", tt.version, tt.filename, got, tt.want)
-			}
-		})
+	// 无 v 前缀也能找到
+	v = index.FindVersion("main", "1.0.0")
+	if v == nil {
+		t.Fatal("无 v 前缀应也能找到")
+	}
+
+	// 找不到
+	v = index.FindVersion("main", "v9.9.9")
+	if v != nil {
+		t.Error("不应找到 v9.9.9")
+	}
+
+	// 通道不存在
+	v = index.FindVersion("dev", "v1.0.0")
+	if v != nil {
+		t.Error("dev 通道不存在，不应找到")
+	}
+}
+
+func TestGetChecksum(t *testing.T) {
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Checksums: map[string]string{
+					"sslctl-linux-amd64.gz": "sha256:abc123",
+					"sslctl-linux-arm64.gz": "sha256:def456",
+				}},
+			},
+		},
+	}
+
+	if got := index.GetChecksum("main", "v1.0.0", "sslctl-linux-amd64.gz"); got != "sha256:abc123" {
+		t.Errorf("GetChecksum(amd64) = %q, want sha256:abc123", got)
+	}
+	if got := index.GetChecksum("main", "v1.0.0", "sslctl-linux-arm64.gz"); got != "sha256:def456" {
+		t.Errorf("GetChecksum(arm64) = %q, want sha256:def456", got)
+	}
+	if got := index.GetChecksum("main", "v1.0.0", "sslctl-windows-amd64.exe.gz"); got != "" {
+		t.Errorf("GetChecksum(windows) = %q, want empty", got)
+	}
+	if got := index.GetChecksum("main", "v9.9.9", "sslctl-linux-amd64.gz"); got != "" {
+		t.Errorf("GetChecksum(v9.9.9) = %q, want empty", got)
+	}
+	if got := index.GetChecksum("dev", "v1.0.0", "sslctl-linux-amd64.gz"); got != "" {
+		t.Errorf("GetChecksum(dev) = %q, want empty", got)
 	}
 }
 
 func TestGetSignature(t *testing.T) {
-	info := &ReleaseInfo{
-		Versions: map[string]VersionInfo{
-			"v1.0.0": {
-				Checksums: map[string]string{
-					"sslctl-linux-amd64.gz": "sha256:abc123",
-				},
-				Signatures: map[string]string{
-					"sslctl-linux-amd64.gz": "ed25519:testSig",
-				},
-			},
-			"v0.9.0": {
-				Checksums: map[string]string{
-					"sslctl-linux-amd64.gz": "sha256:def456",
-				},
-				// 无签名字段（旧版本）
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Signature: "ed25519:testSig"},
+				{Version: "0.9.0"}, // 无签名
 			},
 		},
 	}
 
-	tests := []struct {
-		name     string
-		info     *ReleaseInfo
-		version  string
-		filename string
-		want     string
-	}{
-		{"有签名", info, "v1.0.0", "sslctl-linux-amd64.gz", "ed25519:testSig"},
-		{"有版本无签名文件", info, "v1.0.0", "nonexistent.gz", ""},
-		{"旧版本无签名字段", info, "v0.9.0", "sslctl-linux-amd64.gz", ""},
-		{"无版本", info, "v9.9.9", "sslctl-linux-amd64.gz", ""},
-		{"nil Versions", &ReleaseInfo{}, "v1.0.0", "sslctl-linux-amd64.gz", ""},
+	if got := index.GetSignature("main", "v1.0.0"); got != "ed25519:testSig" {
+		t.Errorf("GetSignature(v1.0.0) = %q, want ed25519:testSig", got)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.info.GetSignature(tt.version, tt.filename)
-			if got != tt.want {
-				t.Errorf("GetSignature(%q, %q) = %q, want %q", tt.version, tt.filename, got, tt.want)
-			}
-		})
+	if got := index.GetSignature("main", "v0.9.0"); got != "" {
+		t.Errorf("GetSignature(v0.9.0) = %q, want empty", got)
+	}
+	if got := index.GetSignature("main", "v9.9.9"); got != "" {
+		t.Errorf("GetSignature(v9.9.9) = %q, want empty", got)
 	}
 }
 
@@ -208,17 +249,17 @@ func TestCompareVersions(t *testing.T) {
 		{"v2.0.0", "v1.0.0", 1},
 		{"v1.2.0", "v1.1.0", 1},
 		{"v1.0.1", "v1.0.0", 1},
-		{"v1.0.0-beta", "v1.0.0", -1}, // pre-release < 正式版
-		{"v1.0.0", "v1.0.0-beta", 1},  // 正式版 > pre-release
-		{"v1.0.0-alpha", "v1.0.0-beta", -1}, // pre-release 字典序
-		{"v1.0.0-beta", "v1.0.0-beta", 0},   // 相同 pre-release
-		{"v0.1.1-beta", "v0.1.0", 1},  // 高版本 pre-release > 低版本正式版
-		{"1.0.0", "v1.0.0", 0},         // 无 v 前缀
+		{"v1.0.0-beta", "v1.0.0", -1},
+		{"v1.0.0", "v1.0.0-beta", 1},
+		{"v1.0.0-alpha", "v1.0.0-beta", -1},
+		{"v1.0.0-beta", "v1.0.0-beta", 0},
+		{"v0.1.1-beta", "v0.1.0", 1},
+		{"1.0.0", "v1.0.0", 0},
 		{"v0.9.0", "v1.0.0", -1},
-		{"v10.0.0", "v9.0.0", 1},       // 数字比较非字典序
+		{"v10.0.0", "v9.0.0", 1},
 		{"v1.10.0", "v1.9.0", 1},
 		{"", "", 0},
-		{"v1", "v1.0.0", 0},            // 缺少部分默认为 0
+		{"v1", "v1.0.0", 0},
 		{"v1.2", "v1.2.0", 0},
 	}
 
@@ -233,14 +274,11 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestFetchReleaseInfo_Success(t *testing.T) {
-	expected := &ReleaseInfo{
-		LatestMain: "v1.0.0",
-		LatestDev:    "v1.1.0-beta",
-		Versions: map[string]VersionInfo{
-			"v1.0.0": {
-				Checksums: map[string]string{
-					"sslctl-linux-amd64.gz": "sha256:abc",
-				},
+	expected := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "1.0.0",
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:abc"}},
 			},
 		},
 	}
@@ -251,24 +289,28 @@ func TestFetchReleaseInfo_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	info, err := fetchReleaseInfoFrom(server.URL, server.Client())
+	index, err := fetchReleaseInfoFrom(server.URL, server.Client())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.LatestMain != expected.LatestMain {
-		t.Errorf("LatestMain = %q, want %q", info.LatestMain, expected.LatestMain)
+	ch := index["main"]
+	if ch == nil {
+		t.Fatal("main channel is nil")
 	}
-	if info.LatestDev != expected.LatestDev {
-		t.Errorf("LatestDev = %q, want %q", info.LatestDev, expected.LatestDev)
+	if ch.Latest != "1.0.0" {
+		t.Errorf("Latest = %q, want %q", ch.Latest, "1.0.0")
 	}
-	if info.GetChecksum("v1.0.0", "sslctl-linux-amd64.gz") != "sha256:abc" {
+	if len(ch.Versions) != 1 {
+		t.Fatalf("Versions len = %d, want 1", len(ch.Versions))
+	}
+	if index.GetChecksum("main", "v1.0.0", "sslctl-linux-amd64.gz") != "sha256:abc" {
 		t.Error("checksum mismatch")
 	}
 }
 
 func TestFetchReleaseInfo_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
 
@@ -303,7 +345,6 @@ func TestFetchReleaseInfo_HTTPError(t *testing.T) {
 }
 
 func TestFetchReleaseInfo_UsesSecureClient(t *testing.T) {
-	// 验证 FetchReleaseInfo 内部使用了 secureHTTPClient
 	client := secureHTTPClient()
 	if client.Timeout != downloadTimeout {
 		t.Errorf("timeout = %v, want %v", client.Timeout, downloadTimeout)
@@ -319,4 +360,3 @@ func TestFetchReleaseInfo_UsesSecureClient(t *testing.T) {
 		t.Error("TLS MinVersion not set")
 	}
 }
-

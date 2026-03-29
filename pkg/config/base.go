@@ -69,6 +69,20 @@ const (
 	RenewModePull  = "pull"  // 自动签发：从服务端拉取已签发的证书
 )
 
+// UpgradeChannel 升级通道常量（白名单，防止路径遍历）
+const (
+	ChannelMain = "main" // 正式版通道
+	ChannelDev  = "dev"  // 测试版通道
+)
+
+// ValidateChannel 校验升级通道是否合法
+func ValidateChannel(ch string) error {
+	if ch != ChannelMain && ch != ChannelDev {
+		return fmt.Errorf("无效的升级通道 %q（仅允许 main/dev）", ch)
+	}
+	return nil
+}
+
 // ValidationMethod 验证方法常量
 const (
 	ValidationMethodFile       = "file"       // 文件验证 (HTTP-01)
@@ -99,18 +113,15 @@ func ValidateValidationMethod(domain string, method string) string {
 	return ""
 }
 
-// 续签时间限制常量
-const (
-	MaxRenewBeforeDays    = 13 // 提前续签天数上限（两种模式共同遵守）
-	DefaultRenewBeforeDays = 13 // 默认提前续签天数
-)
+// DefaultRenewBeforeDays 默认提前续签天数（由服务端控制，每次 API 交互后更新本地配置）
+const DefaultRenewBeforeDays = 14
 
 
 
 // 文件大小限制常量
 const (
 	MaxPrivateKeySize = 16 * 1024 // 16KB - 足够 RSA-8192 私钥
-	MaxCertFileSize   = 1 << 20   // 1MB - 证书文件大小限制
+	MaxCertFileSize   = 64 * 1024 // 64KB - 证书链大小限制（cert + intermediate）
 )
 
 // 环境变量常量
@@ -121,7 +132,7 @@ const (
 
 // ScheduleConfig 调度配置
 type ScheduleConfig struct {
-	RenewBeforeDays        int    `json:"renew_before_days"`                  // 提前续期天数，0 使用默认值 13，最大 13
+	RenewBeforeDays        int    `json:"renew_before_days"`                  // 提前续期天数，0 使用默认值 14，由服务端控制
 	RenewMode              string `json:"renew_mode,omitempty"`               // 续签模式: local | pull，默认 pull
 	ShutdownTimeoutSeconds int    `json:"shutdown_timeout_seconds,omitempty"` // 守护进程关闭超时(秒)，0 使用默认值 60
 }
@@ -136,23 +147,10 @@ func ValidateSchedule(schedule *ScheduleConfig) error {
 		mode = RenewModePull // 默认自动签发
 	}
 
-	// 如果 RenewBeforeDays 为 0，使用默认值，跳过验证
-	if schedule.RenewBeforeDays == 0 {
-		return nil
-	}
-
 	// 验证模式有效性
 	if mode != RenewModeLocal && mode != RenewModePull {
 		return errors.NewConfigError(
 			"无效的 renew_mode: "+mode+"（必须是 local 或 pull）",
-			nil,
-		)
-	}
-
-	// 两种模式统一：renew_before_days 不能超过上限
-	if schedule.RenewBeforeDays > MaxRenewBeforeDays {
-		return errors.NewConfigError(
-			fmt.Sprintf("renew_before_days 不能超过 %d 天", MaxRenewBeforeDays),
 			nil,
 		)
 	}

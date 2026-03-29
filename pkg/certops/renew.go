@@ -3,6 +3,7 @@ package certops
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -16,9 +17,6 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/util"
 	"github.com/zhuxbo/sslctl/pkg/validator"
 )
-
-// csrPendingTimeout CSR 处于 processing 状态的最大等待时间
-const csrPendingTimeout = 24 * time.Hour
 
 // pendingKeyDir 待确认私钥目录
 const pendingKeyDir = "pending-keys"
@@ -36,13 +34,28 @@ const (
 	SpreadMax      = 120 // 最大延迟（秒）
 )
 
+// tryUpdateRenewBeforeDays 如果 API 返回了有效的 renew_before_days，更新本地配置
+// 非关键路径，失败仅记录日志
+func (s *Service) tryUpdateRenewBeforeDays(renewBeforeDays int) {
+	if renewBeforeDays <= 0 {
+		return
+	}
+	if err := s.cfgManager.UpdateSchedule(func(sc *config.ScheduleConfig) {
+		sc.RenewBeforeDays = renewBeforeDays
+	}); err != nil {
+		s.log.Warn("更新 renew_before_days 失败: %v", err)
+	} else {
+		s.log.Debug("renew_before_days 已更新为 %d（来自服务端）", renewBeforeDays)
+	}
+}
+
 // calcSpreadDelay 根据待处理证书数量动态计算延迟范围
 // 少量证书使用较长间隔，大量证书自动缩短以控制总时长
 func calcSpreadDelay(count int) (int, int) {
 	if count <= 1 {
 		return SpreadMin, SpreadMax
 	}
-	sMax := SpreadTotalMax / (count - 1)
+	sMax := SpreadTotalMax / count
 	if sMax > SpreadMax {
 		sMax = SpreadMax
 	}
@@ -71,6 +84,11 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 	for i := range cfg.Certificates {
 		cert := cfg.Certificates[i]
 		if !cert.Enabled {
+			continue
+		}
+		// 规范 3.2：local 模式 retry_count 超限时前置过滤
+		if cert.GetRenewMode(&cfg.Schedule) == config.RenewModeLocal &&
+			cert.Metadata.IssueRetryCount >= MaxIssueRetryCount {
 			continue
 		}
 		if cert.NeedsRenewal(&cfg.Schedule) || len(cert.Metadata.FailedBindings) > 0 {
@@ -102,6 +120,13 @@ func (s *Service) CheckAndRenewAll(ctx context.Context) ([]*RenewResult, error) 
 		// 使用值拷贝而非指针，确保深拷贝保护有效
 		cert := cfg.Certificates[i]
 		if !cert.Enabled {
+			continue
+		}
+
+		// 前置过滤：local 模式重试超限
+		if cert.GetRenewMode(&cfg.Schedule) == config.RenewModeLocal &&
+			cert.Metadata.IssueRetryCount >= MaxIssueRetryCount {
+			s.log.Warn("证书 %s 重试次数已达上限 (%d)，跳过", cert.CertName, MaxIssueRetryCount)
 			continue
 		}
 
@@ -226,7 +251,7 @@ func (s *Service) retryFailedBindings(ctx context.Context, cert *config.CertConf
 		return result
 	}
 
-	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	certData, _, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
 		s.log.Warn("重试失败绑定: 查询证书 %s 失败: %v", cert.CertName, err)
 		result.Status = "failure"
@@ -294,7 +319,8 @@ func (s *Service) sendRenewCallback(ctx context.Context, cert *config.CertConfig
 	}
 
 	fillCertMetadata(callbackReq, cert)
-	s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
+	renewBeforeDays := s.sendCallback(ctx, cert.GetAPI(s.log), callbackReq)
+	s.tryUpdateRenewBeforeDays(renewBeforeDays)
 }
 
 // getRenewMode 获取续签模式（带默认值）
@@ -308,10 +334,11 @@ func getRenewMode(schedule *config.ScheduleConfig) string {
 
 // preparePullRenew 自动签发：等待服务端续签完成后拉取证书
 func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
-	certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	certData, renewBeforeDays, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
 		return nil, "", err
 	}
+	s.tryUpdateRenewBeforeDays(renewBeforeDays)
 	s.syncOrderID(cert, certData)
 	if certData.Status != "active" || certData.Cert == "" {
 		// processing + 文件验证：放置验证文件
@@ -342,20 +369,9 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 
 // prepareLocalRenew 本机提交：生成 CSR 并通过 API 触发续签
 func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig, api config.APIConfig) (*fetcher.CertData, string, error) {
-	// 自动重置过期的重试计数（CSR 提交超过 7 天则重置）
-	if cert.Metadata.IssueRetryCount > 0 && !cert.Metadata.CSRSubmittedAt.IsZero() &&
-		time.Since(cert.Metadata.CSRSubmittedAt) > 7*24*time.Hour {
-		s.log.Info("证书 %s 重试计数已过期（超过 7 天），重置为 0", cert.CertName)
-		cert.Metadata.IssueRetryCount = 0
-		cert.Metadata.LastIssueState = ""
-		if err := s.cfgManager.UpdateCert(cert); err != nil {
-			s.log.Warn("重置重试计数失败: %v", err)
-		}
-	}
-
 	// 检查重试次数是否超限
 	if cert.Metadata.IssueRetryCount >= MaxIssueRetryCount {
-		s.log.Error("证书 %s 重试次数已达上限 (%d)，跳过", cert.CertName, MaxIssueRetryCount)
+		s.log.Error("证书 %s 重试次数已达上限 (%d)，等待人工处理", cert.CertName, MaxIssueRetryCount)
 		return nil, "", fmt.Errorf("exceeded max retry count (%d)", MaxIssueRetryCount)
 	}
 
@@ -365,48 +381,27 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("missing local private key path")
 	}
 
-	// 如果上次提交仍在处理中，先查询状态
+	// 如果上次提交仍在处理中，查询当前订单状态
 	if cert.Metadata.LastIssueState == "processing" {
-		if !cert.Metadata.CSRSubmittedAt.IsZero() && time.Since(cert.Metadata.CSRSubmittedAt) > csrPendingTimeout {
-			s.log.Warn("证书 %s CSR 已提交超过 %s，尝试重新提交", cert.CertName, csrPendingTimeout)
-			// 注意：不在这里递增 IssueRetryCount，后面生成新 CSR 时会递增
-			cert.Metadata.LastIssueState = ""
-			if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
-				s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
-			}
-			if err := s.cfgManager.UpdateCert(cert); err != nil {
-				s.log.Warn("更新证书元数据失败: %v", err)
-			}
-		} else {
-			certData, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
-			if err != nil {
-				return nil, "", fmt.Errorf("查询订单失败: %w", err)
-			}
-			s.syncOrderID(cert, certData)
-			if certData.Status == "processing" {
-				// 放置验证文件（如果有）
-				if certData.File != nil {
-					placed := placeValidationFiles(cert, certData.File, s.log)
-					if len(placed) > 0 {
-						cert.Metadata.ValidationFiles = placed
-						_ = s.cfgManager.UpdateCert(cert)
-					}
-				}
-				s.log.Debug("证书 %s CSR 正在处理，跳过", cert.CertName)
-				return nil, "", nil
-			}
-			if certData.Status != "active" || certData.Cert == "" {
-				s.log.Warn("证书 %s 状态异常: %s，将重新提交 CSR", cert.CertName, certData.Status)
-				// 注意：不在这里递增 IssueRetryCount，下次生成新 CSR 时会递增
-				// 清空状态，下次检查将进入生成新 CSR 分支
-				cert.Metadata.LastIssueState = ""
-				if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
-					s.log.Warn("清理待确认私钥失败: %v", cleanupErr)
-				}
-				_ = s.cfgManager.UpdateCert(cert)
-				return nil, "", nil
-			}
+		// 规范 3.5：processing 状态下证书已过期则停止，等待人工处理
+		if cert.DaysUntilExpiry() < 0 {
+			s.log.Error("证书 %s 已过期且 CSR 仍在处理中，等待人工处理", cert.CertName)
+			return nil, "", fmt.Errorf("证书已过期，等待人工处理")
+		}
+		certData, renewBeforeDays, err := s.fetcher.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+		if err != nil {
+			return nil, "", fmt.Errorf("查询订单失败: %w", err)
+		}
+		s.tryUpdateRenewBeforeDays(renewBeforeDays)
+		s.syncOrderID(cert, certData)
 
+		switch certData.Status {
+		case "active":
+			if certData.Cert == "" {
+				// active 但证书内容为空，继续等待
+				s.log.Debug("证书 %s 状态 active 但内容为空，跳过", cert.CertName)
+				return nil, "", nil
+			}
 			// 签发成功，尝试读取待确认私钥
 			privateKey, err := readPendingKey(workDir, cert.CertName)
 			if err != nil {
@@ -422,11 +417,30 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 					return nil, "", fmt.Errorf("提交待确认私钥失败: %w", err)
 				}
 			}
-
 			if certData.IntermediateCert == "" {
 				return nil, "", fmt.Errorf("中间证书为空，等待下一周期重试")
 			}
 			return certData, privateKey, nil
+
+		case "processing":
+			// 放置验证文件（如果有新的）
+			if certData.File != nil {
+				placed := placeValidationFiles(cert, certData.File, s.log)
+				if len(placed) > 0 {
+					cert.Metadata.ValidationFiles = placed
+					_ = s.cfgManager.UpdateCert(cert)
+				}
+			}
+			s.log.Debug("证书 %s CSR 正在处理，跳过", cert.CertName)
+			return nil, "", nil
+
+		default:
+			// 其他状态（包括证书已过期或异常）：更新状态后停止，等待人工处理
+			// 持久化实际状态，避免下次仍进入 processing 分支反复触发回调
+			cert.Metadata.LastIssueState = certData.Status
+			_ = s.cfgManager.UpdateCert(cert)
+			s.log.Error("证书 %s 订单状态异常: %s，等待人工处理", cert.CertName, certData.Status)
+			return nil, "", fmt.Errorf("订单状态异常: %s，等待人工处理", certData.Status)
 		}
 	}
 
@@ -462,7 +476,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("持久化重试计数失败: %w", err)
 	}
 
-	certData, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), cert.ValidationMethod)
+	certData, renewBeforeDaysFromUpdate, err := s.fetcher.Update(ctx, api.URL, api.Token, cert.OrderID, csrPEM, strings.Join(cert.Domains, ","), cert.ValidationMethod)
 	if err != nil {
 		// 提交失败，清理待确认私钥（重试计数已持久化，下次重试会使用）
 		if cleanupErr := cleanupPendingKey(workDir, cert.CertName); cleanupErr != nil {
@@ -470,6 +484,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		}
 		return nil, "", fmt.Errorf("提交 CSR 失败: %w", err)
 	}
+	s.tryUpdateRenewBeforeDays(renewBeforeDaysFromUpdate)
 
 	s.syncOrderID(cert, certData)
 
@@ -498,7 +513,9 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 		return nil, "", fmt.Errorf("提交待确认私钥失败: %w", err)
 	}
 
-	// 签发成功，清零续签状态并持久化（防止部署失败后状态丢失导致永久卡死）
+	// 签发成功，清零续签状态并持久化
+	// 设计说明：此处提前清零是安全网——若后续部署失败或进程崩溃，
+	// CSR 状态不会永久卡在 processing。deployCertToBindings 中会再次清零（覆盖所有模式）。
 	cert.Metadata.CSRSubmittedAt = time.Time{}
 	cert.Metadata.LastCSRHash = ""
 	cert.Metadata.LastIssueState = ""
@@ -546,6 +563,11 @@ func (s *Service) deployCertToBindings(ctx context.Context, cert *config.CertCon
 		}
 		s.log.Info("证书已部署到 %s", binding.ServerName)
 		deployCount++
+	}
+
+	// 从证书 PEM 提取域名更新配置（规范 5.5：确保 domains 反映实际证书内容）
+	if domains := extractDomainsFromParsedCert(parsedCert); len(domains) > 0 {
+		cert.Domains = domains
 	}
 
 	// 更新证书过期时间（证书本身有效，无论部署是否全部成功都应记录）
@@ -642,6 +664,26 @@ func commitPendingKey(workDir, certName, targetPath string) error {
 	// 清理待确认目录
 	_ = os.Remove(filepath.Dir(pendingPath))
 	return nil
+}
+
+// extractDomainsFromParsedCert 从已解析的证书中提取域名：SAN（DNSNames + IPAddresses）优先，CN 补充
+func extractDomainsFromParsedCert(cert *x509.Certificate) []string {
+	seen := make(map[string]bool)
+	var domains []string
+	add := func(d string) {
+		if d != "" && !seen[d] {
+			seen[d] = true
+			domains = append(domains, d)
+		}
+	}
+	for _, d := range cert.DNSNames {
+		add(d)
+	}
+	for _, ip := range cert.IPAddresses {
+		add(ip.String())
+	}
+	add(cert.Subject.CommonName)
+	return domains
 }
 
 // cleanupPendingKey 清理待确认私钥，返回清理过程中遇到的第一个错误

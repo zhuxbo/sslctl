@@ -60,15 +60,15 @@ build-all: clean build-linux build-windows
 build-linux:
 	@mkdir -p $(DIST_DIR)
 	@echo "Building for Linux..."
-	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-linux-amd64 ./cmd
-	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-linux-arm64 ./cmd
+	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-$(VERSION)-linux-amd64 ./cmd
+	GOOS=linux GOARCH=arm64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-$(VERSION)-linux-arm64 ./cmd
 	@echo "Built: Linux amd64/arm64"
 
 # 构建 Windows (amd64)
 build-windows:
 	@mkdir -p $(DIST_DIR)
 	@echo "Building for Windows..."
-	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-windows-amd64.exe ./cmd
+	GOOS=windows GOARCH=amd64 go build $(BUILD_FLAGS) -o $(DIST_DIR)/sslctl-$(VERSION)-windows-amd64.exe ./cmd
 	@echo "Built: Windows amd64"
 
 # 运行测试

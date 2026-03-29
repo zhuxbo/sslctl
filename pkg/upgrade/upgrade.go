@@ -56,13 +56,13 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 
 	// 1. 获取远程版本信息
 	logFunc("检查更新...")
-	info, err := fetchReleaseInfoFrom(releaseURL, client)
+	index, err := fetchReleaseInfoFrom(releaseURL, client)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. 确定目标版本和通道
-	target, channel, err := ResolveTarget(opts.TargetVersion, opts.Channel, info)
+	target, channel, err := ResolveTarget(opts.TargetVersion, opts.Channel, index)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	}
 
 	// 6. 下载并安装
-	if err := downloadVerifyInstall(target, channel, info, logFunc, client, baseURL, installHint); err != nil {
+	if err := downloadVerifyInstall(target, channel, index, logFunc, client, baseURL, installHint); err != nil {
 		return nil, err
 	}
 
@@ -113,22 +113,14 @@ func executeWithClient(opts Options, logFunc func(format string, args ...interfa
 	return result, nil
 }
 
-// validChannels 允许的发布通道白名单
-var validChannels = map[string]bool{"main": true, "dev": true}
-
 // downloadVerifyInstall 下载、验证签名/校验和、安装
 // baseURL 为下载基础 URL，格式如 https://release.cnssl.com/sslctl
 // installHint 为重新安装提示命令
-func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc func(format string, args ...interface{}), client *http.Client, baseURL, installHint string) error {
-	// 安全校验：通道白名单（防止路径遍历）
-	if !validChannels[channel] {
-		return fmt.Errorf("不支持的发布通道: %s", channel)
-	}
-
+func downloadVerifyInstall(target, channel string, index ReleaseIndex, logFunc func(format string, args ...interface{}), client *http.Client, baseURL, installHint string) error {
 	logFunc("\n开始升级到 %s...", target)
 
 	filename := GetDownloadFilename()
-	downloadURL := fmt.Sprintf("%s/%s/%s/%s", baseURL, channel, target, filename)
+	downloadURL := GetDownloadURL(baseURL, channel, target)
 
 	logFunc("下载 %s...", filename)
 	var gzData []byte
@@ -143,8 +135,7 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 	}
 
 	// 验证签名（优先于校验和，防止供应链攻击）
-	// 降级攻击防护已在 VerifySignature 内部处理（空签名 + 已配置公钥 → 拒绝）
-	expectedSignature := info.GetSignature(target, filename)
+	expectedSignature := index.GetSignature(channel, target)
 	logFunc("验证数字签名...")
 	if err := VerifySignature(gzData, expectedSignature); err != nil {
 		var keyNotFound *ErrKeyNotFound
@@ -157,7 +148,7 @@ func downloadVerifyInstall(target, channel string, info *ReleaseInfo, logFunc fu
 	logFunc("签名验证通过")
 
 	// 验证校验和
-	expectedChecksum := info.GetChecksum(target, filename)
+	expectedChecksum := index.GetChecksum(channel, target, filename)
 	if expectedChecksum != "" {
 		logFunc("验证文件完整性...")
 		if err := VerifyChecksum(gzData, expectedChecksum); err != nil {

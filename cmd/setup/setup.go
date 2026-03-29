@@ -4,6 +4,7 @@ package setup
 import (
 	"bufio"
 	"context"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"os"
@@ -132,7 +133,7 @@ func runSingle(p *setupParams, orderID int) {
 	// 2. 获取证书信息
 	fmt.Println("\n步骤 2/7: 获取证书信息...")
 	f := fetcher.New(30 * time.Second)
-	certData, err := f.QueryOrder(p.ctx, p.apiURL, p.token, orderID)
+	certData, _, err := f.QueryOrder(p.ctx, p.apiURL, p.token, orderID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询订单失败: %v\n", err)
 		os.Exit(1)
@@ -157,10 +158,10 @@ func runSingle(p *setupParams, orderID int) {
 		os.Exit(1)
 	}
 
-	// 从证书 SAN 提取域名（按 CA/B Forum 规范，SAN 为必须字段）
-	certDomains := parsedCert.DNSNames
+	// 从证书提取域名：合并 CN + SAN（DNSNames + IPAddresses），去重
+	certDomains := extractDomainsFromCert(parsedCert)
 	if len(certDomains) == 0 {
-		fmt.Fprintln(os.Stderr, "证书缺少 SAN (Subject Alternative Name)，无法提取域名")
+		fmt.Fprintln(os.Stderr, "证书缺少域名信息（CN 和 SAN 均为空）")
 		os.Exit(1)
 	}
 
@@ -375,6 +376,9 @@ func runSingle(p *setupParams, orderID int) {
 		os.Exit(1)
 	}
 	fmt.Printf("  配置已保存: %s\n", p.cfgManager.GetConfigPath())
+
+	// 通知服务端是否自动续签（非关键路径，失败仅记录警告）
+	notifyAutoReissue(p, f, orderID, certConfig.RenewMode)
 
 	// 7. 安装守护服务
 	if !p.noService {
@@ -630,9 +634,9 @@ func updateSiteAfterInstall(site *matcher.ScannedSiteInfo, cm *config.ConfigMana
 }
 
 // getAndValidatePrivateKey 获取并验证私钥与证书匹配
-// 优先使用 API 返回的私钥，否则检查本地私钥文件
+// 优先级: 1. API 返回 → 2. 本地文件 → 3. 用户输入（仅交互终端）
 func getAndValidatePrivateKey(bindings []config.SiteBinding, certData *fetcher.CertData, v *validator.Validator) (string, error) {
-	// API 返回了私钥
+	// 1. API 返回了私钥
 	if certData.PrivateKey != "" {
 		if err := v.ValidateCertKeyPair(certData.Cert, certData.PrivateKey); err != nil {
 			return "", fmt.Errorf("API 返回的私钥与证书不匹配: %v", err)
@@ -640,10 +644,8 @@ func getAndValidatePrivateKey(bindings []config.SiteBinding, certData *fetcher.C
 		return certData.PrivateKey, nil
 	}
 
-	// API 未返回私钥，检查本地私钥
+	// 2. 检查本地私钥
 	fmt.Println("  API 未返回私钥，检查本地私钥...")
-
-	// 从绑定中获取私钥路径
 	keyPath := ""
 	for _, b := range bindings {
 		if b.Enabled && b.Paths.PrivateKey != "" {
@@ -654,30 +656,66 @@ func getAndValidatePrivateKey(bindings []config.SiteBinding, certData *fetcher.C
 	if keyPath == "" && len(bindings) > 0 {
 		keyPath = bindings[0].Paths.PrivateKey
 	}
-	if keyPath == "" {
-		return "", fmt.Errorf("缺少私钥: API 未返回私钥，且未找到本地私钥路径")
+
+	if keyPath != "" {
+		if _, err := os.Stat(keyPath); err == nil {
+			fmt.Printf("  本地私钥: %s\n", keyPath)
+			keyData, err := util.SafeReadFile(keyPath, config.MaxPrivateKeySize)
+			if err != nil {
+				return "", fmt.Errorf("读取本地私钥失败: %v", err)
+			}
+			privateKey := string(keyData)
+			if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
+				fmt.Printf("  ⚠ 本地私钥与证书不匹配: %v\n", err)
+			} else {
+				return privateKey, nil
+			}
+		}
 	}
 
-	// 检查本地私钥文件是否存在
-	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("本地私钥文件不存在: %s\n  请确认 API 配置中启用了私钥返回，或手动放置私钥文件", keyPath)
+	// 3. 交互终端：提示用户输入 PEM 私钥
+	if !isInteractiveTerminal() {
+		return "", fmt.Errorf("缺少私钥: API 未返回，本地不可用，且非交互终端无法输入")
 	}
 
-	fmt.Printf("  本地私钥: %s\n", keyPath)
-
-	// 读取私钥
-	keyData, err := util.SafeReadFile(keyPath, config.MaxPrivateKeySize)
+	fmt.Println("  请粘贴 PEM 格式私钥（以 -----END 行结束）:")
+	privateKey, err := readPEMFromStdin()
 	if err != nil {
-		return "", fmt.Errorf("读取本地私钥失败: %v", err)
+		return "", fmt.Errorf("读取私钥输入失败: %v", err)
 	}
-
-	// 验证私钥与证书匹配
-	privateKey := string(keyData)
 	if err := v.ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
-		return "", fmt.Errorf("本地私钥与证书不匹配: %s\n  可能原因: 证书已续签但本地私钥未更新\n  请检查私钥文件或在 API 端启用私钥返回", keyPath)
+		return "", fmt.Errorf("输入的私钥与证书不匹配: %v", err)
 	}
-
 	return privateKey, nil
+}
+
+// isInteractiveTerminal 检查 stdin 是否为交互终端
+func isInteractiveTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// readPEMFromStdin 从 stdin 逐行读取 PEM 内容，遇到 -----END 行结束
+func readPEMFromStdin() (string, error) {
+	scanner := bufio.NewScanner(os.Stdin)
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if strings.HasPrefix(line, "-----END ") {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("未读取到任何内容")
+	}
+	return strings.Join(lines, "\n") + "\n", nil
 }
 
 // confirm 确认提示
@@ -698,4 +736,35 @@ func confirm(prompt string) bool {
 func buildCertName(domain string, orderID int) string {
 	name := strings.Replace(domain, "*.", "WILDCARD.", 1)
 	return fmt.Sprintf("%s-%d", name, orderID)
+}
+
+// extractDomainsFromCert 从证书中提取所有域名：合并 CN + SAN（DNSNames + IPAddresses），去重
+func extractDomainsFromCert(cert *x509.Certificate) []string {
+	seen := make(map[string]bool)
+	var domains []string
+	add := func(d string) {
+		if d != "" && !seen[d] {
+			seen[d] = true
+			domains = append(domains, d)
+		}
+	}
+	// SAN 优先
+	for _, d := range cert.DNSNames {
+		add(d)
+	}
+	for _, ip := range cert.IPAddresses {
+		add(ip.String())
+	}
+	// CN 补充（可能不在 SAN 中）
+	add(cert.Subject.CommonName)
+	return domains
+}
+
+// notifyAutoReissue 通知服务端是否自动续签（非关键路径，失败仅记录警告）
+// pull 模式 → autoReissue=true；local 模式 → autoReissue=false
+func notifyAutoReissue(p *setupParams, f *fetcher.Fetcher, orderID int, renewMode string) {
+	autoReissue := renewMode != config.RenewModeLocal
+	if err := f.ToggleAutoReissue(p.ctx, p.apiURL, p.token, orderID, autoReissue); err != nil {
+		p.log.Warn("toggleAutoReissue 失败 (order_id=%d, auto_reissue=%v): %v", orderID, autoReissue, err)
+	}
 }

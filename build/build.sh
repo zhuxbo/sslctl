@@ -78,7 +78,14 @@ for target in "${TARGETS[@]}"; do
         gzip -kf "${OUTPUT_DIR}/${OUTPUT_NAME}"
     fi
 
-    echo "    -> ${OUTPUT_NAME}.gz"
+    # 生成 SHA256 校验文件
+    if command -v sha256sum &>/dev/null; then
+        (cd "$OUTPUT_DIR" && sha256sum "${OUTPUT_NAME}.gz" > "${OUTPUT_NAME}.gz.sha256")
+    else
+        (cd "$OUTPUT_DIR" && shasum -a 256 "${OUTPUT_NAME}.gz" > "${OUTPUT_NAME}.gz.sha256")
+    fi
+
+    echo "    -> ${OUTPUT_NAME}.gz + .sha256"
 done
 
 echo ""

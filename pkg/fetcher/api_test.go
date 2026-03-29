@@ -37,8 +37,8 @@ func mockCertData() map[string]interface{} {
 func mockPaginatedData(certData ...map[string]interface{}) map[string]interface{} {
 	return map[string]interface{}{
 		"total":       len(certData),
-		"currentPage": 1,
-		"pageSize":    100,
+		"page": 1,
+		"page_size":    100,
 		"data":        certData,
 	}
 }
@@ -95,7 +95,7 @@ func TestInfo(t *testing.T) {
 	ctx := context.Background()
 
 	// 使用 localhost HTTP 应该被允许
-	data, err := f.QueryOrder(ctx, server.URL, "test-token", 1)
+	data, _, err := f.QueryOrder(ctx, server.URL, "test-token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestQueryOrder_APIError(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "bad-token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "bad-token", 1)
 	if err == nil {
 		t.Error("QueryOrder() should return error for API error response")
 	}
@@ -143,7 +143,7 @@ func TestQueryOrder_HTTPError(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
 		t.Error("QueryOrder() should return error for HTTP 404")
 	}
@@ -169,7 +169,7 @@ func TestQuery(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.Query(ctx, server.URL, "token", "test.example.com")
+	data, _, err := f.Query(ctx, server.URL, "token", "test.example.com")
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
@@ -199,7 +199,7 @@ func TestQueryOrder(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+	data, _, err := f.QueryOrder(ctx, server.URL, "token", 12345)
 	if err != nil {
 		t.Fatalf("QueryOrder() error = %v", err)
 	}
@@ -239,7 +239,7 @@ func TestUpdate(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.Update(ctx, server.URL, "token", 12345, "new-csr", "", "")
+	data, _, err := f.Update(ctx, server.URL, "token", 12345, "new-csr", "", "")
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -285,7 +285,7 @@ func TestCallback(t *testing.T) {
 		DeployedAt: "2024-01-01T00:00:00Z",
 	}
 
-	err := f.Callback(ctx, server.URL, "token", req)
+	_, err := f.Callback(ctx, server.URL, "token", req)
 	if err != nil {
 		t.Fatalf("Callback() error = %v", err)
 	}
@@ -306,7 +306,7 @@ func TestCallback_Error(t *testing.T) {
 	ctx := context.Background()
 
 	req := &CallbackRequest{OrderID: 12345, Status: "success"}
-	err := f.Callback(ctx, server.URL, "token", req)
+	_, err := f.Callback(ctx, server.URL, "token", req)
 	if err == nil {
 		t.Error("Callback() should return error for failed callback")
 	}
@@ -458,7 +458,7 @@ func TestRetry(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() should succeed after retries, error = %v", err)
 	}
@@ -486,7 +486,7 @@ func TestRetry_ExhaustedRetries(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
 		t.Error("QueryOrder() should fail after exhausting retries")
 	}
@@ -510,7 +510,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
 		t.Error("QueryOrder() should fail when context is cancelled")
 	}
@@ -566,7 +566,7 @@ func TestResponseSizeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	// 正常响应应该成功
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() should succeed for normal response, error = %v", err)
 	}
@@ -601,7 +601,7 @@ func TestQueryOrder_Retry(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	data, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+	data, _, err := f.QueryOrder(ctx, server.URL, "token", 12345)
 	if err != nil {
 		t.Fatalf("QueryOrder() 应在重试后成功, error = %v", err)
 	}
@@ -677,7 +677,7 @@ func TestQueryOrder_RetryBoundary(t *testing.T) {
 			f := NewWithRetry(30*time.Second, retryConfig)
 			ctx := context.Background()
 
-			_, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+			_, _, err := f.QueryOrder(ctx, server.URL, "token", 12345)
 			gotSuccess := err == nil
 
 			if gotSuccess != tt.wantSuccess {
@@ -705,7 +705,7 @@ func TestFetcher_Timeout(t *testing.T) {
 	f := New(100 * time.Millisecond)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
 		t.Error("QueryOrder() 应因超时而失败")
 	}
@@ -724,7 +724,7 @@ func TestFetcher_TimeoutWithContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err == nil {
 		t.Error("QueryOrder() 应因上下文超时而失败")
 	}
@@ -755,7 +755,7 @@ func TestFetcher_LargeResponse(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	data, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() 处理大响应失败: %v", err)
 	}
@@ -788,7 +788,7 @@ func TestRetry_429TooManyRequests(t *testing.T) {
 	f := NewWithRetry(30*time.Second, retryConfig)
 	ctx := context.Background()
 
-	_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() 应在 429 后重试成功: %v", err)
 	}
@@ -828,7 +828,7 @@ func TestRetry_NonRetryableErrors(t *testing.T) {
 			f := NewWithRetry(30*time.Second, retryConfig)
 			ctx := context.Background()
 
-			_, err := f.QueryOrder(ctx, server.URL, "token", 1)
+			_, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 			if err == nil {
 				t.Error("QueryOrder() 应失败")
 			}
@@ -849,8 +849,8 @@ func TestDefaultRetryConfig(t *testing.T) {
 	if DefaultRetryConfig.InitialWait != 1*time.Second {
 		t.Errorf("InitialWait = %v, want 1s", DefaultRetryConfig.InitialWait)
 	}
-	if DefaultRetryConfig.MaxWait != 10*time.Second {
-		t.Errorf("MaxWait = %v, want 10s", DefaultRetryConfig.MaxWait)
+	if DefaultRetryConfig.MaxWait != 4*time.Second {
+		t.Errorf("MaxWait = %v, want 4s", DefaultRetryConfig.MaxWait)
 	}
 	if DefaultRetryConfig.Multiplier != 2.0 {
 		t.Errorf("Multiplier = %v, want 2.0", DefaultRetryConfig.Multiplier)
@@ -878,7 +878,7 @@ func TestCertData_Fields(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	data, err := f.QueryOrder(ctx, server.URL, "token", 1)
+	data, _, err := f.QueryOrder(ctx, server.URL, "token", 1)
 	if err != nil {
 		t.Fatalf("QueryOrder() error = %v", err)
 	}
@@ -922,7 +922,7 @@ func TestCallbackNew(t *testing.T) {
 		DeployedAt: "2024-01-01T00:00:00Z",
 	}
 
-	err := f.CallbackNew(ctx, server.URL, "token", req)
+	_, err := f.CallbackNew(ctx, server.URL, "token", req)
 	if err != nil {
 		t.Fatalf("CallbackNew() error = %v", err)
 	}
@@ -950,7 +950,7 @@ func TestUpdate_WithDomains(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	_, err := f.Update(ctx, server.URL, "token", 12345, "csr", "example.com,www.example.com", "http")
+	_, _, err := f.Update(ctx, server.URL, "token", 12345, "csr", "example.com,www.example.com", "http")
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -967,13 +967,13 @@ func TestAPIResponse_ParsePaginatedData(t *testing.T) {
 	}{
 		{
 			name:      "分页响应",
-			data:      `{"total":2,"currentPage":1,"pageSize":100,"data":[{"order_id":1,"status":"active"},{"order_id":2,"status":"active"}]}`,
+			data:      `{"total":2,"page":1,"page_size":100,"data":[{"order_id":1,"status":"active"},{"order_id":2,"status":"active"}]}`,
 			wantCount: 2,
 			wantTotal: 2,
 		},
 		{
 			name:      "分页响应空数据",
-			data:      `{"total":0,"currentPage":1,"pageSize":100,"data":[]}`,
+			data:      `{"total":0,"page":1,"page_size":100,"data":[]}`,
 			wantCount: 0,
 			wantTotal: 0,
 		},
@@ -1008,7 +1008,7 @@ func TestAPIResponse_ParsePaginatedData(t *testing.T) {
 				Data: json.RawMessage(tt.data),
 			}
 
-			certs, total, err := resp.ParsePaginatedData()
+			certs, total, _, err := resp.ParsePaginatedData()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParsePaginatedData() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1030,7 +1030,7 @@ func TestAPIResponse_ParsePaginatedData(t *testing.T) {
 func TestQueryBatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		queryParam := r.URL.Query().Get("order")
-		pageSize := r.URL.Query().Get("pageSize")
+		pageSize := r.URL.Query().Get("page_size")
 
 		if pageSize != "100" {
 			t.Errorf("pageSize = %s, want 100", pageSize)
@@ -1053,8 +1053,8 @@ func TestQueryBatch(t *testing.T) {
 			Code: 1,
 			Data: map[string]interface{}{
 				"total":       len(data),
-				"currentPage": 1,
-				"pageSize":    100,
+				"page": 1,
+				"page_size":    100,
 				"data":        data,
 			},
 		}
@@ -1066,7 +1066,7 @@ func TestQueryBatch(t *testing.T) {
 	ctx := context.Background()
 
 	// 测试无参数查询
-	certs, err := f.QueryBatch(ctx, server.URL, "token", "")
+	certs, _, err := f.QueryBatch(ctx, server.URL, "token", "")
 	if err != nil {
 		t.Fatalf("QueryBatch('') error = %v", err)
 	}
@@ -1075,7 +1075,7 @@ func TestQueryBatch(t *testing.T) {
 	}
 
 	// 测试混合查询
-	certs, err = f.QueryBatch(ctx, server.URL, "token", "123,example.com")
+	certs, _, err = f.QueryBatch(ctx, server.URL, "token", "123,example.com")
 	if err != nil {
 		t.Fatalf("QueryBatch('123,example.com') error = %v", err)
 	}
@@ -1089,7 +1089,7 @@ func TestQueryBatch_Pagination(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		page := r.URL.Query().Get("currentPage")
+		page := r.URL.Query().Get("page")
 
 		var data []map[string]interface{}
 		total := 3
@@ -1117,8 +1117,8 @@ func TestQueryBatch_Pagination(t *testing.T) {
 			Code: 1,
 			Data: map[string]interface{}{
 				"total":       total,
-				"currentPage": pageNum,
-				"pageSize":    2,
+				"page": pageNum,
+				"page_size":    2,
 				"data":        data,
 			},
 		}
@@ -1129,7 +1129,7 @@ func TestQueryBatch_Pagination(t *testing.T) {
 	f := New(30 * time.Second)
 	ctx := context.Background()
 
-	certs, err := f.QueryBatch(ctx, server.URL, "token", "")
+	certs, _, err := f.QueryBatch(ctx, server.URL, "token", "")
 	if err != nil {
 		t.Fatalf("QueryBatch() error = %v", err)
 	}
@@ -1152,11 +1152,269 @@ func TestQueryBatch_APIError(t *testing.T) {
 	f := NewWithRetry(30*time.Second, RetryConfig{MaxRetries: 0})
 	ctx := context.Background()
 
-	_, err := f.QueryBatch(ctx, server.URL, "bad-token", "")
+	_, _, err := f.QueryBatch(ctx, server.URL, "bad-token", "")
 	if err == nil {
 		t.Fatal("QueryBatch() should return error for API error")
 	}
 	if !strings.Contains(err.Error(), "unauthorized") {
 		t.Errorf("error should contain 'unauthorized', got: %v", err)
+	}
+}
+
+// TestQueryBatch_ExceedsLimit 批量查询超过 100 项上限
+func TestQueryBatch_ExceedsLimit(t *testing.T) {
+	f := NewWithRetry(30*time.Second, RetryConfig{MaxRetries: 0})
+	ctx := context.Background()
+
+	// 构造 101 项查询
+	ids := make([]string, 101)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%d", i+1)
+	}
+	query := strings.Join(ids, ",")
+
+	_, _, err := f.QueryBatch(ctx, "https://example.com", "test-token", query)
+	if err == nil {
+		t.Fatal("QueryBatch() should return error when query exceeds 100 items")
+	}
+	if !strings.Contains(err.Error(), "100") {
+		t.Errorf("error should mention limit 100, got: %v", err)
+	}
+
+	// 100 项应该不触发此限制（会因网络错误失败，但不应是上限错误）
+	ids100 := make([]string, 100)
+	for i := range ids100 {
+		ids100[i] = fmt.Sprintf("%d", i+1)
+	}
+	query100 := strings.Join(ids100, ",")
+	_, _, err = f.QueryBatch(ctx, "https://example.com", "test-token", query100)
+	if err != nil && strings.Contains(err.Error(), "100") && strings.Contains(err.Error(), "上限") {
+		t.Errorf("100 items should not trigger batch limit error, got: %v", err)
+	}
+}
+
+// TestParsePaginatedData_RenewBeforeDays 验证分页响应中 renew_before_days 字段解析
+func TestParsePaginatedData_RenewBeforeDays(t *testing.T) {
+	tests := []struct {
+		name                string
+		dataJSON            string
+		wantRenewBeforeDays int
+	}{
+		{
+			name:                "包含 renew_before_days",
+			dataJSON:            `{"total":1,"page":1,"page_size":100,"renew_before_days":14,"data":[{"order_id":123,"status":"active"}]}`,
+			wantRenewBeforeDays: 14,
+		},
+		{
+			name:                "renew_before_days 为 0",
+			dataJSON:            `{"total":1,"page":1,"page_size":100,"renew_before_days":0,"data":[{"order_id":123,"status":"active"}]}`,
+			wantRenewBeforeDays: 0,
+		},
+		{
+			name:                "不含 renew_before_days 字段",
+			dataJSON:            `{"total":1,"page":1,"page_size":100,"data":[{"order_id":123,"status":"active"}]}`,
+			wantRenewBeforeDays: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &APIResponse{
+				Code: 1,
+				Data: json.RawMessage(tt.dataJSON),
+			}
+			_, _, renewBeforeDays, err := resp.ParsePaginatedData()
+			if err != nil {
+				t.Fatalf("ParsePaginatedData() error = %v", err)
+			}
+			if renewBeforeDays != tt.wantRenewBeforeDays {
+				t.Errorf("renewBeforeDays = %d, want %d", renewBeforeDays, tt.wantRenewBeforeDays)
+			}
+		})
+	}
+}
+
+// TestQueryOrder_RenewBeforeDays 验证 QueryOrder 能正确传递 renew_before_days
+func TestQueryOrder_RenewBeforeDays(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{
+			Code: 1,
+			Data: map[string]interface{}{
+				"total":             1,
+				"page":       1,
+				"page_size":          100,
+				"renew_before_days": 14,
+				"data":              []interface{}{mockCertData()},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	_, renewBeforeDays, err := f.QueryOrder(ctx, server.URL, "token", 12345)
+	if err != nil {
+		t.Fatalf("QueryOrder() error = %v", err)
+	}
+	if renewBeforeDays != 14 {
+		t.Errorf("renewBeforeDays = %d, want 14", renewBeforeDays)
+	}
+}
+
+// TestQuery_RenewBeforeDays 验证 Query 能正确传递 renew_before_days
+func TestQuery_RenewBeforeDays(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{
+			Code: 1,
+			Data: map[string]interface{}{
+				"total":             1,
+				"page":       1,
+				"page_size":          100,
+				"renew_before_days": 14,
+				"data":              []interface{}{mockCertData()},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	_, renewBeforeDays, err := f.Query(ctx, server.URL, "token", "example.com")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if renewBeforeDays != 14 {
+		t.Errorf("renewBeforeDays = %d, want 14", renewBeforeDays)
+	}
+}
+
+// TestQueryBatch_RenewBeforeDays 验证 QueryBatch 能正确传递 renew_before_days
+func TestQueryBatch_RenewBeforeDays(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{
+			Code: 1,
+			Data: map[string]interface{}{
+				"total":             1,
+				"page":       1,
+				"page_size":          100,
+				"renew_before_days": 14,
+				"data":              []interface{}{mockCertData()},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := New(30 * time.Second)
+	ctx := context.Background()
+
+	_, renewBeforeDays, err := f.QueryBatch(ctx, server.URL, "token", "")
+	if err != nil {
+		t.Fatalf("QueryBatch() error = %v", err)
+	}
+	if renewBeforeDays != 14 {
+		t.Errorf("renewBeforeDays = %d, want 14", renewBeforeDays)
+	}
+}
+
+// TestToggleAutoReissue 测试 ToggleAutoReissue 方法
+func TestToggleAutoReissue(t *testing.T) {
+	tests := []struct {
+		name        string
+		orderID     int
+		autoReissue bool
+	}{
+		{"pull 模式 autoReissue=true", 12345, true},
+		{"local 模式 autoReissue=false", 12345, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// 验证请求方法
+				if r.Method != http.MethodPost {
+					t.Errorf("Method = %s, want POST", r.Method)
+				}
+
+				// 验证路径包含 auto-reissue
+				if !strings.HasSuffix(r.URL.Path, "/auto-reissue") {
+					t.Errorf("URL path = %s, want ends with /auto-reissue", r.URL.Path)
+				}
+
+				// 验证 Authorization 头
+				auth := r.Header.Get("Authorization")
+				if auth != "Bearer test-token" {
+					t.Errorf("Authorization = %s, want Bearer test-token", auth)
+				}
+
+				// 验证请求体
+				body, _ := io.ReadAll(r.Body)
+				var req ToggleAutoReissueRequest
+				if err := json.Unmarshal(body, &req); err != nil {
+					t.Errorf("failed to parse request body: %v", err)
+					return
+				}
+
+				if req.OrderID != tt.orderID {
+					t.Errorf("order_id = %d, want %d", req.OrderID, tt.orderID)
+				}
+				if req.AutoReissue != tt.autoReissue {
+					t.Errorf("auto_reissue = %v, want %v", req.AutoReissue, tt.autoReissue)
+				}
+
+				// 返回成功响应
+				resp := mockResponse{Code: 1, Message: "success"}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			f := New(30 * time.Second)
+			ctx := context.Background()
+
+			err := f.ToggleAutoReissue(ctx, server.URL, "test-token", tt.orderID, tt.autoReissue)
+			if err != nil {
+				t.Fatalf("ToggleAutoReissue() error = %v", err)
+			}
+		})
+	}
+}
+
+// TestToggleAutoReissue_APIError 测试 ToggleAutoReissue API 错误响应
+func TestToggleAutoReissue_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockResponse{Code: 0, Message: "order not found"}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	f := NewWithRetry(30*time.Second, RetryConfig{MaxRetries: 0})
+	ctx := context.Background()
+
+	err := f.ToggleAutoReissue(ctx, server.URL, "token", 12345, true)
+	if err == nil {
+		t.Fatal("ToggleAutoReissue() should return error for API error response")
+	}
+	if !strings.Contains(err.Error(), "order not found") {
+		t.Errorf("error should contain 'order not found', got: %v", err)
+	}
+}
+
+// TestToggleAutoReissue_HTTPError 测试 ToggleAutoReissue HTTP 错误状态码
+func TestToggleAutoReissue_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	f := NewWithRetry(30*time.Second, RetryConfig{MaxRetries: 0})
+	ctx := context.Background()
+
+	err := f.ToggleAutoReissue(ctx, server.URL, "bad-token", 12345, true)
+	if err == nil {
+		t.Fatal("ToggleAutoReissue() should return error for HTTP 401")
 	}
 }

@@ -279,7 +279,8 @@ func GetBinaryPath() string {
 	return "/usr/local/bin/sslctl"
 }
 
-// GetDownloadFilename 获取下载文件名
+// GetDownloadFilename 获取下载文件名（不含版本号，版本在目录路径中体现）
+// 格式: sslctl-{os}-{arch}.gz
 func GetDownloadFilename() string {
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
@@ -290,9 +291,11 @@ func GetDownloadFilename() string {
 }
 
 // GetDownloadURL 获取下载 URL
+// 格式: {baseURL}/{channel}/v{version}/{filename}
 func GetDownloadURL(baseURL, channel, version string) string {
 	filename := GetDownloadFilename()
-	return fmt.Sprintf("%s/%s/%s/%s", baseURL, channel, version, filename)
+	ver := NormalizeVersion(version)
+	return fmt.Sprintf("%s/%s/%s/%s", baseURL, channel, ver, filename)
 }
 
 // copyFile 复制文件（用于跨文件系统移动）

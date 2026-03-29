@@ -14,14 +14,18 @@ import (
 )
 
 func TestExecute_AlreadyLatest(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v1.0.0",
-		LatestDev:    "v1.1.0-beta",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "1.0.0",
+			Versions: []VersionInfo{
+				{Version: "1.0.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:abc"}},
+			},
+		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(index)
 	}))
 	defer server.Close()
 
@@ -38,14 +42,24 @@ func TestExecute_AlreadyLatest(t *testing.T) {
 }
 
 func TestExecute_CheckOnly(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v2.0.0",
-		LatestDev:    "v2.1.0-beta",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "2.0.0",
+			Versions: []VersionInfo{
+				{Version: "2.0.0", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:abc"}},
+			},
+		},
+		"dev": &ChannelInfo{
+			Latest: "2.1.0-beta",
+			Versions: []VersionInfo{
+				{Version: "2.1.0-beta", Checksums: map[string]string{"sslctl-linux-amd64.gz": "sha256:def"}},
+			},
+		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(index)
 	}))
 	defer server.Close()
 
@@ -66,13 +80,15 @@ func TestExecute_CheckOnly(t *testing.T) {
 }
 
 func TestExecute_Force(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v1.0.0",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "1.0.0",
+		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(index)
 	}))
 	defer server.Close()
 
@@ -91,18 +107,21 @@ func TestExecute_Force(t *testing.T) {
 }
 
 func TestExecute_NoDowngrade(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v0.1.0",
-		LatestDev:    "v0.1.0",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "0.1.0",
+			Versions: []VersionInfo{
+				{Version: "0.1.0"},
+			},
+		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(index)
 	}))
 	defer server.Close()
 
-	// beta 版本不应降级到更低的正式版
 	result, err := executeWithClient(Options{
 		CurrentVersion: "v0.1.1-beta",
 		Channel:        "main",
@@ -116,17 +135,18 @@ func TestExecute_NoDowngrade(t *testing.T) {
 }
 
 func TestExecute_PreReleaseUpgrade(t *testing.T) {
-	info := &ReleaseInfo{
-		LatestMain: "v0.1.1",
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "0.1.1",
+		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(index)
 	}))
 	defer server.Close()
 
-	// pre-release 应升级到同号正式版
 	result, err := executeWithClient(Options{
 		CurrentVersion: "v0.1.1-beta",
 		Channel:        "main",
@@ -171,19 +191,18 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 	SetReleasePublicKeys(map[string]ed25519.PublicKey{"key-1": pub1})
 
 	gzData := makeGzipData(t, []byte("new binary"))
-	filename := GetDownloadFilename()
 	// 用 key-2 签名（不在密钥环中）
 	sig := ed25519.Sign(priv2, gzData)
 	sigStr := "ed25519:key-2:" + base64.StdEncoding.EncodeToString(sig)
 	hash := sha256.Sum256(gzData)
 	checksum := "sha256:" + hex.EncodeToString(hash[:])
 
-	info := &ReleaseInfo{
-		LatestMain: "v2.0.0",
-		Versions: map[string]VersionInfo{
-			"v2.0.0": {
-				Checksums:  map[string]string{filename: checksum},
-				Signatures: map[string]string{filename: sigStr},
+	filename := GetDownloadFilename()
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "2.0.0",
+			Versions: []VersionInfo{
+				{Version: "2.0.0", Checksums: map[string]string{filename: checksum}, Signature: sigStr},
 			},
 		},
 	}
@@ -191,10 +210,10 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "releases.json") {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(info)
+			_ = json.NewEncoder(w).Encode(index)
 			return
 		}
-		w.Write(gzData)
+		_, _ = w.Write(gzData)
 	}))
 	defer server.Close()
 
@@ -214,21 +233,19 @@ func TestExecute_SignatureKeyNotFound_ReinstallHint(t *testing.T) {
 }
 
 func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
-	// 无公钥但签名非空时，应提示重装
 	saveAndRestoreKeys(t)
 	releasePublicKeys = map[string]ed25519.PublicKey{}
 
 	_, priv := generateTestKeyPair(t)
 	gzData := makeGzipData(t, []byte("new binary"))
-	filename := GetDownloadFilename()
 	sigStr, checksum := signAndChecksum(t, priv, "key-1", gzData)
 
-	info := &ReleaseInfo{
-		LatestMain: "v2.0.0",
-		Versions: map[string]VersionInfo{
-			"v2.0.0": {
-				Checksums:  map[string]string{filename: checksum},
-				Signatures: map[string]string{filename: sigStr},
+	filename := GetDownloadFilename()
+	index := ReleaseIndex{
+		"main": &ChannelInfo{
+			Latest: "2.0.0",
+			Versions: []VersionInfo{
+				{Version: "2.0.0", Checksums: map[string]string{filename: checksum}, Signature: sigStr},
 			},
 		},
 	}
@@ -236,10 +253,10 @@ func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "releases.json") {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(info)
+			_ = json.NewEncoder(w).Encode(index)
 			return
 		}
-		w.Write(gzData)
+		_, _ = w.Write(gzData)
 	}))
 	defer server.Close()
 
@@ -255,32 +272,5 @@ func TestDownloadVerifyInstall_ErrNoPublicKeys_ReinstallHint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "install.sh") {
 		t.Errorf("error should suggest reinstall, got: %v", err)
-	}
-}
-
-func TestDownloadVerifyInstall_InvalidChannel(t *testing.T) {
-	// 非法通道应被拒绝（防止路径遍历）
-	info := &ReleaseInfo{}
-	err := downloadVerifyInstall("v1.0.0", "../evil", info, nil, nil, "https://example.com", "curl -fsSL https://example.com/sslctl/install.sh | sudo bash -s -- example.com")
-	if err == nil {
-		t.Fatal("expected error for invalid channel")
-	}
-	if !strings.Contains(err.Error(), "不支持的发布通道") {
-		t.Errorf("error should mention unsupported channel, got: %v", err)
-	}
-}
-
-func TestValidChannels(t *testing.T) {
-	// main 和 dev 应该通过通道校验
-	for _, ch := range []string{"main", "dev"} {
-		if !validChannels[ch] {
-			t.Errorf("channel %q should be valid", ch)
-		}
-	}
-	// 非法通道
-	for _, ch := range []string{"", "../hack", "nightly", "main/../../etc"} {
-		if validChannels[ch] {
-			t.Errorf("channel %q should be invalid", ch)
-		}
 	}
 }

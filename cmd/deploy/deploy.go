@@ -137,7 +137,7 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 	}
 
 	// 查询证书
-	certData, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	certData, _, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
 		return fmt.Errorf("查询证书失败: %w", err)
 	}
@@ -386,7 +386,7 @@ func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *c
 	if api.URL == "" || api.Token == "" {
 		return fmt.Errorf("证书 API 配置不完整")
 	}
-	certData, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
+	certData, _, err := f.QueryOrder(ctx, api.URL, api.Token, cert.OrderID)
 	if err != nil {
 		return fmt.Errorf("获取证书失败: %w", err)
 	}

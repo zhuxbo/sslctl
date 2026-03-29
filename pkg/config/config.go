@@ -162,7 +162,7 @@ func (c *CertConfig) NeedsRenewal(schedule *ScheduleConfig) bool {
 		return false
 	}
 	renewDays := schedule.RenewBeforeDays
-	if renewDays == 0 || renewDays > MaxRenewBeforeDays {
+	if renewDays <= 0 {
 		renewDays = DefaultRenewBeforeDays
 	}
 	return days <= renewDays

@@ -629,7 +629,7 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 			schedule: ScheduleConfig{
 				RenewMode: RenewModePull,
 			},
-			want: true, // DefaultRenewBeforeDays = 13，5 <= 13 需续签
+			want: true, // DefaultRenewBeforeDays = 14，5 <= 14 需续签
 		},
 		{
 			name:      "空模式默认为Pull",
@@ -648,13 +648,13 @@ func TestCertConfig_NeedsRenewal(t *testing.T) {
 			want: false,
 		},
 		{
-			name:      "Pull模式-全局配置为local天数时应使用pull默认值",
+			name:      "服务端下发大值-按实际值判断",
 			expiresAt: time.Now().Add(20 * 24 * time.Hour), // 20 天后过期
 			schedule: ScheduleConfig{
 				RenewMode:       RenewModePull,
-				RenewBeforeDays: 30, // local 模式的典型值，对 pull 无效
+				RenewBeforeDays: 30, // 服务端控制，直接使用
 			},
-			want: false, // 应使用 DefaultRenewBeforeDays (13)，20 > 13 不续签
+			want: true, // 20 <= 30 需续签
 		},
 	}
 
@@ -1125,20 +1125,12 @@ func TestScheduleConfig_Validation(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "pull 模式 RenewBeforeDays > 13 应报错",
+			name: "pull 模式大 RenewBeforeDays 应通过（由服务端控制）",
 			schedule: ScheduleConfig{
 				RenewMode:       RenewModePull,
-				RenewBeforeDays: 14,
+				RenewBeforeDays: 30,
 			},
-			wantError: true,
-		},
-		{
-			name: "local 模式 RenewBeforeDays > 13 应报错",
-			schedule: ScheduleConfig{
-				RenewMode:       RenewModeLocal,
-				RenewBeforeDays: 14,
-			},
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name: "默认值（0）应通过",
@@ -1324,11 +1316,8 @@ func TestCertMetadata(t *testing.T) {
 
 // TestTimeConstants 测试时间相关常量
 func TestTimeConstants(t *testing.T) {
-	if MaxRenewBeforeDays != 13 {
-		t.Errorf("MaxRenewBeforeDays = %d, 期望 13", MaxRenewBeforeDays)
-	}
-	if DefaultRenewBeforeDays != 13 {
-		t.Errorf("DefaultRenewBeforeDays = %d, 期望 13", DefaultRenewBeforeDays)
+	if DefaultRenewBeforeDays != 14 {
+		t.Errorf("DefaultRenewBeforeDays = %d, 期望 14", DefaultRenewBeforeDays)
 	}
 }
 
@@ -1818,5 +1807,30 @@ func TestConfigManager_MtimeReload(t *testing.T) {
 	}
 	if cfg2.Certificates[0].API.URL != "https://modified.com/api" {
 		t.Errorf("外部修改后 URL = %s, 期望 https://modified.com/api", cfg2.Certificates[0].API.URL)
+	}
+}
+
+// TestSetUpgradeChannel_Invalid 无效通道被拒绝
+func TestSetUpgradeChannel_Invalid(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+
+	// 有效通道应成功
+	if err := cm.SetUpgradeChannel("main"); err != nil {
+		t.Errorf("SetUpgradeChannel(main) error = %v", err)
+	}
+	if err := cm.SetUpgradeChannel("dev"); err != nil {
+		t.Errorf("SetUpgradeChannel(dev) error = %v", err)
+	}
+
+	// 无效通道应失败
+	invalidChannels := []string{"staging", "beta", "release", "", "Main", "DEV"}
+	for _, ch := range invalidChannels {
+		if err := cm.SetUpgradeChannel(ch); err == nil {
+			t.Errorf("SetUpgradeChannel(%q) should return error", ch)
+		}
 	}
 }

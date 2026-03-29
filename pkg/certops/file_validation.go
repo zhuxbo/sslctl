@@ -2,8 +2,10 @@
 package certops
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
@@ -58,6 +60,11 @@ func collectWebroots(cert *config.CertConfig) []string {
 
 // placeFileInWebroot 将验证文件写入指定 webroot
 func placeFileInWebroot(webroot string, file *fetcher.FileChallenge, log *logger.Logger) (string, error) {
+	// 规范 3.6：验证文件路径必须位于 .well-known/ 下
+	cleanPath := strings.TrimPrefix(file.Path, "/")
+	if !strings.HasPrefix(cleanPath, ".well-known/") {
+		return "", fmt.Errorf("验证文件路径必须位于 .well-known/ 下: %s", file.Path)
+	}
 	// 安全路径拼接（防目录穿越）
 	fullPath, err := util.JoinUnderDir(webroot, file.Path)
 	if err != nil {

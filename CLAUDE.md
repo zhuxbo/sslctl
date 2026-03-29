@@ -3,6 +3,8 @@
 SSL 证书自动部署工具，Go 语言实现，支持 Nginx、Apache、Docker。
 
 > **维护指引**：保持本文件精简，仅包含项目概览和快速参考。详细规范写入 `skills/` 目录。
+>
+> **统一规范**：跨项目共通行为规范见 `deploy-spec.md`
 
 ## 核心指令
 
@@ -79,6 +81,7 @@ sslctl uninstall                                 # 卸载
 
 - API 配置在**证书级别**（每个证书独立的 `api` 字段），不再有全局 API
 - `release_url`：升级发布地址（安装时从参数自动生成并写入，未传参则留空；升级模块从此读取，未配置时交互提示输入）
+- 配置迁移：`pkg/config/migrate.go` 声明式规则引擎，加载时自动检测旧格式并迁移（幂等，支持跨版本升级）
 
 证书存储目录：`/opt/sslctl/certs/{server_name}/`
 
@@ -132,11 +135,12 @@ docker/test/
 | `local` | 本机提交         | `--local-key` 或配置文件 |
 | `pull`  | 自动签发（默认） | 默认行为                 |
 
-- 两种模式统一：`renew_before_days` 最大 13 天，默认 13 天
+- 两种模式统一：`renew_before_days` 默认 14 天，由服务端控制，每次 API 交互后更新本地配置
 - 已过期证书（days < 0）不再触发续签
 - 定时检查：每天一次，随机选择明天 09:00~23:59 的时间点执行（服务端 0:00~7:59 续签，预留 1 小时签发）
 - 多证书续签间隔：每个证书处理后随机延迟 30~90 秒，分散 API 请求压力
 - 文件验证支持：`status=processing` 且 API 返回 `file` 字段时，自动将验证文件写入 webroot（`util.JoinUnderDir` 防目录穿越），部署成功后自动清理
+- processing 状态：保持查询等待，不自动重提交；异常状态停止等待人工处理
 - IP 证书支持：证书验证和域名匹配支持 `cert.IPAddresses`，IP 使用精确匹配（不走通配符逻辑）
 
 详见 `skills/deploy-ops/SKILL.md`
@@ -172,14 +176,14 @@ docker/test/
 - SELinux 兼容（部署后自动恢复文件安全上下文，`restorecon` 失败时返回错误）
 - IDN/Punycode 域名支持（`pkg/matcher`）
 - 证书过期告警（守护进程周期检查，7 天/14 天阈值）
-- 重试计数自动重置（CSR 提交超 7 天后重置计数）
+- 重试次数超限（> 10 次）自动停止，等待人工处理（不自动重置）
 - 配置扫描防护（Nginx/Apache/Docker 扫描器均有文件数量限制 1000 + 深度限制 100 + 文件大小限制 10MB）
 - Docker 挂载路径精确匹配（防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`）
 - 升级解压防护（gzip 解压大小限制，防止 gzip 炸弹攻击）
 - 升级模块 Ed25519 签名验证（`pkg/upgrade`，密钥环已内置 key-1 公钥，签名格式 `ed25519:<key_id>:<base64>` 带 key ID；已配置公钥时拒绝安装未签名版本，防止降级攻击）
 - 升级安装符号链接防护（`copyFile` 写入前检查目标路径，拒绝覆盖符号链接）
 - 升级签名密钥轮换（密钥不匹配时提示用 `install.sh` 重装；`ErrKeyNotFound`/`ErrNoPublicKeys` 统一处理）
-- 升级通道白名单（`downloadVerifyInstall` 中 channel 参数仅允许 main/dev，防止路径遍历）
+- 升级通道白名单（`upgrade_channel` 配置仅允许 main/dev，releases.json 通道名为顶层 key，每通道保留最近 5 个版本）
 - systemd 服务安全限制（NoNewPrivileges + ProtectSystem=strict + ProtectHome + PrivateTmp + ProtectKernelTunables/Modules + ReadWritePaths 白名单）
 - 升级安装权限安全（临时文件保持 0600，仅在最终路径设置 0755）
 - 日志 JSON 输出模式（`SSLCTL_LOG_FORMAT=json`，敏感信息过滤在两种模式下均生效）

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/zhuxbo/sslctl/pkg/config"
 )
 
 // 版本信息配置常量
@@ -17,19 +19,23 @@ const (
 
 // VersionInfo 版本详细信息
 type VersionInfo struct {
-	Checksums  map[string]string `json:"checksums"`            // 文件名 -> sha256:hash
-	Signatures map[string]string `json:"signatures,omitempty"` // 文件名 -> ed25519:<base64_signature>
+	Version    string            `json:"version"`              // 版本号（如 "1.2.0"，不带 v 前缀）
+	ReleasedAt string            `json:"released_at,omitempty"` // 发布日期（YYYY-MM-DD）
+	Checksums  map[string]string `json:"checksums"`             // 按文件名索引的 SHA256 哈希
+	Signature  string            `json:"signature,omitempty"`   // "ed25519:..." (平台扩展)
 }
 
-// ReleaseInfo 发布信息
-type ReleaseInfo struct {
-	LatestMain string                 `json:"latest_main"`
-	LatestDev    string                 `json:"latest_dev"`
-	Versions     map[string]VersionInfo `json:"versions,omitempty"`
+// ChannelInfo 通道版本信息
+type ChannelInfo struct {
+	Latest   string        `json:"latest"`   // 该通道最新版本号（不带 v 前缀）
+	Versions []VersionInfo `json:"versions"` // 版本列表，按发布时间倒序，最多 5 条
 }
+
+// ReleaseIndex 发布索引（releases.json 顶层结构，通道名为 key）
+type ReleaseIndex map[string]*ChannelInfo
 
 // FetchReleaseInfo 获取远程版本信息
-func FetchReleaseInfo(baseURL string) (*ReleaseInfo, error) {
+func FetchReleaseInfo(baseURL string) (ReleaseIndex, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return nil, fmt.Errorf("未配置升级地址，请运行 sslctl upgrade 在交互终端中输入，或使用安装脚本升级")
@@ -42,7 +48,7 @@ func FetchReleaseInfo(baseURL string) (*ReleaseInfo, error) {
 }
 
 // fetchReleaseInfoFrom 内部实现，接受 URL 和 client 参数（便于测试）
-func fetchReleaseInfoFrom(url string, client *http.Client) (*ReleaseInfo, error) {
+func fetchReleaseInfoFrom(url string, client *http.Client) (ReleaseIndex, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("获取版本信息失败: %w", err)
@@ -55,48 +61,87 @@ func fetchReleaseInfoFrom(url string, client *http.Client) (*ReleaseInfo, error)
 
 	// 限制响应体大小，防止恶意服务器返回超大 JSON
 	limitReader := io.LimitReader(resp.Body, maxReleaseInfoSize)
-	var info ReleaseInfo
-	if err := json.NewDecoder(limitReader).Decode(&info); err != nil {
+	var index ReleaseIndex
+	if err := json.NewDecoder(limitReader).Decode(&index); err != nil {
 		return nil, fmt.Errorf("解析版本信息失败: %w", err)
 	}
 
-	return &info, nil
+	return index, nil
 }
 
-// ResolveTarget 确定目标版本和通道
-// 返回: 目标版本, 通道, 错误
-func ResolveTarget(targetVersion, channel string, info *ReleaseInfo) (string, string, error) {
-	var target string
-	var ch string
-
+// ResolveTarget 确定目标版本
+// 直接读取 channel 对应通道的 Latest
+// 指定 targetVersion 时自动检测通道（含 "-" 为 dev，否则 main）
+func ResolveTarget(targetVersion, channel string, index ReleaseIndex) (string, string, error) {
 	if targetVersion != "" {
-		target = NormalizeVersion(targetVersion)
-		if channel != "" {
-			ch = channel
-		} else if strings.Contains(target, "-") {
-			ch = "dev"
-		} else {
-			ch = "main"
-		}
-	} else {
-		if channel == "dev" {
-			target = info.LatestDev
-			ch = "dev"
-		} else {
-			target = info.LatestMain
-			ch = "main"
-			if target == "" {
-				target = info.LatestDev
+		target := NormalizeVersion(targetVersion)
+		ch := channel
+		if ch == "" {
+			if strings.Contains(target, "-") {
 				ch = "dev"
+			} else {
+				ch = "main"
 			}
 		}
+		if err := config.ValidateChannel(ch); err != nil {
+			return "", "", err
+		}
+		return target, ch, nil
 	}
 
-	if target == "" {
-		return "", "", fmt.Errorf("未找到可用版本")
+	ch := channel
+	if ch == "" {
+		ch = "main"
+	}
+	if err := config.ValidateChannel(ch); err != nil {
+		return "", "", err
 	}
 
-	return target, ch, nil
+	chInfo := index[ch]
+	if chInfo == nil {
+		return "", "", fmt.Errorf("通道 %q 不存在", ch)
+	}
+
+	if chInfo.Latest != "" {
+		return NormalizeVersion(chInfo.Latest), ch, nil
+	}
+	if len(chInfo.Versions) > 0 {
+		return NormalizeVersion(chInfo.Versions[0].Version), ch, nil
+	}
+	return "", "", fmt.Errorf("通道 %q 中未找到可用版本", ch)
+}
+
+// FindVersion 在指定通道的版本列表中查找指定版本
+func (index ReleaseIndex) FindVersion(channel, version string) *VersionInfo {
+	chInfo := index[channel]
+	if chInfo == nil {
+		return nil
+	}
+	normalized := NormalizeVersion(version)
+	for i := range chInfo.Versions {
+		if NormalizeVersion(chInfo.Versions[i].Version) == normalized {
+			return &chInfo.Versions[i]
+		}
+	}
+	return nil
+}
+
+// GetChecksum 获取指定版本中指定文件的校验和
+func (index ReleaseIndex) GetChecksum(channel, version, filename string) string {
+	v := index.FindVersion(channel, version)
+	if v == nil || v.Checksums == nil {
+		return ""
+	}
+	return v.Checksums[filename]
+}
+
+// GetSignature 获取指定版本的签名
+func (index ReleaseIndex) GetSignature(channel, version string) string {
+	v := index.FindVersion(channel, version)
+	if v == nil {
+		return ""
+	}
+	return v.Signature
 }
 
 // NormalizeVersion 规范化版本号（确保带 v 前缀）
@@ -160,26 +205,4 @@ func CompareVersions(a, b string) int {
 		return 1
 	}
 	return 0
-}
-
-// GetChecksum 获取指定版本文件的校验和
-func (info *ReleaseInfo) GetChecksum(version, filename string) string {
-	if info.Versions == nil {
-		return ""
-	}
-	if verInfo, ok := info.Versions[version]; ok {
-		return verInfo.Checksums[filename]
-	}
-	return ""
-}
-
-// GetSignature 获取指定版本文件的签名
-func (info *ReleaseInfo) GetSignature(version, filename string) string {
-	if info.Versions == nil {
-		return ""
-	}
-	if verInfo, ok := info.Versions[version]; ok {
-		return verInfo.Signatures[filename]
-	}
-	return ""
 }

@@ -83,10 +83,10 @@ func TestGetDownloadURL(t *testing.T) {
 	}
 
 	// dev 通道
-	devURL := GetDownloadURL("https://release.example.com/sslctl", "dev", "v2.0.0")
-	expectedDev := "https://release.example.com/sslctl/dev/v2.0.0/" + filename
-	if devURL != expectedDev {
-		t.Errorf("dev url = %q, want %q", devURL, expectedDev)
+	url = GetDownloadURL("https://release.example.com/sslctl", "dev", "1.2.0-rc1")
+	expected = "https://release.example.com/sslctl/dev/v1.2.0-rc1/" + filename
+	if url != expected {
+		t.Errorf("url = %q, want %q", url, expected)
 	}
 }
 

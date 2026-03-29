@@ -753,10 +753,10 @@ func runUninstall(args []string) {
 	// 3. 询问是否清理配置目录
 	workDir := cfg.WorkDir
 	if _, err := os.Stat(workDir); err == nil {
-		fmt.Printf("是否删除配置目录 %s？[Y/n] ", workDir)
+		fmt.Printf("是否删除配置目录 %s？[y/N] ", workDir)
 		var answer string
 		_, _ = fmt.Scanln(&answer)
-		if answer == "" || answer == "y" || answer == "Y" {
+		if answer == "y" || answer == "Y" {
 			fmt.Printf("删除配置目录 %s...\n", workDir)
 			_ = os.RemoveAll(workDir)
 		} else {

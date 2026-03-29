@@ -232,16 +232,6 @@ func TestPendingKeyDir(t *testing.T) {
 	}
 }
 
-// TestCsrPendingTimeout 测试 CSR 超时常量
-func TestCsrPendingTimeout(t *testing.T) {
-	if csrPendingTimeout <= 0 {
-		t.Error("csrPendingTimeout 应大于 0")
-	}
-	if csrPendingTimeout != 24*time.Hour {
-		t.Errorf("csrPendingTimeout = %v, 期望 24h", csrPendingTimeout)
-	}
-}
-
 // TestGetPendingKeyPath_Format 测试待确认私钥路径格式
 func TestGetPendingKeyPath_Format(t *testing.T) {
 	tests := []struct {
@@ -1031,27 +1021,29 @@ func TestCalcSpreadDelay_Zero(t *testing.T) {
 	}
 }
 
-// TestCalcSpreadDelay_Few 少量证书总延迟未超限
+// TestCalcSpreadDelay_Few 少量证书：sMax = clamp(600/N, 5, 120)
 func TestCalcSpreadDelay_Few(t *testing.T) {
 	sMin, sMax := calcSpreadDelay(5)
+	// sMax = 600/5 = 120
+	expectedMax := SpreadTotalMax / 5
+	if expectedMax > SpreadMax {
+		expectedMax = SpreadMax
+	}
+	if sMax != expectedMax {
+		t.Errorf("sMax = %d, want %d", sMax, expectedMax)
+	}
 	if sMin < SpreadMin {
 		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
-	}
-	if sMax > SpreadMax {
-		t.Errorf("sMax = %d, should <= %d", sMax, SpreadMax)
-	}
-	// 4 gaps × sMax 应 ≤ SpreadTotalMax
-	if 4*sMax > SpreadTotalMax {
-		t.Errorf("总延迟 %d 超过上限 %d", 4*sMax, SpreadTotalMax)
 	}
 }
 
 // TestCalcSpreadDelay_Many 大量证书自动缩短延迟
 func TestCalcSpreadDelay_Many(t *testing.T) {
 	sMin, sMax := calcSpreadDelay(50)
-	// 49 gaps × sMax 应 ≤ SpreadTotalMax
-	if 49*sMax > SpreadTotalMax {
-		t.Errorf("总延迟 %d 超过上限 %d", 49*sMax, SpreadTotalMax)
+	// sMax = 600/50 = 12
+	expectedMax := SpreadTotalMax / 50
+	if sMax != expectedMax {
+		t.Errorf("sMax = %d, want %d", sMax, expectedMax)
 	}
 	if sMin < SpreadMin {
 		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
@@ -1061,16 +1053,16 @@ func TestCalcSpreadDelay_Many(t *testing.T) {
 // TestCalcSpreadDelay_Max 上限证书数
 func TestCalcSpreadDelay_Max(t *testing.T) {
 	sMin, sMax := calcSpreadDelay(100)
-	// sMax = 600 / 99 ≈ 6
-	if sMax < SpreadMin {
-		t.Errorf("sMax = %d, should >= %d", sMax, SpreadMin)
+	// sMax = 600/100 = 6
+	expectedMax := SpreadTotalMax / 100
+	if expectedMax < SpreadMin {
+		expectedMax = SpreadMin
+	}
+	if sMax != expectedMax {
+		t.Errorf("sMax = %d, want %d", sMax, expectedMax)
 	}
 	if sMin < SpreadMin {
 		t.Errorf("sMin = %d, should >= %d", sMin, SpreadMin)
-	}
-	// 99 gaps × sMax 应 ≤ SpreadTotalMax
-	if 99*sMax > SpreadTotalMax {
-		t.Errorf("总延迟 %d 超过上限 %d", 99*sMax, SpreadTotalMax)
 	}
 }
 
@@ -1198,5 +1190,124 @@ func TestSpreadConstants(t *testing.T) {
 	}
 	if SpreadMax <= SpreadMin {
 		t.Error("SpreadMax 应 > SpreadMin")
+	}
+}
+
+// TestTryUpdateRenewBeforeDays_UpdatesConfig 测试 tryUpdateRenewBeforeDays 正确更新配置
+func TestTryUpdateRenewBeforeDays_UpdatesConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 初始 renew_before_days 应为默认值
+	cfg, _ := cm.Load()
+	initialDays := cfg.Schedule.RenewBeforeDays
+
+	// 更新为有效值 7
+	svc.tryUpdateRenewBeforeDays(7)
+
+	// 验证配置已持久化
+	cfg, err = cm.Load()
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if cfg.Schedule.RenewBeforeDays != 7 {
+		t.Errorf("renew_before_days = %d, 期望 7（初始值: %d）", cfg.Schedule.RenewBeforeDays, initialDays)
+	}
+}
+
+// TestTryUpdateRenewBeforeDays_ZeroIgnored 测试 renew_before_days 为 0 时不更新配置
+func TestTryUpdateRenewBeforeDays_ZeroIgnored(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 先设置一个非默认值
+	if err := cm.UpdateSchedule(func(sc *config.ScheduleConfig) {
+		sc.RenewBeforeDays = 10
+	}); err != nil {
+		t.Fatalf("设置初始值失败: %v", err)
+	}
+
+	// 传入 0，不应修改配置
+	svc.tryUpdateRenewBeforeDays(0)
+
+	cfg, err := cm.Load()
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if cfg.Schedule.RenewBeforeDays != 10 {
+		t.Errorf("renew_before_days = %d, 期望保持 10（0 不应触发更新）", cfg.Schedule.RenewBeforeDays)
+	}
+}
+
+// TestTryUpdateRenewBeforeDays_NegativeIgnored 测试负数 renew_before_days 不更新配置
+func TestTryUpdateRenewBeforeDays_NegativeIgnored(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 先设置一个非默认值
+	if err := cm.UpdateSchedule(func(sc *config.ScheduleConfig) {
+		sc.RenewBeforeDays = 10
+	}); err != nil {
+		t.Fatalf("设置初始值失败: %v", err)
+	}
+
+	// 传入负数，不应修改配置
+	svc.tryUpdateRenewBeforeDays(-1)
+
+	cfg, err := cm.Load()
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if cfg.Schedule.RenewBeforeDays != 10 {
+		t.Errorf("renew_before_days = %d, 期望保持 10（负数不应触发更新）", cfg.Schedule.RenewBeforeDays)
+	}
+}
+
+// TestSendRenewCallback_UpdatesRenewBeforeDays 测试续签回调后更新 renew_before_days
+func TestSendRenewCallback_UpdatesRenewBeforeDays(t *testing.T) {
+	tmpDir := t.TempDir()
+	cm, _ := config.NewConfigManagerWithDir(tmpDir)
+	log := logger.NewNopLogger()
+	svc := NewService(cm, log)
+
+	// 创建返回 renew_before_days=9 的回调服务器
+	callbackSrv := newRenewBeforeDaysCallbackServer(t, 9)
+	defer callbackSrv.Close()
+
+	cert := &config.CertConfig{
+		CertName: "test-cert",
+		OrderID:  123,
+		Domains:  []string{"example.com"},
+		API:      config.APIConfig{URL: callbackSrv.URL, Token: "test-token"},
+	}
+	result := &RenewResult{CertName: "test-cert", Status: "success"}
+
+	svc.sendRenewCallback(t.Context(), cert, result)
+
+	// 验证 renew_before_days 已更新
+	cfg, err := cm.Load()
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if cfg.Schedule.RenewBeforeDays != 9 {
+		t.Errorf("renew_before_days = %d, 期望 9（来自回调响应）", cfg.Schedule.RenewBeforeDays)
 	}
 }

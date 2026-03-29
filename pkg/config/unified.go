@@ -205,6 +205,17 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
+	// 配置迁移：检查并转换旧格式
+	migrated, changed, migrateErr := migrateConfig(data)
+	if migrateErr != nil {
+		return nil, fmt.Errorf("failed to migrate config: %w", migrateErr)
+	}
+	if changed {
+		data = migrated
+		// 尽力写回迁移后的配置，失败不影响本次加载（下次启动会再次迁移���
+		_ = os.WriteFile(cm.configPath, data, 0600)
+	}
+
 	// 计算内容哈希，防止 mtime 变更但内容未变时不必要的重新加载
 	// 设计说明：mtime 变更时仍需 ReadFile（无法避免 I/O），但哈希匹配时跳过 JSON 解析。
 	// 此检查仅在 mtime 触发重新加载时生效，正常缓存命中不涉及文件读取。
@@ -328,8 +339,24 @@ func (cm *ConfigManager) UpdateMetadata(fn func(*ConfigMetadata)) error {
 	return cm.saveLocked(cfg)
 }
 
+// UpdateSchedule 原子更新调度配置（重新加载最新配置，避免覆盖其他更新）
+func (cm *ConfigManager) UpdateSchedule(fn func(*ScheduleConfig)) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg, err := cm.loadLocked()
+	if err != nil {
+		return err
+	}
+	fn(&cfg.Schedule)
+	return cm.saveLocked(cfg)
+}
+
 // SetUpgradeChannel 保存升级通道到配置
 func (cm *ConfigManager) SetUpgradeChannel(channel string) error {
+	if err := ValidateChannel(channel); err != nil {
+		return err
+	}
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 

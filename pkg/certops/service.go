@@ -33,18 +33,20 @@ func NewService(cfgManager *config.ConfigManager, log *logger.Logger) *Service {
 
 // sendCallback 统一发送回调
 // 非关键路径，失败仅记录日志
-func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *fetcher.CallbackRequest) {
+// 返回服务端下发的 renewBeforeDays（失败时返回 0）
+func (s *Service) sendCallback(ctx context.Context, api config.APIConfig, req *fetcher.CallbackRequest) int {
 	if api.URL == "" || api.Token == "" {
-		return
+		return 0
 	}
 
-	err := s.fetcher.CallbackNew(ctx, api.URL, api.Token, req)
+	renewBeforeDays, err := s.fetcher.CallbackNew(ctx, api.URL, api.Token, req)
 
 	if err != nil {
 		s.log.Warn("回调发送失败（不影响结果）: %v", err)
-	} else {
-		s.log.Debug("回调成功: order=%d status=%s", req.OrderID, req.Status)
+		return 0
 	}
+	s.log.Debug("回调成功: order=%d status=%s", req.OrderID, req.Status)
+	return renewBeforeDays
 }
 
 // syncOrderID 同步 API 返回的订单号到本地配置

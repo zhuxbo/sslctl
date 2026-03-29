@@ -49,7 +49,7 @@ func runBatch(p *setupParams, query string) {
 	// 2/8: 查询证书
 	fmt.Println("\n步骤 2/8: 查询证书...")
 	f := fetcher.New(30 * time.Second)
-	certList, err := f.QueryBatch(p.ctx, p.apiURL, p.token, query)
+	certList, _, err := f.QueryBatch(p.ctx, p.apiURL, p.token, query)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询证书失败: %v\n", err)
 		os.Exit(1)
@@ -79,9 +79,9 @@ func runBatch(p *setupParams, query string) {
 			fmt.Printf("  ⚠ 订单 %d: 证书验证失败: %v，跳过\n", cd.OrderID, err)
 			continue
 		}
-		domains := parsedCert.DNSNames
+		domains := extractDomainsFromCert(parsedCert)
 		if len(domains) == 0 {
-			fmt.Printf("  ⚠ 订单 %d: 证书缺少 SAN，跳过\n", cd.OrderID)
+			fmt.Printf("  ⚠ 订单 %d: 证书缺少域名信息，跳过\n", cd.OrderID)
 			continue
 		}
 		// 验证 API 返回的私钥
@@ -230,6 +230,9 @@ func runBatch(p *setupParams, query string) {
 			continue
 		}
 		fmt.Printf("  ✓ %s 配置已保存\n", certConfig.CertName)
+
+		// 通知服务端是否自动续签（非关键路径，失败仅记录警告）
+		notifyAutoReissue(p, f, certConfig.OrderID, certConfig.RenewMode)
 	}
 
 	// 8/8: 安装守护服务

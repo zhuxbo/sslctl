@@ -269,14 +269,19 @@ update_versions_remote() {
     local version="$2"
     local checksums_json="$3"
     local signatures_json="$4"
+    local channel="$5"
 
     parse_server "$server_str"
 
-    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$SERVER_DIR/releases.json' VERSION='$version' CHECKSUMS_JSON='$checksums_json' SIGNATURES_JSON='$signatures_json' python3 << 'PYEOF'
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$SERVER_DIR/releases.json' VERSION='$version' CHANNEL='$channel' CHECKSUMS_JSON='$checksums_json' SIGNATURES_JSON='$signatures_json' python3 << 'PYEOF'
 import json, os
 
 releases_file = os.environ['RELEASES_FILE']
 version = os.environ['VERSION']
+channel = os.environ['CHANNEL']
+
+# 版本号不带 v 前缀
+bare_version = version[1:] if version.startswith('v') else version
 
 data = {}
 if os.path.exists(releases_file):
@@ -286,17 +291,33 @@ if os.path.exists(releases_file):
     except:
         pass
 
-if 'versions' not in data:
-    data['versions'] = {}
+if channel not in data:
+    data[channel] = {'latest': '', 'versions': []}
 
 checksums = json.loads(os.environ['CHECKSUMS_JSON'])
 signatures = json.loads(os.environ['SIGNATURES_JSON'])
 
-if version not in data['versions']:
-    data['versions'][version] = {}
-data['versions'][version]['checksums'] = checksums
-if signatures:
-    data['versions'][version]['signatures'] = signatures
+# 在版本列表中找到对应条目并更新 checksums/signature
+versions = data[channel].get('versions', [])
+found = False
+for v in versions:
+    if v['version'] == bare_version:
+        v['checksums'] = checksums
+        if signatures:
+            # 取第一个签名（所有平台产物使用同一签名）
+            first_sig = next(iter(signatures.values()), '')
+            if first_sig:
+                v['signature'] = first_sig
+        found = True
+        break
+
+if not found:
+    entry = {'version': bare_version, 'checksums': checksums}
+    if signatures:
+        first_sig = next(iter(signatures.values()), '')
+        if first_sig:
+            entry['signature'] = first_sig
+    versions.insert(0, entry)
 
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
@@ -322,7 +343,7 @@ update_releases_json_remote() {
     local releases_file="$SERVER_DIR/releases.json"
     local version_dir="$channel/$version"
 
-    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$releases_file' VERSION='$version' CHANNEL='$channel' VERSION_DIR='$version_dir' python3 << 'PYEOF'
+    ssh_cmd "$SERVER_HOST" "$SERVER_PORT" "RELEASES_FILE='$releases_file' VERSION='$version' CHANNEL='$channel' KEEP_VERSIONS='$KEEP_VERSIONS' python3 << 'PYEOF'
 import json
 import os
 from datetime import datetime
@@ -330,13 +351,13 @@ from datetime import datetime
 releases_file = os.environ['RELEASES_FILE']
 version = os.environ['VERSION']
 channel = os.environ['CHANNEL']
-version_dir = os.environ['VERSION_DIR']
+keep_versions = int(os.environ.get('KEEP_VERSIONS', '5'))
 
-# 版本号已带 v 前缀
-v_version = version if version.startswith('v') else f'v{version}'
+# 版本号不带 v 前缀存储（规范要求）
+bare_version = version[1:] if version.startswith('v') else version
 
-# 读取现有数据
-data = {'channels': {}}
+# 读取现有数据（通道名为顶层 key）
+data = {}
 if os.path.exists(releases_file):
     try:
         with open(releases_file, 'r') as f:
@@ -344,48 +365,41 @@ if os.path.exists(releases_file):
     except:
         pass
 
-if 'channels' not in data:
-    data['channels'] = {}
+if channel not in data:
+    data[channel] = {'latest': '', 'versions': []}
 
-if channel not in data['channels']:
-    data['channels'][channel] = {'versions': []}
-
-# 添加新版本
-versions = data['channels'][channel]['versions']
+# 添加新版本条目（checksums 由 update_versions_remote 单独更新）
+versions = data[channel]['versions']
 version_entry = {
-    'version': v_version,
-    'date': datetime.now().strftime('%Y-%m-%d'),
-    'path': version_dir,
-    'files': {
-        'linux-amd64': f'{version_dir}/sslctl-linux-amd64.gz',
-        'linux-arm64': f'{version_dir}/sslctl-linux-arm64.gz',
-        'windows-amd64': f'{version_dir}/sslctl-windows-amd64.exe.gz'
-    }
+    'version': bare_version,
+    'released_at': datetime.now().strftime('%Y-%m-%d'),
+    'checksums': {}
 }
 
-# 检查版本是否已存在（兼容旧版本号格式）
-# 比较时去掉 v 前缀
-def strip_v(s):
-    return s[1:] if s.startswith('v') else s
-existing = [i for i, v in enumerate(versions) if strip_v(v['version']) == strip_v(v_version)]
+# 检查版本是否已存在
+existing = [i for i, v in enumerate(versions) if v['version'] == bare_version]
 if existing:
+    # 保留已有 checksums/signature
+    old = versions[existing[0]]
+    version_entry['checksums'] = old.get('checksums', {})
+    if 'signature' in old:
+        version_entry['signature'] = old['signature']
     versions[existing[0]] = version_entry
 else:
     versions.insert(0, version_entry)
 
-# 更新 latest
-data['channels'][channel]['latest'] = v_version
+# 保留最近 N 个版本
+data[channel]['versions'] = versions[:keep_versions]
 
-# 更新顶级 latest 字段（便于简单解析）
-data['latest_main'] = data['channels'].get('main', {}).get('latest', '')
-data['latest_dev'] = data['channels'].get('dev', {}).get('latest', '')
+# 更新 latest
+data[channel]['latest'] = bare_version
 
 # 写入文件
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
 os.chmod(releases_file, 0o644)
 
-print(f'已更新 releases.json: {channel}/{v_version}')
+print(f'已更新 releases.json: {channel}/{bare_version}')
 PYEOF"
 }
 
@@ -435,23 +449,19 @@ if not os.path.exists(releases_file):
 with open(releases_file, 'r') as f:
     data = json.load(f)
 
-if 'channels' not in data or channel not in data['channels']:
+if channel not in data:
     exit(0)
 
-# 获取实际存在的版本目录
+# 获取实际存在的版本目录（目录名带 v 前缀，版本号不带）
 existing = set()
 if os.path.isdir(channel_dir):
     for d in os.listdir(channel_dir):
         if d.startswith('v'):
-            existing.add(d)
+            existing.add(d[1:])  # 去掉 v 前缀
 
 # 过滤掉已删除的版本
-versions = data['channels'][channel].get('versions', [])
-data['channels'][channel]['versions'] = [v for v in versions if v['version'] in existing]
-
-# 更新顶级 latest 字段
-data['latest_main'] = data['channels'].get('main', {}).get('latest', '')
-data['latest_dev'] = data['channels'].get('dev', {}).get('latest', '')
+versions = data[channel].get('versions', [])
+data[channel]['versions'] = [v for v in versions if v['version'] in existing]
 
 with open(releases_file, 'w') as f:
     json.dump(data, f, indent=2)
@@ -497,7 +507,7 @@ upload_to_server() {
 
     # 更新校验和和签名
     log_info "更新校验和和签名..."
-    update_versions_remote "$server_str" "$version" "$CHECKSUMS_JSON" "$SIGNATURES_JSON"
+    update_versions_remote "$server_str" "$version" "$CHECKSUMS_JSON" "$SIGNATURES_JSON" "$channel"
 
     # 更新 releases.json
     update_releases_json_remote "$server_str" "$version" "$channel"
