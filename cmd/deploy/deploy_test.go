@@ -3,17 +3,99 @@ package deploy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/backup"
 	"github.com/zhuxbo/sslctl/pkg/config"
 	"github.com/zhuxbo/sslctl/pkg/fetcher"
+	"github.com/zhuxbo/sslctl/pkg/logger"
 	"github.com/zhuxbo/sslctl/testdata/certs"
 )
+
+func TestFetchAndDeployCert_DeployBlockRecovery(t *testing.T) {
+	material, err := certs.GenerateValidCert("example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var data interface{}
+		if r.Method == http.MethodGet {
+			data = map[string]interface{}{"total": 1, "data": []map[string]interface{}{{
+				"order_id": 1, "status": "active", "domains": "example.com",
+				"certificate": material.CertPEM, "ca_certificate": material.CertPEM,
+				"private_key": material.KeyPEM,
+			}}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": 1, "data": data})
+	}))
+	defer server.Close()
+	for _, tc := range []struct {
+		name         string
+		bindingTypes []string
+		wantError    bool
+		wantClear    bool
+	}{
+		{"全部成功", []string{config.ServerTypeNginx}, false, true},
+		{"部分失败", []string{config.ServerTypeNginx, "unsupported"}, true, false},
+		{"全部失败", []string{"unsupported"}, true, false},
+		{"无启用绑定", nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cm, err := config.NewConfigManagerWithDir(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert := &config.CertConfig{CertName: "example.com-1", OrderID: 1, Enabled: true,
+				API: config.APIConfig{URL: server.URL, Token: "test-token"}}
+			blockedAt := time.Now().Add(-time.Hour).Truncate(time.Second)
+			cert.Metadata.LastDeployBlockReason = "nginx 不在 PATH 中"
+			cert.Metadata.LastDeployBlockAt = blockedAt
+			cert.Metadata.BlockReportCount = 1
+			for i, serverType := range tc.bindingTypes {
+				dir := t.TempDir()
+				cert.Bindings = append(cert.Bindings, config.SiteBinding{
+					ServerName: string(rune('a'+i)) + ".example.com", ServerType: serverType, Enabled: true,
+					Paths: config.BindingPaths{Certificate: filepath.Join(dir, "cert.pem"), PrivateKey: filepath.Join(dir, "key.pem")},
+				})
+			}
+			if err := cm.AddCert(cert); err != nil {
+				t.Fatal(err)
+			}
+			err = fetchAndDeployCert(context.Background(), cm, cert, fetcher.New(), backup.NewManager(cm.GetBackupDir(), 5), logger.NewNopLogger())
+			if (err != nil) != tc.wantError {
+				t.Fatalf("部署错误 = %v, wantError = %v", err, tc.wantError)
+			}
+			// 重新打开配置，验证清理结果已落盘。
+			fresh, err := config.NewConfigManagerWithDir(cm.GetWorkDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := fresh.GetCert(cert.CertName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := saved.Metadata
+			if tc.wantClear {
+				if m.LastDeployBlockReason != "" || !m.LastDeployBlockAt.IsZero() || m.BlockReportCount != 0 {
+					t.Fatal("部署成功后仍保留环境阻断状态")
+				}
+				if m.LastDeployAt.IsZero() {
+					t.Fatal("缺少成功部署时间")
+				}
+			} else if m.LastDeployBlockReason != "nginx 不在 PATH 中" || !m.LastDeployBlockAt.Equal(blockedAt) || m.BlockReportCount != 1 {
+				t.Fatal("未全部部署成功时不应清除环境阻断状态")
+			}
+		})
+	}
+}
 
 func TestDeployAllCerts_ReturnsErrorWhenAnyCertFails(t *testing.T) {
 	certs := []config.CertConfig{{CertName: "success"}, {CertName: "failure"}}
