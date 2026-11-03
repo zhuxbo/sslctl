@@ -366,6 +366,24 @@ func deployToBinding(ctx context.Context, binding *config.SiteBinding, certData 
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 
+	deployer, err := webserver.NewDeployer(
+		webserver.ServerType(binding.ServerType),
+		binding.Paths.Certificate,
+		binding.Paths.PrivateKey,
+		binding.Paths.ChainFile,
+		binding.Reload.TestCommand,
+		binding.Reload.ReloadCommand,
+	)
+	if err != nil {
+		return fmt.Errorf("创建部署器失败: %w", err)
+	}
+
+	if prepared, ok := deployer.(interface{ Prepare() error }); ok {
+		if err := prepared.Prepare(); err != nil {
+			return fmt.Errorf("准备证书文件失败: %w", err)
+		}
+	}
+
 	// 备份现有证书（如果存在）
 	var backupPath string
 	if util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey) {
@@ -377,18 +395,6 @@ func deployToBinding(ctx context.Context, binding *config.SiteBinding, certData 
 			backupPath = result.BackupPath
 			log.Info("已备份证书到: %s", backupPath)
 		}
-	}
-
-	deployer, err := webserver.NewDeployer(
-		webserver.ServerType(binding.ServerType),
-		binding.Paths.Certificate,
-		binding.Paths.PrivateKey,
-		binding.Paths.ChainFile,
-		binding.Reload.TestCommand,
-		binding.Reload.ReloadCommand,
-	)
-	if err != nil {
-		return fmt.Errorf("创建部署器失败: %w", err)
 	}
 
 	deployErr := deployer.Deploy(ctx, certData.Cert, certData.IntermediateCert, privateKey)
@@ -653,16 +659,16 @@ func runLocal(args []string, debug bool) {
 		defer release()
 	}
 
-	// 验证并读取证书文件（使用 SafeReadFile 防止 TOCTOU 攻击）
+	// 验证并读取证书文件（支持软链接并限制大小）
 	const maxCertFileSize = 1 << 20 // 1MB
-	certData, err := util.SafeReadFile(*certFile, maxCertFileSize)
+	certData, err := util.ReadCertificateFile(*certFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取证书文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 验证并读取私钥文件
-	keyData, err := util.SafeReadFile(*keyFile, maxCertFileSize)
+	keyData, err := util.ReadCertificateFile(*keyFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取私钥文件失败: %v\n", err)
 		os.Exit(1)
@@ -671,7 +677,7 @@ func runLocal(args []string, debug bool) {
 	// 读取 CA 证书文件（可选）
 	var caData string
 	if *caFile != "" {
-		ca, err := util.SafeReadFile(*caFile, maxCertFileSize)
+		ca, err := util.ReadCertificateFile(*caFile, maxCertFileSize)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取 CA 证书文件失败: %v\n", err)
 			os.Exit(1)

@@ -365,3 +365,6 @@ func (a *apacheInstallerAdapter) Install() (*webserver.InstallResult, error) {
 func (a *apacheInstallerAdapter) Rollback(backupPath string) error {
 	return a.installer.Rollback(backupPath)
 }
+
+func (a *nginxDeployerAdapter) Prepare() error  { return a.deployer.Prepare() }
+func (a *apacheDeployerAdapter) Prepare() error { return a.deployer.Prepare() }

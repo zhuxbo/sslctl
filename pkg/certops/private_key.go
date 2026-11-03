@@ -118,7 +118,7 @@ func ReadBindingPrivateKey(ctx context.Context, binding *config.SiteBinding) ([]
 		file, err := client.ReadRegularFile(ctx, binding.Paths.PrivateKey, config.MaxPrivateKeySize)
 		return file.Data, err
 	}
-	return util.SafeReadFile(binding.Paths.PrivateKey, config.MaxPrivateKeySize)
+	return util.ReadCertificateFile(binding.Paths.PrivateKey, config.MaxPrivateKeySize)
 }
 
 func pickKeyBinding(cert *config.CertConfig) *config.SiteBinding {

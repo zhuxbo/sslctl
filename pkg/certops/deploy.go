@@ -3,7 +3,9 @@ package certops
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -183,22 +185,6 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 		return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseWriteCert, "创建证书目录失败", err)
 	}
 
-	// 1. 备份现有证书（如果存在）
-	var backupPath string
-	existingCert := util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey)
-	if existingCert {
-		result, err := s.backupMgr.Backup(binding.ServerName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
-		if err != nil {
-			// 更新部署（已有证书文件）备份失败时中止，防止部署失败后无法回滚
-			return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseBackup,
-				fmt.Sprintf("备份现有证书失败，中止部署（请检查备份目录权限）: %v", err), err)
-		} else if result != nil {
-			backupPath = result.BackupPath
-			s.log.Debug("已备份证书到: %s", backupPath)
-		}
-	}
-
-	// 2. 部署（使用 webserver 抽象层）
 	deployer, err := webserver.NewDeployer(
 		webserver.ServerType(binding.ServerType),
 		binding.Paths.Certificate,
@@ -210,23 +196,41 @@ func (s *Service) deployToBinding(ctx context.Context, binding *config.SiteBindi
 	if err != nil {
 		return errors.NewStructuredDeployError(errors.DeployErrorConfig, errors.PhaseWriteCert, "创建部署器失败", err)
 	}
+	if prepared, ok := deployer.(interface{ Prepare() error }); ok {
+		if err := prepared.Prepare(); err != nil {
+			return fmt.Errorf("准备证书文件失败: %w", err)
+		}
+	}
+
+	// 1. 备份现有证书（如果存在）
+	var backupPath string
+	existingCert := util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey)
+	if existingCert {
+		result, err := s.backupMgr.Backup(binding.ServerName, binding.Paths.Certificate, binding.Paths.PrivateKey, nil, binding.Paths.ChainFile)
+		if err != nil {
+			// 更新部署（已有证书文件）备份失败时中止，防止部署失败后无法回滚
+			errorType := errors.DeployErrorUnknown
+			if stderrors.Is(err, os.ErrPermission) {
+				errorType = errors.DeployErrorPermission
+			}
+			return errors.NewStructuredDeployError(errorType, errors.PhaseBackup,
+				"备份现有证书失败，中止部署", err)
+		} else if result != nil {
+			backupPath = result.BackupPath
+			s.log.Debug("已备份证书到: %s", backupPath)
+		}
+	}
+
+	// 2. 部署（使用 webserver 抽象层）
 	deployErr := deployer.Deploy(ctx, certData.Cert, certData.IntermediateCert, privateKey)
 
 	// 3. 部署失败时回滚
 	if deployErr != nil && backupPath != "" {
 		s.log.Warn("部署失败，尝试回滚: %v", deployErr)
-		if rollbackErr := s.rollbackFromBackup(ctx, binding, backupPath); rollbackErr != nil {
+		if rollbackErr := s.rollbackWithDeployer(ctx, deployer, backupPath); rollbackErr != nil {
 			s.log.Error("回滚失败: %v", rollbackErr)
-			// 构造手动恢复指引
-			recoveryCmd := fmt.Sprintf("cp %s %s && cp %s %s",
-				util.ShellQuote(backupPath+"/cert.pem"), util.ShellQuote(binding.Paths.Certificate),
-				util.ShellQuote(backupPath+"/key.pem"), util.ShellQuote(binding.Paths.PrivateKey))
-			if binding.Reload.TestCommand != "" {
-				recoveryCmd += " && " + binding.Reload.TestCommand
-			}
-			if binding.Reload.ReloadCommand != "" {
-				recoveryCmd += " && " + binding.Reload.ReloadCommand
-			}
+			// 通过回滚命令核对备份记录的真实目标，避免 cp 跟随已改向的链接。
+			recoveryCmd := fmt.Sprintf("sslctl rollback --site %s --version %s", util.ShellQuote(binding.ServerName), util.ShellQuote(filepath.Base(backupPath)))
 			return errors.NewStructuredDeployError(errors.DeployErrorUnknown, errors.PhaseRollback,
 				fmt.Sprintf("部署失败且回滚失败（服务可能不可用）: deploy=%v, rollback=%v\n手动恢复: %s", deployErr, rollbackErr, recoveryCmd), nil)
 		}
@@ -251,11 +255,6 @@ const RollbackBudget = 90 * time.Second
 // 沿用同一个 ctx 会让兜底回滚当场失败，直接落进"部署失败且回滚失败（服务可能不可用）"
 // ——比不贯通 ctx 更糟。改为 WithoutCancel + 独立预算，仍然有界。
 func (s *Service) rollbackFromBackup(ctx context.Context, binding *config.SiteBinding, backupPath string) error {
-	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RollbackBudget)
-	defer cancel()
-
-	certPath, keyPath, chainPath := s.backupMgr.GetBackupPathsWithChain(backupPath)
-
 	// 使用 webserver 抽象层创建部署器
 	deployer, err := webserver.NewDeployer(
 		webserver.ServerType(binding.ServerType),
@@ -269,6 +268,13 @@ func (s *Service) rollbackFromBackup(ctx context.Context, binding *config.SiteBi
 		return errors.NewStructuredDeployError(errors.DeployErrorConfig, errors.PhaseRollback, "创建部署器失败", err)
 	}
 
+	return s.rollbackWithDeployer(ctx, deployer, backupPath)
+}
+
+func (s *Service) rollbackWithDeployer(ctx context.Context, deployer webserver.Deployer, backupPath string) error {
+	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RollbackBudget)
+	defer cancel()
+	certPath, keyPath, chainPath := s.backupMgr.GetBackupPathsWithChain(backupPath)
 	// 直接调用 Deployer.Rollback，包含完整回滚逻辑
 	if err := deployer.Rollback(rbCtx, certPath, keyPath, chainPath); err != nil {
 		return errors.NewStructuredDeployError(errors.DeployErrorPermission, errors.PhaseRollback, "回滚失败", err)

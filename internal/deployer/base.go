@@ -40,8 +40,9 @@ type Config struct {
 
 // Base 部署器基础功能
 type Base struct {
-	TestCommand   string
-	ReloadCommand string
+	certificateFiles map[string]*util.CertificateFile
+	TestCommand      string
+	ReloadCommand    string
 }
 
 // TestConfig 测试配置
@@ -507,11 +508,17 @@ func containsCommandArg(args []string, target string) bool {
 
 // TestAndReload 测试配置并重载服务
 func (b *Base) TestAndReload(ctx context.Context) error {
+	if err := b.CheckFiles(); err != nil {
+		return err
+	}
 	if err := b.TestConfig(ctx); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorConfig, errors.PhaseTest,
 			"config test failed", err,
 		)
+	}
+	if err := b.CheckFiles(); err != nil {
+		return err
 	}
 	if err := b.ReloadService(ctx); err != nil {
 		return errors.NewStructuredDeployError(
@@ -519,11 +526,14 @@ func (b *Base) TestAndReload(ctx context.Context) error {
 			"reload failed", err,
 		)
 	}
-	return nil
+	return b.CheckFiles()
 }
 
 // TestAndReloadForRollback 回滚后测试配置并重载服务
 func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
+	if err := b.CheckFiles(); err != nil {
+		return err
+	}
 	if b.TestCommand != "" {
 		if err := executor.RunWithin(ctx, b.TestCommand); err != nil {
 			return errors.NewStructuredDeployError(
@@ -533,6 +543,9 @@ func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
 		}
 	}
 	if b.ReloadCommand != "" {
+		if err := b.CheckFiles(); err != nil {
+			return err
+		}
 		if err := b.ReloadService(ctx); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorReload, errors.PhaseRollback,
@@ -540,7 +553,7 @@ func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
 			)
 		}
 	}
-	return nil
+	return b.CheckFiles()
 }
 
 // processProbeTimeout 单次进程探测超时。

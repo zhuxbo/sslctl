@@ -217,7 +217,7 @@ safePath, err := util.JoinUnderDir(baseDir, userInput)
 
 ### 备份安全
 
-- 备份源文件符号链接检查（`pkg/backup` `computeFileHash` 拒绝符号链接）。
+- 证书专用 `util.CertificateFile` 解析并固定软链接目标；备份记录原始路径与解析目标，保存普通文件内容。通用文件 API 和备份资产仍拒绝软链接，`computeFileHash` 只接收已解析的普通文件路径。
 - 备份原子性：检测源文件并发修改（哈希校验 TOCTOU 保护），确保备份一致性。
 - 备份恢复安全：`Restore` 内部备份跳过 cleanup，防止清理掉正在恢复的目标备份；`siteName` / `timestamp` 做路径穿越防护。
 
