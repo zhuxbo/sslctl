@@ -323,7 +323,7 @@ def build_plan(
             "shell_files": shell_files,
             "mutation": force_full or any(path in MUTATION_INFRA_FILES for path in files),
             "agent_config": force_full or any(
-                path in {"AGENTS.md", "CLAUDE.md", "Makefile", "build/check-agent-config.sh"}
+                path in {"AGENTS.md", "CLAUDE.md", "Makefile", "build/check-agent-config.sh", "build/mutation-canaries.txt"}
                 or path.startswith("skills/")
                 or path.startswith(".agents/skills/")
                 or path.startswith(".claude/commands/")

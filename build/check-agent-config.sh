@@ -133,7 +133,7 @@ for number, raw in enumerate(Path("build/mutation-canaries.txt").read_text().spl
     assert package.startswith("./"), f"line {number}: invalid package"
     assert mutant_id, f"line {number}: empty mutant id"
     entries.append((package, mutant_id))
-assert 1 <= len(entries) <= 10
+assert 1 <= len(entries) <= 12, f"expected 1..12 mutation canaries, got {len(entries)}"
 assert len({mutant_id for _, mutant_id in entries}) == len(entries)
 assert max(Counter(package for package, _ in entries).values()) <= 3
 PY

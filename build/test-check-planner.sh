@@ -99,6 +99,14 @@ printf '\nchanged\n' >>"$fixture/README.md"
 plan "$fixture" "$fixture/plan.json" --with-mutation
 assert_json "$fixture/plan.json" 'plan["mutation"]["mode"] == "none"' "文档变更不应触发变异测试"
 assert_json "$fixture/plan.json" 'plan["go"]["test_packages"] == []' "文档变更不应触发 Go 测试"
+assert_json "$fixture/plan.json" 'plan["contracts"]["agent_config"] is False' "普通文档变更不应触发防漂移检查"
+
+fixture="$(new_fixture mutation-canaries)"
+mkdir -p "$fixture/build"
+printf './pkg/config\tpkg/config/config.go:Enabled:RETURN_FALSE#1\n' >"$fixture/build/mutation-canaries.txt"
+plan "$fixture" "$fixture/plan.json"
+assert_json "$fixture/plan.json" 'plan["contracts"]["agent_config"] is True and plan["contracts"]["mutation"] is True' "哨兵清单变更必须验证防漂移和变异契约"
+assert_json "$fixture/plan.json" 'plan["go"]["test_packages"] == [] and plan["go"]["build_all"] is False' "清单变更不应触发业务测试或构建"
 
 fixture="$(new_fixture direct-and-reverse)"
 printf '\n// changed\n' >>"$fixture/core/core.go"
