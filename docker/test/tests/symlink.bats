@@ -11,11 +11,19 @@ setup_file() {
   generate_test_cert
 }
 
+test_site_path() {
+  jq -r --arg field "$1" '.certificates[].bindings[] |
+    select(.enabled and .server_name == "test.example.com") |
+    .paths[$field] // empty' "$SSLCTL_CONFIG_DIR/config.json"
+}
+
 setup() {
   common_setup
-  CERT_PATH=$(binding_value '.paths.certificate')
-  KEY_PATH=$(binding_value '.paths.private_key')
-  CHAIN_PATH=$(binding_value '.paths.chain_file // empty')
+  CERT_PATH=$(test_site_path certificate)
+  KEY_PATH=$(test_site_path private_key)
+  CHAIN_PATH=$(test_site_path chain_file)
+  [ -n "$CERT_PATH" ]
+  [ -n "$KEY_PATH" ]
   cp "$SSLCTL_CONFIG_DIR/config.json" /tmp/symlink-config.json
   for path in "$CERT_PATH" "$KEY_PATH" "$CHAIN_PATH"; do
     [ -n "$path" ] || continue
