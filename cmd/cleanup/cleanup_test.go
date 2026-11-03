@@ -353,14 +353,15 @@ func TestRunLockAndListFilesystemErrors(t *testing.T) {
 		}
 	})
 	t.Run("list", func(t *testing.T) {
-		cm := testManager(t)
-		if err := os.Remove(cm.GetConfigPath()); err != nil {
+		// 使用未加载配置的实例，避免文件系统 mtime 粒度导致命中已有缓存。
+		cm, err := config.NewConfigManagerWithDir(t.TempDir())
+		if err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Mkdir(cm.GetConfigPath(), 0700); err != nil {
 			t.Fatal(err)
 		}
-		err := listManaged(&bytes.Buffer{}, cm)
+		err = listManaged(&bytes.Buffer{}, cm)
 		if err == nil || errors.Unwrap(err) == nil || !strings.Contains(err.Error(), "读取管理配置失败") {
 			t.Fatalf("lost list error: %v", err)
 		}
