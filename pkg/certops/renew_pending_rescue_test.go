@@ -177,7 +177,7 @@ func TestGetPrivateKeyForCert_PendingRescue(t *testing.T) {
 	}
 
 	// 目标为新证书：正式钥不配对 → 应回退 pending
-	key, err := GetPrivateKeyForCert(cm.GetWorkDir(), cert, newCert.CertPEM, "", nil)
+	key, err := GetPrivateKeyForCert(t.Context(), cm.GetWorkDir(), cert, newCert.CertPEM, "", nil)
 	if err != nil {
 		t.Fatalf("应回退到 pending 私钥补救: %v", err)
 	}
@@ -223,26 +223,26 @@ func TestGetPrivateKeyForCert_Degradation(t *testing.T) {
 	}
 
 	// API 私钥优先（原行为）
-	key, err := GetPrivateKeyForCert(cm.GetWorkDir(), cert, pair.CertPEM, "api-key", nil)
+	key, err := GetPrivateKeyForCert(t.Context(), cm.GetWorkDir(), cert, pair.CertPEM, "api-key", nil)
 	if err != nil || key != "api-key" {
 		t.Errorf("API 私钥应优先: key=%q err=%v", key, err)
 	}
 
 	// pending 缺失 + 正式钥配对 → 返回正式钥（原行为）
-	key, err = GetPrivateKeyForCert(cm.GetWorkDir(), cert, pair.CertPEM, "", nil)
+	key, err = GetPrivateKeyForCert(t.Context(), cm.GetWorkDir(), cert, pair.CertPEM, "", nil)
 	if err != nil || key != pair.KeyPEM {
 		t.Errorf("正式钥配对时应直接使用: err=%v", err)
 	}
 
 	// certPEM 为空 → 退化为不校验直接读正式钥（原行为）
-	key, err = GetPrivateKeyForCert(cm.GetWorkDir(), cert, "", "", nil)
+	key, err = GetPrivateKeyForCert(t.Context(), cm.GetWorkDir(), cert, "", "", nil)
 	if err != nil || key != pair.KeyPEM {
 		t.Errorf("无证书内容时应退化为原行为: err=%v", err)
 	}
 
 	// 正式钥不配对且无 pending → 明确错误
 	other, _ := certs.GenerateValidCert("other.example.com", []string{"other.example.com"})
-	if _, err := GetPrivateKeyForCert(cm.GetWorkDir(), cert, other.CertPEM, "", nil); err == nil {
+	if _, err := GetPrivateKeyForCert(t.Context(), cm.GetWorkDir(), cert, other.CertPEM, "", nil); err == nil {
 		t.Error("不配对且无 pending 时应返回错误")
 	}
 }

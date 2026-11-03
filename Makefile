@@ -13,7 +13,7 @@ DIST_DIR := dist
 LINUX_PLATFORMS := linux/amd64 linux/arm64
 WINDOWS_PLATFORMS := windows/amd64
 
-.PHONY: all clean build build-all build-linux build-windows test lint deps help compress
+.PHONY: all clean build build-all build-linux build-windows test finish-check finish-check-full mutation mutation-test lint deps help compress
 
 # 默认目标
 all: build
@@ -30,6 +30,10 @@ help:
 	@echo "  make clean           清理构建产物"
 	@echo "  make compress        gzip 压缩所有二进制文件"
 	@echo "  make test            运行测试"
+	@echo "  make finish-check    日常定向检查，变异/E2E 按风险增加"
+	@echo "  make finish-check-full 执行发布前全量完成检查"
+	@echo "  make mutation        在临时内存盘运行 changed-line/哨兵变异测试"
+	@echo "  make mutation-test   测试规划、路由与 RAM 隔离契约"
 	@echo "  make lint            代码检查"
 	@echo "  make deps            下载依赖"
 	@echo ""
@@ -74,6 +78,21 @@ build-windows:
 # 运行测试
 test:
 	go test -v -race ./...
+
+# 完成检查先识别变更包和反向依赖，再执行适用门禁。
+finish-check:
+	bash build/run-changed-checks.sh
+
+finish-check-full:
+	bash build/run-changed-checks.sh --full
+
+# 变异测试在 RAM 盘副本中运行，真实工作区不会被 gomutants 改写。
+mutation:
+	bash build/run-changed-checks.sh --mutation-only
+
+mutation-test:
+	bash build/test-check-planner.sh
+	bash build/test-mutation.sh
 
 # 代码检查
 lint:

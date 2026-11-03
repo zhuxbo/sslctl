@@ -46,7 +46,7 @@ func collectWebroots(cert *config.CertConfig) []string {
 	seen := make(map[string]bool)
 	var webroots []string
 	for _, binding := range cert.Bindings {
-		if !binding.Enabled || binding.Paths.Webroot == "" {
+		if !binding.Enabled || binding.Paths.Webroot == "" || config.IsDockerCopyBinding(&binding) {
 			continue
 		}
 		if seen[binding.Paths.Webroot] {

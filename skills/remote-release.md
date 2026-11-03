@@ -40,7 +40,7 @@ dev 允许当前分支和脏工作区快照，禁止提交、推送、合并、�
 
 ### 精确 commit 与 GitHub 操作
 
-所有命令先把 `version`、`bundle`、`commit` 解析为明确值并人工复核；禁止未解析的空变量或 glob。关键证据命令：
+所有命令先把 `version`、`bundle`、`commit` 解析为明确值并由智能体核对；禁止未解析的空变量或 glob。关键证据命令：
 
 ```bash
 gh pr view <pr> --json headRefOid,mergeCommit,state
@@ -72,7 +72,7 @@ git merge --ff-only main
 git push origin dev
 ```
 
-版本 tag 永不使用 `-f`；只有 `latest` 可按上述时点强制更新。以上外部写入必须逐步确认前一阶段证据，并受用户真实发布授权约束。
+版本 tag 永不使用 `-f`；只有 `latest` 可按上述时点强制更新。以上外部写入受用户真实发布授权约束；已有该版本的完整发布授权时，由智能体核对前一阶段证据后继续，不逐命令重复询问。
 
 ## 中断恢复
 
@@ -85,4 +85,4 @@ git push origin dev
 
 逐项记录证据：三个阶段的 required checks 与 E2E 均绑定精确 commit；本地/远端 main、dev、版本 tag、latest 和 GitHub target 同 commit；工作区干净；全部节点经各自公网域名读取的 `main.latest` 正确；三项资产在节点和 GitHub 字节一致且与索引/manifest 匹配；Release 公开、非 draft、非 prerelease、为 latest；三个产物的 `--version` 与 Ed25519 验证通过；至少从每个发布节点的公网域名下载一个代表资产并校验 SHA256。
 
-真实发布涉及外部写入，必须在用户明确授权后执行。本仓日常 finish-check 和本次规范治理只允许 `--dry-run`、临时目录或 mock。
+真实发布涉及外部写入，必须在用户明确授权后执行。本仓日常 finish-check 只允许 `--dry-run`、临时目录或 mock。

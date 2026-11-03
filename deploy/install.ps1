@@ -84,6 +84,43 @@ function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Gree
 function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
 function Write-Err { param($msg) Write-Host "[ERROR] $msg" -ForegroundColor Red }
 
+function Test-PathContainsDirectory {
+    param(
+        [string]$PathValue,
+        [string]$Directory
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or [string]::IsNullOrWhiteSpace($Directory)) {
+        return $false
+    }
+
+    $target = $Directory.Trim().Trim('"').TrimEnd([char[]]"\/")
+    foreach ($entry in ($PathValue -split ";")) {
+        $candidate = $entry.Trim().Trim('"').TrimEnd([char[]]"\/")
+        if ([string]::Equals($candidate, $target, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Ensure-InstallDirOnPath {
+    param([string]$Directory)
+
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if (-not (Test-PathContainsDirectory -PathValue $machinePath -Directory $Directory)) {
+        $newMachinePath = if ([string]::IsNullOrWhiteSpace($machinePath)) { $Directory } else { "$machinePath;$Directory" }
+        [Environment]::SetEnvironmentVariable("Path", $newMachinePath, "Machine")
+        Write-Info "已添加 $Directory 到系统 PATH"
+    }
+
+    # 同时更新当前会话 PATH（无需重启终端即可使用）
+    if (-not (Test-PathContainsDirectory -PathValue $env:Path -Directory $Directory)) {
+        $env:Path = if ([string]::IsNullOrWhiteSpace($env:Path)) { $Directory } else { "$env:Path;$Directory" }
+    }
+}
+
 # 帮助信息
 if ($Help) {
     Write-Host "用法: .\install.ps1 [-ReleaseHost <host>] [选项]"
@@ -354,6 +391,7 @@ if ($CurrentVersion) {
         if ($Force) {
             Write-Info "当前版本: $CurrentVersion，强制重新安装"
         } else {
+            Ensure-InstallDirOnPath -Directory $InstallDir
             Write-Info "当前版本 $CurrentVersion 已是目标版本，使用 -Force 强制重新安装"
             exit 0
         }
@@ -480,16 +518,7 @@ $json = $cfg | ConvertTo-Json -Depth 10
 Move-Item -Path $ConfigTmpFile -Destination $ConfigFile -Force
 
 # 添加到 PATH
-$Path = [Environment]::GetEnvironmentVariable("Path", "Machine")
-if ($Path -notlike "*$InstallDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$Path;$InstallDir", "Machine")
-    Write-Info "已添加 $InstallDir 到系统 PATH"
-}
-
-# 同时更新当前会话 PATH（无需重启终端即可使用）
-if ($env:Path -notlike "*$InstallDir*") {
-    $env:Path = "$env:Path;$InstallDir"
-}
+Ensure-InstallDirOnPath -Directory $InstallDir
 
 # 升级时重启服务
 if ($svcWasRunning) {

@@ -7,15 +7,34 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
 )
+
+func TestMainRoutesCleanupArguments(t *testing.T) {
+	oldArgs, oldRun := os.Args, runCleanup
+	t.Cleanup(func() { os.Args, runCleanup = oldArgs, oldRun })
+	os.Args = []string{"sslctl", "cleanup", "--site", "example.com", "--yes"}
+	calls := 0
+	runCleanup = func(args []string) {
+		calls++
+		if !reflect.DeepEqual(args, []string{"--site", "example.com", "--yes"}) {
+			t.Fatalf("cleanup 参数 = %q", args)
+		}
+	}
+	main()
+	if calls != 1 {
+		t.Fatalf("cleanup 调用次数 = %d，期望 1", calls)
+	}
+}
 
 func TestResolveReleaseURL_FromConfig_Trims(t *testing.T) {
 	cm, err := config.NewConfigManagerWithDir(t.TempDir())
@@ -207,6 +226,35 @@ func TestDiagnosticCommandsHelp(t *testing.T) {
 	} {
 		if !strings.Contains(got, command) {
 			t.Fatalf("diagnosticCommandsHelp() 未包含 %q：%q", command, got)
+		}
+	}
+}
+
+func TestPrintUsageIncludesCleanupCommand(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	original := os.Stdout
+	os.Stdout = writeEnd
+	t.Cleanup(func() { os.Stdout = original })
+
+	printUsage()
+	if err := writeEnd.Close(); err != nil {
+		t.Fatalf("close stdout pipe error = %v", err)
+	}
+	output, err := io.ReadAll(readEnd)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	for _, want := range []string{
+		"cleanup         解除指定站点或证书的 sslctl 管理",
+		"sslctl cleanup --site <site>",
+		"sslctl cleanup --cert <name>",
+		"sslctl cleanup --list",
+	} {
+		if !strings.Contains(string(output), want) {
+			t.Fatalf("printUsage() output missing %q:\n%s", want, output)
 		}
 	}
 }

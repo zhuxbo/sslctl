@@ -5,11 +5,15 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	baseDeployer "github.com/zhuxbo/sslctl/internal/deployer"
 	"github.com/zhuxbo/sslctl/pkg/errors"
-	"github.com/zhuxbo/sslctl/pkg/util"
+)
+
+// 文件操作边界用于确定性验证写失败与上下文恢复失败。
+var (
+	writeCertificate          = (*baseDeployer.Base).WriteCertificate
+	restoreCertificateContext = (*baseDeployer.Base).RestoreCertificateContext
 )
 
 // ApacheDeployer Apache 部署器
@@ -35,30 +39,11 @@ func NewApacheDeployer(cfg baseDeployer.Config) *ApacheDeployer {
 
 // Deploy 部署证书（cert=服务器证书, intermediate=中间证书, key=私钥）
 func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key string) error {
-	// 确保目录存在（0700 权限保护敏感文件）
-	if err := util.EnsureDir(filepath.Dir(d.certPath), 0700); err != nil {
-		return errors.NewStructuredDeployError(
-			errors.DeployErrorPermission, errors.PhaseWriteCert,
-			fmt.Sprintf("failed to create certificate directory: %s", filepath.Dir(d.certPath)), err,
-		)
+	if err := d.Prepare(); err != nil {
+		return err
 	}
-	if err := util.EnsureDir(filepath.Dir(d.keyPath), 0700); err != nil {
-		return errors.NewStructuredDeployError(
-			errors.DeployErrorPermission, errors.PhaseWriteKey,
-			fmt.Sprintf("failed to create key directory: %s", filepath.Dir(d.keyPath)), err,
-		)
-	}
-	if d.chainPath != "" {
-		if err := util.EnsureDir(filepath.Dir(d.chainPath), 0700); err != nil {
-			return errors.NewStructuredDeployError(
-				errors.DeployErrorPermission, errors.PhaseWriteChain,
-				fmt.Sprintf("failed to create chain directory: %s", filepath.Dir(d.chainPath)), err,
-			)
-		}
-	}
-
 	// 先写私钥再写证书：中途失败时不会留下"新证书 + 旧私钥"的错配状态
-	if err := util.AtomicWrite(d.keyPath, []byte(key), 0600); err != nil {
+	if err := writeCertificate(&d.Base, d.keyPath, []byte(key), 0600); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteKey,
 			fmt.Sprintf("failed to write private key file: %s", d.keyPath), err,
@@ -71,7 +56,7 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 		// 无 SSLCertificateChainFile 指令，将中间证书合并到证书文件
 		certContent = cert + "\n" + intermediate
 	}
-	if err := util.AtomicWrite(d.certPath, []byte(certContent), 0644); err != nil {
+	if err := writeCertificate(&d.Base, d.certPath, []byte(certContent), 0644); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
@@ -80,7 +65,7 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 
 	// 有 chainPath 时，中间证书写入独立文件
 	if d.chainPath != "" && intermediate != "" {
-		if err := util.AtomicWrite(d.chainPath, []byte(intermediate), 0644); err != nil {
+		if err := writeCertificate(&d.Base, d.chainPath, []byte(intermediate), 0644); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorPermission, errors.PhaseWriteChain,
 				fmt.Sprintf("failed to write chain file: %s", d.chainPath), err,
@@ -89,14 +74,14 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 	}
 
 	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过，失败仅警告）
-	if err := util.RestoreFileContext(d.certPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.certPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.certPath, err)
 	}
-	if err := util.RestoreFileContext(d.keyPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.keyPath, err)
 	}
 	if d.chainPath != "" {
-		if err := util.RestoreFileContext(d.chainPath); err != nil {
+		if err := restoreCertificateContext(&d.Base, d.chainPath); err != nil {
 			fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.chainPath, err)
 		}
 	}
@@ -116,14 +101,17 @@ func (d *ApacheDeployer) Test(ctx context.Context) error {
 
 // Rollback 回滚到备份的证书
 func (d *ApacheDeployer) Rollback(ctx context.Context, backupCertPath, backupKeyPath, backupChainPath string) error {
-	if err := baseDeployer.RestoreFile(backupCertPath, d.certPath); err != nil {
+	if err := d.Prepare(); err != nil {
+		return err
+	}
+	if err := d.RestoreCertificate(backupCertPath, d.certPath); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseRollback,
 			"failed to restore certificate", err,
 		)
 	}
 
-	if err := baseDeployer.RestoreFile(backupKeyPath, d.keyPath); err != nil {
+	if err := d.RestoreCertificate(backupKeyPath, d.keyPath); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseRollback,
 			"failed to restore private key", err,
@@ -131,7 +119,7 @@ func (d *ApacheDeployer) Rollback(ctx context.Context, backupCertPath, backupKey
 	}
 
 	if d.chainPath != "" && backupChainPath != "" {
-		if err := baseDeployer.RestoreFile(backupChainPath, d.chainPath); err != nil {
+		if err := d.RestoreCertificate(backupChainPath, d.chainPath); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorPermission, errors.PhaseRollback,
 				"failed to restore chain file", err,
@@ -141,3 +129,6 @@ func (d *ApacheDeployer) Rollback(ctx context.Context, backupCertPath, backupKey
 
 	return d.TestAndReloadForRollback(ctx)
 }
+
+// Prepare 固定本次部署和回滚的文件目标。
+func (d *ApacheDeployer) Prepare() error { return d.PrepareFiles(d.certPath, d.keyPath, d.chainPath) }

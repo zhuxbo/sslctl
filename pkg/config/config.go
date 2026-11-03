@@ -4,8 +4,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"time"
 
+	"github.com/zhuxbo/sslctl/internal/executor"
 	"github.com/zhuxbo/sslctl/pkg/logger"
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
@@ -167,17 +169,30 @@ func IsDockerType(serverType string) bool {
 	return serverType == ServerTypeDockerNginx || serverType == ServerTypeDockerApache
 }
 
-// ValidateDockerBinding 校验 Docker 站点绑定能否通过通用部署路径安全部署。
-// 通用部署器只能写宿主机文件并用 docker exec 重载，因此要求：
-//   - 挂载卷模式（证书目录已映射到宿主机），否则写入会落到错误位置；
-//   - 存在容器重载命令（能确定容器名），否则部署后无法在容器内生效；
-//   - 待写的证书与私钥路径均非空（卷模式下应为扫描解析出的宿主机路径）。
-//     路径为空意味着宿主机映射解析失败，写入会落到错误位置或失败，须计为失败而非静默"成功"。
-//
-// 不满足时返回错误，调用方应中止并如实计为失败，而非静默"部署成功"。
+// IsDockerCopyBinding 表示需要在容器内读写证书的 Nginx 绑定。
+func IsDockerCopyBinding(binding *SiteBinding) bool {
+	return binding != nil && binding.ServerType == ServerTypeDockerNginx && binding.Docker != nil && binding.Docker.DeployMode == "copy"
+}
+
+// ValidateDockerBinding 校验 Docker 绑定的路径模式和容器检查/重载命令。
+// volume 使用宿主机映射路径；Nginx copy 使用容器专用部署流程。
 // 非 Docker 类型返回 nil。
 func ValidateDockerBinding(binding *SiteBinding) error {
 	if !IsDockerType(binding.ServerType) {
+		return nil
+	}
+	if IsDockerCopyBinding(binding) {
+		name := binding.Docker.ContainerName
+		if !executor.IsValidDockerContainerName(name) {
+			return fmt.Errorf("站点 %s 的 Docker 容器名称无效", binding.ServerName)
+		}
+		certPath, keyPath := binding.Paths.Certificate, binding.Paths.PrivateKey
+		if !path.IsAbs(certPath) || !path.IsAbs(keyPath) || path.Clean(certPath) != certPath || path.Clean(keyPath) != keyPath || certPath == keyPath {
+			return fmt.Errorf("站点 %s 的 Docker copy 模式需要已有 HTTPS 的独立证书、私钥绝对路径", binding.ServerName)
+		}
+		if binding.Reload.TestCommand != "docker exec "+name+" nginx -t" || binding.Reload.ReloadCommand != "docker exec "+name+" nginx -s reload" {
+			return fmt.Errorf("站点 %s 的 Docker copy 模式需要匹配目标容器的 nginx 测试和重载命令，请重新 setup", binding.ServerName)
+		}
 		return nil
 	}
 	if binding.Docker == nil || binding.Docker.DeployMode != "volume" {

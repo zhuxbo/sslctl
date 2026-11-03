@@ -7,6 +7,20 @@ on:
     branches: [main, dev]
 
 jobs:
+  windows-apache-parser:
+    name: Windows Apache parser
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Verify Apache Define and included sites on Windows
+        run: go test -v -count=1 ./internal/apache/scanner -run 'Test(ServerRootFromConfigContent|ApacheDefinedServerRootFindsIncludedSites)'
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -18,7 +32,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26.8'
           cache: true
 
       - name: Download dependencies
@@ -49,7 +63,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26.8'
           cache: true
 
       - name: Run golangci-lint (linux)
@@ -79,7 +93,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26.8'
           cache: true
 
       - name: Run formal release build entry

@@ -386,7 +386,7 @@ func (s *Scanner) resolveConfigPaths(site *SSLSite, configPath string) {
 // resolveHostPaths 解析宿主机路径
 // VolumeMode 仅在证书与私钥都解析出宿主机映射时才置位：只有部分文件挂载时（如证书挂载、
 // 私钥未挂载）通过通用部署路径写入会把未挂载文件落到宿主机错误位置，必须判为非卷模式，
-// 交由 config.ValidateDockerBinding 明确报错并计为失败，而非静默"部署成功"。
+// 由 copy 专用流程统一在容器内操作两个路径。
 func (s *Scanner) resolveHostPaths(site *SSLSite) {
 	// 查找证书路径对应的挂载
 	if certMount := s.client.FindMountForPath(s.mounts, site.CertificatePath); certMount != nil {

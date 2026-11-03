@@ -4,7 +4,7 @@
 
 ## 平台与正式资产
 
-sslctl 使用 Go 1.24、`CGO_ENABLED=0` 和 `./cmd/` 包交叉编译。规范正式资产集合固定为：
+sslctl 使用 Go 1.26、`CGO_ENABLED=0` 和 `./cmd/` 包交叉编译。规范正式资产集合固定为：
 
 | 目标 | 公开文件名 |
 | --- | --- |
@@ -21,7 +21,7 @@ bash build/build.sh <x.y.z[-prerelease]> <output-dir>
 ```
 
 - 版本参数必须是不带 `v` 的有效 SemVer；脚本把该值原样注入 `main.version`，运行 `--version` 必须可见。
-- `build.sh` 从 `go.mod` 的 `toolchain go1.24.x` 读取并强制使用精确工具链；`build/release.sh prepare` 先捕获稳定工作区快照，再从该只读语义快照构建。main 使用目标 commit 的提交时间设置 `SOURCE_DATE_EPOCH`；固定时间、`-trimpath`、`-buildvcs=false`、无时间戳 gzip 保证同提交、同工具链的产物可重建验证。
+- `build.sh` 从 `go.mod` 的 `toolchain go1.26.x` 读取并强制使用精确工具链；`build/release.sh prepare` 先捕获稳定工作区快照，再从该只读语义快照构建。main 使用目标 commit 的提交时间设置 `SOURCE_DATE_EPOCH`；固定时间、`-trimpath`、`-buildvcs=false`、无时间戳 gzip 保证同提交、同工具链的产物可重建验证。
 - 正式发布仍只允许构建一次；可重建性用于审计，tag 创建后的恢复禁止重建。
 - 输出目录必须由调用者显式指定。发布流程不得依赖或混入仓库 `dist/` 的旧文件。
 
@@ -52,6 +52,8 @@ main 正式发布必须在 `build/release.conf` 配置仓库外的 `BUNDLE_ROOT`
 本仓生产拓扑至少配置两个发布节点；脚本不提供单节点发布选项。节点名称、主机、端口和绝对发布目录必须通过安全字符校验。发布阶段先在所有节点取得同一发布锁；各节点基于自己的最新公开索引生成候选，以原样保留旧客户端仍读取的兼容顶层字段。推进前对候选的 main/dev 规范安全视图计算确定性摘要，版本、校验和、签名、source commit 等任一差异都停止；旧顶层字段和历史 `released_at` 展示日期不参与安全摘要。这样既避免 main/dev 并发导致整份索引丢失更新，也不会把单节点未知旧数据传播到其他节点。
 
 ## 本地检查
+
+以下仅为构建/发布实现变化时的命令参考，适用范围与同任务证据复用统一遵循 `skills/finish-check.md`；不因加载本文重复已通过的门禁。
 
 ```bash
 bash build/check-agent-config.sh

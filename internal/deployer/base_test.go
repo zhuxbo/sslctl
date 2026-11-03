@@ -3,12 +3,48 @@ package deployer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
+
+func TestRestartProcessArgsPreserveNginxPrefix(t *testing.T) {
+	got := restartProcessArgs(`G:\soft\nginx-1.26.3\nginx.exe`, []string{
+		"-p", `G:\soft\nginx-1.26.3\`, "-s", "reload",
+	})
+	want := []string{"-p", `G:\soft\nginx-1.26.3\`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("restartProcessArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestStopExecutableProcessesTerminatesOnlyReturnedTargetPIDs(t *testing.T) {
+	origList := listProcessIDsByExecutableFunc
+	origTerminate := terminateProcessByPIDFunc
+	defer func() {
+		listProcessIDsByExecutableFunc = origList
+		terminateProcessByPIDFunc = origTerminate
+	}()
+
+	listProcessIDsByExecutableFunc = func(context.Context, string) ([]int, error) {
+		return []int{19856, 20100}, nil
+	}
+	var terminated []int
+	terminateProcessByPIDFunc = func(_ context.Context, pid int) error {
+		terminated = append(terminated, pid)
+		return nil
+	}
+
+	if err := stopExecutableProcesses(t.Context(), `G:\soft\nginx-1.26.3\nginx.exe`); err != nil {
+		t.Fatalf("stopExecutableProcesses() error = %v", err)
+	}
+	if want := []int{19856, 20100}; !reflect.DeepEqual(terminated, want) {
+		t.Fatalf("terminated = %v, want %v", terminated, want)
+	}
+}
 
 // TestReloadService_WinSvcSentinel 验证 ReloadService 识别 winsvc: 哨兵后
 // 直接调用 restartWindowsServiceFunc，跳过 executor.Run。

@@ -110,6 +110,11 @@ func TestRetryFailedBindings_CapParksToStale(t *testing.T) {
 	_ = cm.AddCert(cert)
 
 	svc := NewService(cm, logger.NewNopLogger())
+	// 保留默认重试次数；此处验证失败状态，不等待生产环境的秒级退避。
+	retry := fetcher.DefaultRetryConfig
+	retry.InitialWait = time.Millisecond
+	retry.MaxWait = 4 * time.Millisecond
+	svc.fetcher = fetcher.NewWithRetry(retry)
 	certCopy, _ := cm.GetCert("capped-retry-cert")
 
 	result := svc.retryFailedBindings(t.Context(), certCopy, cert.API)
@@ -169,6 +174,11 @@ func TestRetryFailedBindings_APIFail(t *testing.T) {
 
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
+	// 保留默认重试次数；此处验证失败状态，不等待生产环境的秒级退避。
+	retry := fetcher.DefaultRetryConfig
+	retry.InitialWait = time.Millisecond
+	retry.MaxWait = 4 * time.Millisecond
+	svc.fetcher = fetcher.NewWithRetry(retry)
 
 	certCopy, _ := cm.GetCert("api-fail-cert")
 

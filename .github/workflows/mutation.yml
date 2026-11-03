@@ -1,0 +1,77 @@
+name: Mutation Testing
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'build/*mutation*'
+      - 'build/plan-checks.py'
+      - 'build/run-changed-checks.sh'
+      - 'build/test-check-planner.sh'
+      - '.github/workflows/mutation.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'build/*mutation*'
+      - 'build/plan-checks.py'
+      - 'build/run-changed-checks.sh'
+      - 'build/test-check-planner.sh'
+      - '.github/workflows/mutation.yml'
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - uses: actions/cache@v4
+        with:
+          path: build/.gomutants-cache.json
+          key: gomutants-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.ref_name }}
+          restore-keys: |
+            gomutants-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+      - run: go install github.com/szhekpisov/gomutants@v0.6.0
+      - run: make mutation-test
+      - name: Run targeted mutation gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          MUTATION_RAM_ROOT: /dev/shm
+          MUTATION_REPORT_DIR: mutation-report
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            finish_base="origin/$BASE_REF"
+          elif [[ "$EVENT_NAME" == push ]]; then
+            if ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+              echo "无法解析 push 基线: $BEFORE_SHA" >&2
+              exit 1
+            elif git cat-file -e "$BEFORE_SHA:.github/workflows/mutation.yml" 2>/dev/null; then
+              finish_base="$BEFORE_SHA"
+            else
+              finish_base=HEAD^
+            fi
+          else
+            finish_base=HEAD^
+          fi
+          FINISH_CHECK_BASE="$finish_base" make mutation
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report/
+          if-no-files-found: ignore

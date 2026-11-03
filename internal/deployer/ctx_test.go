@@ -4,17 +4,23 @@ package deployer
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
+
+	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
 // TestReloadService_RespectsCanceledContext 上游取消必须能中断重载命令，
 // 否则 daemon 收到 SIGTERM 后只能等强杀窗口耗尽。
 func TestReloadService_RespectsCanceledContext(t *testing.T) {
+	installCanceledCommandFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// 用白名单内的真实命令，确保走到 exec 而不是在解析阶段就被拒
+	// 用白名单内的命令替身，确保走到 exec 而不是在路径查找阶段失败
 	b := &Base{ReloadCommand: "nginx -s reload"}
 	err := b.ReloadService(ctx)
 	if err == nil {
@@ -28,6 +34,7 @@ func TestReloadService_RespectsCanceledContext(t *testing.T) {
 
 // TestTestConfig_RespectsCanceledContext 配置测试同样受取消约束
 func TestTestConfig_RespectsCanceledContext(t *testing.T) {
+	installCanceledCommandFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -67,4 +74,36 @@ func TestWaitForApacheReload_AbortsOnCanceledContext(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("耗时 %v，取消未能中断轮询", elapsed)
 	}
+}
+
+// 已取消的命令不得启动；替身只提供可解析路径并留下执行痕迹。
+func installCanceledCommandFixture(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "executed")
+	if runtime.GOOS == "windows" {
+		// 取消必须发生在启动之前；原生测试程序使路径解析不依赖宿主安装。
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "nginx.exe"), data, 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		script := "#!/bin/sh\necho executed > " + util.ShellQuote(marker) + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "nginx"), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Cleanup(func() {
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Errorf("取消后仍执行了命令替身: %v", err)
+		}
+	})
 }

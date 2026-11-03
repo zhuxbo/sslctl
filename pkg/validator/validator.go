@@ -211,7 +211,7 @@ func (v *Validator) ValidateCertKeyPair(certPEM, keyPEM string) error {
 		if !ok {
 			return errors.NewValidateError("private key type mismatch: expected ECDSA", nil)
 		}
-		if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
+		if !pub.Equal(priv.Public()) {
 			return errors.NewValidateError("certificate and private key do not match", nil)
 		}
 	default:

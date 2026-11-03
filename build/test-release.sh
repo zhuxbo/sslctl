@@ -198,6 +198,9 @@ grep -Fq 'manifest.sig' "$SCRIPT_DIR/release.sh"
 grep -Fq 'verify_bundle_versions' "$SCRIPT_DIR/release.sh"
 grep -Fq 'verify_remote_asset_set' "$SCRIPT_DIR/release.sh"
 grep -Fq 'GOTOOLCHAIN=' "$SCRIPT_DIR/build.sh"
+grep -Fxq 'go 1.26.0' "$ROOT/go.mod"
+grep -Fxq 'toolchain go1.26.8' "$ROOT/go.mod"
+grep -Fq '^go1\.26\.[0-9]+$' "$SCRIPT_DIR/build.sh"
 
 grep -Fq 'if ((${#LOCKED_SERVERS[@]})); then' "$SCRIPT_DIR/release.sh"
 grep -Fq 'index-safety-digest' "$SCRIPT_DIR/release.sh"
@@ -219,6 +222,19 @@ grep -Fq 'rsync_file "$PROJECT_ROOT/deploy/install.sh"' "$SCRIPT_DIR/release.sh"
 grep -Fq 'rsync_file "$PROJECT_ROOT/deploy/install.ps1"' "$SCRIPT_DIR/release.sh"
 if grep -Eq '__RELEASE_URL__|sed .*install\.(sh|ps1)' "$SCRIPT_DIR/release.sh"; then
     echo "发布脚本仍向安装脚本注入发布地址" >&2
+    exit 1
+fi
+
+install_ps1="$ROOT/deploy/install.ps1"
+if grep -Fq -- '-notlike "*$InstallDir*"' "$install_ps1"; then
+    echo "Windows 安装脚本仍使用子串判断 PATH，可能把 sslctlw 误认为 sslctl" >&2
+    exit 1
+fi
+grep -Fq 'function Test-PathContainsDirectory' "$install_ps1"
+grep -Fq '$PathValue -split ";"' "$install_ps1"
+grep -Fq '[System.StringComparison]::OrdinalIgnoreCase' "$install_ps1"
+if [[ "$(grep -Fc 'Ensure-InstallDirOnPath -Directory $InstallDir' "$install_ps1")" -ne 2 ]]; then
+    echo "Windows 安装脚本未同时覆盖同版本自愈和安装后 PATH 写入" >&2
     exit 1
 fi
 

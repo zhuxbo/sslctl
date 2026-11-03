@@ -22,18 +22,13 @@ sslctl 是 Go 实现的跨平台 SSL 证书部署工具，支持 Linux/Windows�
 - 完成检查：`skills/finish-check.md`
 - 用户文档：`README.md`；构建脚本使用说明：`build/README.md`
 
-## 核心命令与平台边界
+## 协作与检查
 
-```bash
-go test -race -count=1 ./...
-golangci-lint run --timeout=5m ./...
-GOOS=windows GOARCH=amd64 golangci-lint run --timeout=5m ./...
-bash build/build.sh <version> <output-dir>
-bash build/check-agent-config.sh
-bash build/test-release.sh
-```
-
-正式资产固定为 Linux amd64、Linux arm64、Windows amd64 三份 gzip；签名方式为 Ed25519，签名与 SHA256 以实际公开文件名为 key 写入发布索引。真实 Windows 运行行为和 Docker E2E 不能由交叉编译替代。
+- 当前用户指令优先于 skill 默认流程。在已授权范围内自行解决常规实现选择，缺失信息会实质影响正确性或授权时才提问，不逐步重复确认。
+- 局部维护直接阅读相关代码、修改并定向验证；只按任务需要加载 skill 的相关章节，不自动启动计划文档、worktree、完整 TDD 或子代理流程。
+- 默认采用 `skills/finish-check.md` 的按风险检查；脚本已跑过的门禁和输入未变的同任务证据不重复执行。验收满足且适用检查通过即结束，只有新修改、失败或具体风险才扩大检查。
+- 审核限定本次 diff 与直接影响链；建议和历史问题不自动变成修复任务。简洁说明结果、证据与阻塞。
+- 用户纠正、实测误触发/漏检和耗时证据可触发本仓规则自进化，具体边界见 `skills/finish-check.md`；无新证据不强制反思或改规则。
 
 ## 更新原则
 

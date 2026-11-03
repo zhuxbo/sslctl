@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "equivalents": [
+    {
+      "id": "cmd/setup/setup.go:getAndValidatePrivateKey:INVERT_LOOP_CTRL#2",
+      "original": "break",
+      "replacement": "continue",
+      "sources": {
+        "cmd/setup/setup.go": "e56bb76e3153a1d4df550330862439284eeeeb2c270f9a7c2a0c6e118aa67ec0",
+        "pkg/config/config.go": "3a6af5a7ab788fe13967520601ab60f8dda36eab6695197ba90e8366f5479f4f"
+      },
+      "reason": "此循环只对 Docker copy 绑定将 defaultKeyPath 置空，谓词无副作用；找到一个后继续迭代只会再次置空，循环后的路径和所有后续行为相同。"
+    },
+    {
+      "id": "pkg/cleanup/cleanup.go:New:INTEGER_DECREMENT#1",
+      "original": "5",
+      "replacement": "4",
+      "sources": {
+        "pkg/cleanup/cleanup.go": "1ae014fd9feec905017d4e0fce8d7e8afc4f6943b8efa11f9ac73c7996270476",
+        "pkg/backup/backup.go": "b6133842feef657a63e13fe69d24bf4872b8beaded249eb66a02d2e5f0210662"
+      },
+      "reason": "cleanup.Service 的 backup 私有接口仅暴露 DeleteAllBackups；该方法只根据 backupDir 和站点名删除整个备份目录，从不读取 keepVersions。NewManager 对 4、5、6 仅存储不同 keepVersions，构造不产生副作用，清理服务的所有可达行为相同。"
+    },
+    {
+      "id": "pkg/cleanup/cleanup.go:New:INTEGER_INCREMENT#1",
+      "original": "5",
+      "replacement": "6",
+      "sources": {
+        "pkg/cleanup/cleanup.go": "1ae014fd9feec905017d4e0fce8d7e8afc4f6943b8efa11f9ac73c7996270476",
+        "pkg/backup/backup.go": "b6133842feef657a63e13fe69d24bf4872b8beaded249eb66a02d2e5f0210662"
+      },
+      "reason": "cleanup.Service 的 backup 私有接口仅暴露 DeleteAllBackups；该方法只根据 backupDir 和站点名删除整个备份目录，从不读取 keepVersions。NewManager 对 4、5、6 仅存储不同 keepVersions，构造不产生副作用，清理服务的所有可达行为相同。"
+    }
+  ]
+}

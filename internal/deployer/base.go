@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -25,6 +24,14 @@ var restartWindowsServiceFunc = webserver.RestartWindowsService
 // 默认指向 runReloadCommandWindows，测试时可替换以避免触达 executor。
 var reloadFallbackCommandFunc = runReloadCommandWindows
 
+var (
+	listProcessIDsByExecutableFunc = executor.ListProcessIDsByExecutable
+	terminateProcessByPIDFunc      = executor.TerminateProcessByPID
+	restartSleep                   = time.Sleep
+	restartDetached                = executor.RunDetached
+	reloadRunWithin                = executor.RunWithin
+)
+
 // Config 部署器配置
 type Config struct {
 	CertPath      string // 证书文件路径
@@ -36,8 +43,9 @@ type Config struct {
 
 // Base 部署器基础功能
 type Base struct {
-	TestCommand   string
-	ReloadCommand string
+	certificateFiles map[string]*util.CertificateFile
+	TestCommand      string
+	ReloadCommand    string
 }
 
 // TestConfig 测试配置
@@ -141,7 +149,7 @@ func (b *Base) reloadWinSvc(ctx context.Context) error {
 // prevErr 为可选的前置错误（如 SCM 失败错误），返回错误时一起带回上下文，
 // 但不影响白名单判定（白名单只看 reload 命令本身的错误信息）。
 func runReloadCommandWindows(ctx context.Context, reloadCmd string, prevErr error) error {
-	err := executor.RunWithin(ctx, reloadCmd)
+	err := reloadRunWithin(ctx, reloadCmd)
 	if err == nil {
 		return nil
 	}
@@ -154,11 +162,11 @@ func runReloadCommandWindows(ctx context.Context, reloadCmd string, prevErr erro
 		!strings.Contains(msg, "Access is denied") {
 		return wrapWithPrev(err, prevErr)
 	}
-	exe, _ := executor.ParseCommand(reloadCmd)
+	exe, args := executor.ParseCommand(reloadCmd)
 	if exe == "" {
 		return wrapWithPrev(err, prevErr)
 	}
-	if rerr := restartProcessWindows(ctx, exe, err); rerr != nil {
+	if rerr := restartProcessWindows(ctx, exe, args, err); rerr != nil {
 		return wrapWithPrev(rerr, prevErr)
 	}
 	return nil
@@ -381,27 +389,45 @@ func findMasterPIDByName(name string) int {
 
 // restartProcessWindows 通过终止进程+重启实现重载（适用于 Apache/Nginx 非服务模式）
 // 流程：终止进程 → 等待退出 → 等守护进程自动拉起 → 否则手动启动
-func restartProcessWindows(ctx context.Context, exe string, origErr error) error {
+func restartProcessWindows(ctx context.Context, exe string, reloadArgs []string, origErr error) error {
 	// 提取进程名（如 httpd.exe、nginx.exe）
 	processName := filepath.Base(exe)
+	if !isAbsoluteWindowsExecutablePath(exe) {
+		return fmt.Errorf("拒绝按进程名重启 %s：无法确定目标可执行文件的绝对路径（原始错误: %v）", processName, origErr)
+	}
 
-	// 终止进程树
+	// 只终止目标可执行路径对应的进程，避免多套 Nginx/Apache 共存时误杀其他实例。
 	fmt.Fprintf(os.Stderr, "正在停止 %s 进程...\n", processName)
-	_ = executor.RunWithin(ctx, fmt.Sprintf("taskkill /F /T /IM %s", processName))
+	if err := stopExecutableProcesses(ctx, exe); err != nil {
+		return fmt.Errorf("停止目标进程失败: %w（原始错误: %v）", err, origErr)
+	}
 
 	// 等待进程退出（最多 10 秒）
+	stopped := false
 	for i := 0; i < 20; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if !isProcessRunning(ctx, processName) {
+		restartSleep(500 * time.Millisecond)
+		running, err := isExecutableRunning(ctx, exe)
+		if err != nil {
+			return fmt.Errorf("确认目标进程退出失败: %w", err)
+		}
+		if !running {
+			stopped = true
 			break
 		}
+	}
+	if !stopped {
+		return fmt.Errorf("目标进程在等待停止后仍运行: %s", exe)
 	}
 
 	// 等待守护进程自动拉起（面板等管理工具），最多 10 秒
 	fmt.Fprintf(os.Stderr, "等待 %s 重新启动...\n", processName)
 	for i := 0; i < 10; i++ {
-		time.Sleep(time.Second)
-		if isProcessRunning(ctx, processName) {
+		restartSleep(time.Second)
+		running, err := isExecutableRunning(ctx, exe)
+		if err != nil {
+			return fmt.Errorf("确认目标进程恢复失败: %w", err)
+		}
+		if running {
 			fmt.Fprintf(os.Stderr, "%s 已恢复运行\n", processName)
 			return nil
 		}
@@ -409,31 +435,97 @@ func restartProcessWindows(ctx context.Context, exe string, origErr error) error
 
 	// 守护进程未拉起，手动启动
 	fmt.Fprintf(os.Stderr, "守护进程未自动拉起，手动启动 %s...\n", processName)
-	var args []string
+	args := restartProcessArgs(exe, reloadArgs)
 	if strings.Contains(strings.ToLower(processName), "httpd") {
-		// Apache 需要 -d 指定 ServerRoot
-		serverRoot := filepath.Dir(filepath.Dir(exe))
-		args = []string{"-d", serverRoot}
+		if !containsCommandArg(args, "-d") {
+			// Apache 需要 -d 指定 ServerRoot
+			serverRoot := filepath.Dir(filepath.Dir(exe))
+			args = append(args, "-d", serverRoot)
+		}
 	}
-	if startErr := executor.RunDetached(exe, args...); startErr != nil {
+	if startErr := restartDetached(exe, args...); startErr != nil {
 		return fmt.Errorf("重启失败: %w（原始错误: %v）", startErr, origErr)
 	}
 
 	// 确认启动成功
-	time.Sleep(2 * time.Second)
-	if !isProcessRunning(ctx, processName) {
+	restartSleep(2 * time.Second)
+	running, err := isExecutableRunning(ctx, exe)
+	if err != nil {
+		return fmt.Errorf("确认目标进程启动失败: %w", err)
+	}
+	if !running {
 		return fmt.Errorf("进程启动后退出（原始错误: %v）", origErr)
 	}
 	return nil
 }
 
+func stopExecutableProcesses(ctx context.Context, executable string) error {
+	pids, err := listProcessIDsByExecutableFunc(ctx, executable)
+	if err != nil {
+		return err
+	}
+	for _, pid := range pids {
+		if err := terminateProcessByPIDFunc(ctx, pid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isExecutableRunning(ctx context.Context, executable string) (bool, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, processProbeTimeout)
+	defer cancel()
+	pids, err := listProcessIDsByExecutableFunc(probeCtx, executable)
+	return len(pids) > 0, err
+}
+
+func isAbsoluteWindowsExecutablePath(path string) bool {
+	if filepath.IsAbs(path) {
+		return true
+	}
+	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
+}
+
+// restartProcessArgs 去掉 reload 信号参数，保留 -p/-d 等实例定位参数。
+func restartProcessArgs(_ string, reloadArgs []string) []string {
+	args := make([]string, 0, len(reloadArgs))
+	skip := false
+	for i, arg := range reloadArgs {
+		if skip {
+			skip = false
+			continue
+		}
+		if (arg == "-s" || arg == "-k") && i+1 < len(reloadArgs) {
+			skip = true
+			continue
+		}
+		args = append(args, arg)
+	}
+	return args
+}
+
+func containsCommandArg(args []string, target string) bool {
+	for _, arg := range args {
+		if arg == target {
+			return true
+		}
+	}
+	return false
+}
+
 // TestAndReload 测试配置并重载服务
 func (b *Base) TestAndReload(ctx context.Context) error {
+	if err := b.CheckFiles(); err != nil {
+		return err
+	}
 	if err := b.TestConfig(ctx); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorConfig, errors.PhaseTest,
 			"config test failed", err,
 		)
+	}
+	if err := b.CheckFiles(); err != nil {
+		return err
 	}
 	if err := b.ReloadService(ctx); err != nil {
 		return errors.NewStructuredDeployError(
@@ -441,11 +533,14 @@ func (b *Base) TestAndReload(ctx context.Context) error {
 			"reload failed", err,
 		)
 	}
-	return nil
+	return b.CheckFiles()
 }
 
 // TestAndReloadForRollback 回滚后测试配置并重载服务
 func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
+	if err := b.CheckFiles(); err != nil {
+		return err
+	}
 	if b.TestCommand != "" {
 		if err := executor.RunWithin(ctx, b.TestCommand); err != nil {
 			return errors.NewStructuredDeployError(
@@ -455,6 +550,9 @@ func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
 		}
 	}
 	if b.ReloadCommand != "" {
+		if err := b.CheckFiles(); err != nil {
+			return err
+		}
 		if err := b.ReloadService(ctx); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorReload, errors.PhaseRollback,
@@ -462,25 +560,13 @@ func (b *Base) TestAndReloadForRollback(ctx context.Context) error {
 			)
 		}
 	}
-	return nil
+	return b.CheckFiles()
 }
 
 // processProbeTimeout 单次进程探测超时。
 // tasklist 在 WMI 异常或域环境下可能长时间不返回，而它被重载等待循环反复调用，
 // 无超时会让整个部署卡死在这里。
 const processProbeTimeout = 5 * time.Second
-
-// isProcessRunning 检测指定名称的进程是否仍在运行（Windows）
-func isProcessRunning(ctx context.Context, name string) bool {
-	ctx, cancel := context.WithTimeout(ctx, processProbeTimeout)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s", name), "/NH").Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(string(out)), strings.ToLower(name))
-}
 
 // RestoreFile 恢复单个文件
 func RestoreFile(backupPath, targetPath string) error {

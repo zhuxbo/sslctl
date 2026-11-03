@@ -163,15 +163,16 @@ type SiteMatchResult struct {
 
 // ScannedSiteInfo 扫描到的站点信息
 type ScannedSiteInfo struct {
-	ServerName  string   // 主域名
-	ServerAlias []string // 别名
-	ConfigFile  string   // 配置文件路径
-	HasSSL      bool     // 是否已启用 SSL
-	CertPath    string   // 证书路径
-	KeyPath     string   // 私钥路径
-	ChainPath   string   // 证书链路径（Apache SSLCertificateChainFile）
-	Webroot     string   // Web 根目录
-	ServerType  string   // 服务器类型
+	ServerName     string   // 主域名
+	ServerAlias    []string // 别名
+	ConfigFile     string   // 配置文件路径
+	HasSSL         bool     // 是否已启用 SSL
+	CertPath       string   // 证书路径
+	KeyPath        string   // 私钥路径
+	ChainPath      string   // 证书链路径（Apache SSLCertificateChainFile）
+	Webroot        string   // Web 根目录
+	ServerType     string   // 服务器类型
+	ExecutablePath string   // 扫描该本地站点时实际使用的 Web 服务器可执行文件
 
 	// Docker 特有
 	ContainerID   string // 容器 ID（非空表示 Docker 站点）

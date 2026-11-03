@@ -167,6 +167,19 @@ func runBatch(p *setupParams, query string) {
 			continue
 		}
 
+		_, fileValidation := deriveRenewPolicy(plan.CertDomains, p.localKey, p.fileValidation)
+		unsupported := false
+		for i := range plan.Bindings {
+			if fileValidation && config.IsDockerCopyBinding(&plan.Bindings[i]) {
+				unsupported = true
+			}
+		}
+		if unsupported {
+			fmt.Fprintln(os.Stderr, "Docker copy 暂不支持文件验证，跳过该证书")
+			certFail++
+			continue
+		}
+
 		certName := buildCertName(plan.CertDomains[0], plan.CertData.OrderID)
 		fmt.Printf("\n  证书 %s:\n", certName)
 
@@ -216,7 +229,7 @@ func runBatch(p *setupParams, query string) {
 		if len(needKeyNames) > 0 {
 			fmt.Fprintf(os.Stderr, "  需要私钥的证书: %s\n", strings.Join(needKeyNames, ", "))
 		}
-		os.Exit(1)
+		exitSetup(1)
 	}
 
 	// 6/7: 保存配置
@@ -477,6 +490,12 @@ func installSSLForBatch(site *matcher.ScannedSiteInfo, plan *certDeployPlan, p *
 		}
 	}
 	if binding == nil || !binding.Enabled {
+		return
+	}
+
+	if config.IsDockerCopyBinding(binding) {
+		fmt.Fprintf(os.Stderr, "    %s: Docker copy 仅支持已有 HTTPS 配置的站点\n", site.ServerName)
+		binding.Enabled = false
 		return
 	}
 

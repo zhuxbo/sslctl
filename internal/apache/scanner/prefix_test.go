@@ -20,6 +20,66 @@ func TestServerRootFromConfigContent(t *testing.T) {
 	}
 }
 
+func TestServerRootFromConfigContentDefine(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "Apache Root")
+	for _, tt := range []struct {
+		name, content, want string
+		ok                  bool
+	}{
+		{"定义路径", "Define SRVROOT \"" + root + "\"\nServerRoot \"${SRVROOT}\"", root, true},
+		{"相对路径", "Define SRVROOT runtime\nServerRoot ${SRVROOT}", filepath.Join(base, "runtime"), true},
+		{"顺序覆盖", "Define SRVROOT old\nDefine SRVROOT new\nServerRoot ${SRVROOT}", filepath.Join(base, "new"), true},
+		{"引用先前定义", "Define BASE runtime\nDefine SRVROOT ${BASE}/apache\nServerRoot ${SRVROOT}", filepath.Join(base, "runtime", "apache"), true},
+		{"未定义", "ServerRoot ${MISSING}", "", false},
+		{"未定义变量带子目录", "ServerRoot ${MISSING}/apache", "", false},
+		{"空变量", "Define SRVROOT \"\"\nServerRoot ${SRVROOT}", "", false},
+		{"定义在后", "ServerRoot ${SRVROOT}\nDefine SRVROOT runtime", "", false},
+		{"注释", "# Define SRVROOT runtime\nServerRoot ${SRVROOT}", "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := serverRootFromConfigContent(tt.content, base)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("got (%q, %v), want (%q, %v)", got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestApacheDefinedServerRootFindsIncludedSites(t *testing.T) {
+	root := t.TempDir()
+	confDir := filepath.Join(root, "conf", "extra")
+	if err := os.MkdirAll(confDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "conf", "httpd.conf")
+	content := "Define SRVROOT \"" + root + "\"\nServerRoot \"${SRVROOT}\"\nInclude conf/extra/httpd-vhosts.conf\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vhost := "<VirtualHost *:80>\nServerName example.com\nDocumentRoot htdocs\n</VirtualHost>\n"
+	if err := os.WriteFile(filepath.Join(confDir, "httpd-vhosts.conf"), []byte(vhost), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := NewWithConfig(configPath)
+	s.serverRoot = root
+	s.prepareServerRoot(configPath)
+	sites, err := s.scanAllConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 || sites[0].ServerName != "example.com" {
+		t.Fatalf("未扫描到被包含的站点: %+v", sites)
+	}
+	sites, err = s.resolveSitePaths(sites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sites[0].Webroot != filepath.Join(root, "htdocs") {
+		t.Fatalf("错误的站点目录: %q", sites[0].Webroot)
+	}
+}
+
 func TestApacheEffectiveServerRootOverridesDetectedRoot(t *testing.T) {
 	old := getPrefixOverride()
 	defer SetPrefixOverride(old)

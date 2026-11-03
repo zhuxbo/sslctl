@@ -47,7 +47,7 @@ linters:
         linters:
           - gosec
 
-# 格式化门禁：finish-check 要求用 Go 1.24 gofmt 格式化触及的文件，
+# 格式化门禁：finish-check 要求用 Go 1.26 gofmt 格式化触及的文件，
 # 此前无任何门禁执行该规则，导致 22 个文件（含生产代码）长期漂移。
 # 未格式化会计入 issue 使 CI 退出非零；`golangci-lint fmt` 可原地修复。
 formatters:

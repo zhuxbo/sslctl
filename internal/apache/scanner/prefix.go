@@ -155,6 +155,17 @@ func (s *Scanner) prepareServerRoot(configPath string) {
 
 func serverRootFromConfigContent(content, initialRoot string) (string, bool) {
 	serverRootRe := regexp.MustCompile(`(?i)^\s*ServerRoot\s+(.+?)\s*$`)
+	defineRe := regexp.MustCompile(`(?i)^Define\s+(\S+)\s+(.+?)\s*$`)
+	variableRe := regexp.MustCompile(`\$\{([^}]+)\}`)
+	defines := make(map[string]string)
+	expand := func(value string) string {
+		return variableRe.ReplaceAllStringFunc(value, func(token string) string {
+			if replacement, ok := defines[token[2:len(token)-1]]; ok {
+				return replacement
+			}
+			return token
+		})
+	}
 	root := ""
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
@@ -162,12 +173,17 @@ func serverRootFromConfigContent(content, initialRoot string) (string, bool) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		if matches := defineRe.FindStringSubmatch(line); matches != nil {
+			defines[matches[1]] = expand(strings.Trim(matches[2], `"'`))
+			continue
+		}
 		matches := serverRootRe.FindStringSubmatch(line)
 		if len(matches) < 2 {
 			continue
 		}
-		value := strings.Trim(strings.TrimSpace(matches[1]), `"'`)
-		if value == "" {
+		value := expand(strings.Trim(strings.TrimSpace(matches[1]), `"'`))
+		// 未解析的变量不能作为相对目录拼接到 ServerRoot。
+		if value == "" || strings.Contains(value, "${") {
 			continue
 		}
 		if filepath.IsAbs(value) {

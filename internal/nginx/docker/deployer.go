@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	deployerrors "github.com/zhuxbo/sslctl/pkg/errors"
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
@@ -168,68 +169,9 @@ func (d *Deployer) deployToHost(fullchain, key string) error {
 
 // deployToContainer 复制到容器（docker cp 模式）
 func (d *Deployer) deployToContainer(ctx context.Context, fullchain, key string) error {
-	// 0. 安全校验：提前验证容器内路径，防止命令注入
-	if err := validateContainerPath(d.certPath); err != nil {
-		return fmt.Errorf("invalid certificate path: %w", err)
-	}
-	if err := validateContainerPath(d.keyPath); err != nil {
-		return fmt.Errorf("invalid private key path: %w", err)
-	}
-
-	// 1. 创建临时目录
-	tmpDir, err := os.MkdirTemp("", "sslctl-")
-	if err != nil {
-		return fmt.Errorf("create temp dir failed: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-	// 设置安全权限
-	if err := os.Chmod(tmpDir, 0700); err != nil {
-		return fmt.Errorf("set temp dir permission failed: %w", err)
-	}
-
-	certFile := filepath.Join(tmpDir, "fullchain.pem")
-	keyFile := filepath.Join(tmpDir, "privkey.pem")
-
-	// 写入临时文件
-	if err := os.WriteFile(certFile, []byte(fullchain), 0644); err != nil {
-		return fmt.Errorf("write temp cert file failed: %w", err)
-	}
-	if err := os.WriteFile(keyFile, []byte(key), 0600); err != nil {
-		return fmt.Errorf("write temp key file failed: %w", err)
-	}
-
-	// 2. 确保容器内目录存在（使用安全的 ExecAux 方法）
-	certDir := getDir(d.certPath)
-	keyDir := getDir(d.keyPath)
-
-	if certDir != "" {
-		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", certDir); err != nil {
-			return fmt.Errorf("create cert directory in container failed: %w", err)
-		}
-	}
-	if keyDir != "" && keyDir != certDir {
-		if _, err := d.client.ExecAux(ctx, "mkdir", "-p", keyDir); err != nil {
-			return fmt.Errorf("create key directory in container failed: %w", err)
-		}
-	}
-
-	// 3. 复制到容器
-	if err := d.client.CopyToContainer(ctx, certFile, d.certPath); err != nil {
-		return fmt.Errorf("copy certificate to container failed: %w", err)
-	}
-	if err := d.client.CopyToContainer(ctx, keyFile, d.keyPath); err != nil {
-		return fmt.Errorf("copy private key to container failed: %w", err)
-	}
-
-	// 4. 设置容器内文件权限（使用安全的 ExecAux 方法）
-	if _, err := d.client.ExecAux(ctx, "chmod", "644", d.certPath); err != nil {
-		return fmt.Errorf("set certificate permission failed: %w", err)
-	}
-	if _, err := d.client.ExecAux(ctx, "chmod", "600", d.keyPath); err != nil {
-		return fmt.Errorf("set private key permission failed: %w", err)
-	}
-
-	return nil
+	return d.client.replaceCertificateFiles(ctx, d.certPath, d.keyPath,
+		ContainerFile{Data: []byte(fullchain), Mode: 0644},
+		ContainerFile{Data: []byte(key), Mode: 0600})
 }
 
 // Rollback 回滚到备份的证书
@@ -252,12 +194,16 @@ func (d *Deployer) Rollback(ctx context.Context, backupCertPath, backupKeyPath s
 			return fmt.Errorf("restore private key failed: %w", err)
 		}
 	} else {
-		// docker cp 模式
-		if err := d.client.CopyToContainer(ctx, backupCertPath, d.certPath); err != nil {
-			return fmt.Errorf("restore certificate to container failed: %w", err)
+		cert, err := readBackupFile(backupCertPath)
+		if err != nil {
+			return err
 		}
-		if err := d.client.CopyToContainer(ctx, backupKeyPath, d.keyPath); err != nil {
-			return fmt.Errorf("restore private key to container failed: %w", err)
+		key, err := readBackupFile(backupKeyPath)
+		if err != nil {
+			return err
+		}
+		if err := d.client.replaceCertificateFiles(ctx, d.certPath, d.keyPath, cert, key); err != nil {
+			return err
 		}
 	}
 
@@ -277,7 +223,7 @@ func (d *Deployer) testAndReload(ctx context.Context) error {
 			return fmt.Errorf("command not in whitelist: %s", d.testCommand)
 		}
 		if _, err := d.client.Exec(ctx, d.testCommand); err != nil {
-			return fmt.Errorf("配置测试失败: %w", err)
+			return deployerrors.NewStructuredDeployError(deployerrors.DeployErrorConfig, deployerrors.PhaseTest, "配置测试失败", err)
 		}
 	}
 	if d.reloadCommand != "" {
@@ -285,7 +231,7 @@ func (d *Deployer) testAndReload(ctx context.Context) error {
 			return fmt.Errorf("command not in whitelist: %s", d.reloadCommand)
 		}
 		if _, err := d.client.Exec(ctx, d.reloadCommand); err != nil {
-			return fmt.Errorf("重载失败: %w", err)
+			return deployerrors.NewStructuredDeployError(deployerrors.DeployErrorReload, deployerrors.PhaseReload, "重载失败", err)
 		}
 	}
 	return nil
@@ -362,4 +308,18 @@ func validateContainerPath(path string) error {
 		return fmt.Errorf("invalid container path: empty, non-absolute, too long, contains path traversal or dangerous characters")
 	}
 	return nil
+}
+
+var backupFileStat = os.Stat
+
+func readBackupFile(filePath string) (ContainerFile, error) {
+	data, err := util.SafeReadFile(filePath, 10<<20)
+	if err != nil {
+		return ContainerFile{}, err
+	}
+	info, err := backupFileStat(filePath)
+	if err != nil {
+		return ContainerFile{}, err
+	}
+	return ContainerFile{Data: data, Mode: info.Mode().Perm()}, nil
 }

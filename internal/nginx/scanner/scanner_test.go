@@ -1507,6 +1507,28 @@ func TestParseServerBlocks_NginxTMode(t *testing.T) {
 	}
 }
 
+func TestParseServerBlocks_WindowsPathsDecodeEscapedBackslashes(t *testing.T) {
+	lines := []string{
+		"server {",
+		"    listen 443 ssl;",
+		"    server_name example.com;",
+		`    ssl_certificate "C:\\nginx\\conf\\cert\\example.com.pem";`,
+		`    ssl_certificate_key "C:\\nginx\\conf\\cert\\example.com.key";`,
+		"}",
+	}
+
+	blocks := parseServerBlocks(lines, `C:\nginx\conf\example.conf`, parseOptions{})
+	if len(blocks) != 1 {
+		t.Fatalf("期望 1 个 server 块，实际 %d", len(blocks))
+	}
+	if got, want := blocks[0].certificatePath, `C:\nginx\conf\cert\example.com.pem`; got != want {
+		t.Errorf("certificatePath = %q，期望 %q", got, want)
+	}
+	if got, want := blocks[0].privateKeyPath, `C:\nginx\conf\cert\example.com.key`; got != want {
+		t.Errorf("privateKeyPath = %q，期望 %q", got, want)
+	}
+}
+
 // TestParseServerBlocks_PendingServerNonBrace 测试 server 后跟非 { 内容
 func TestParseServerBlocks_PendingServerNonBrace(t *testing.T) {
 	// server 后跟的不是 {，应该重置 pendingServer

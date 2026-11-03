@@ -594,6 +594,35 @@ func TestInsertSSLDirectives(t *testing.T) {
 	}
 }
 
+// TestInsertSSLDirectives_WindowsPathsUseForwardSlashes 验证写入 Nginx 配置的
+// Windows 证书路径不会把 \t 等片段交给 Nginx 当作转义序列解析。
+func TestInsertSSLDirectives_WindowsPathsUseForwardSlashes(t *testing.T) {
+	installer := NewNginxInstaller(
+		"",
+		`C:\sslctl\certs\test.sslagent.com\cert.pem`,
+		`C:\sslctl\certs\test.sslagent.com\key.pem`,
+		"test.sslagent.com",
+		"",
+	)
+
+	lines := []string{
+		"server {",
+		"    listen 80;",
+		"}",
+	}
+	joined := strings.Join(installer.insertSSLCertDirectives(lines, 1), "\n")
+
+	if !strings.Contains(joined, "ssl_certificate C:/sslctl/certs/test.sslagent.com/cert.pem;") {
+		t.Errorf("Windows 证书路径应使用正斜杠写入 Nginx 配置\n%s", joined)
+	}
+	if !strings.Contains(joined, "ssl_certificate_key C:/sslctl/certs/test.sslagent.com/key.pem;") {
+		t.Errorf("Windows 私钥路径应使用正斜杠写入 Nginx 配置\n%s", joined)
+	}
+	if strings.Contains(joined, `C:\sslctl`) {
+		t.Errorf("Nginx 配置中不应保留 Windows 反斜杠路径\n%s", joined)
+	}
+}
+
 // TestBackup 测试备份功能
 func TestBackup(t *testing.T) {
 	tmpDir := t.TempDir()

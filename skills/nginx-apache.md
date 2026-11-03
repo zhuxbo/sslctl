@@ -1,5 +1,7 @@
 # Nginx/Apache 证书部署规范
 
+按本次扫描、安装、重载或 Docker 变更定位对应章节；验证按 `skills/finish-check.md` 选择，不因阅读本文自动执行部署命令。
+
 ## Nginx
 
 ### 配置文件位置
@@ -98,6 +100,8 @@ executor.Run("systemctl reload nginx")
 - `systemctl reload/restart nginx`
 - `service nginx reload/restart`
 - `rc-service nginx reload/restart`
+
+Windows 多套 Nginx 共存时，扫描结果必须携带本次实际使用的 `nginx.exe` 路径，setup、scan-result deploy、配置测试和重载均复用该路径，不得重新从 PATH 或“第一个同名进程”选择实例。非服务模式 reload 失败回退按精确 `ExecutablePath` 查询 PID 并逐 PID 停止，保留原命令的 `-p` 参数拉起同一实例；禁止使用 `taskkill /IM nginx.exe` 终止全部同名实例。进程路径查询失败或存在路径不可读的同名进程时安全失败，不做宽泛终止。
 
 ---
 
@@ -210,7 +214,7 @@ chown root:root /opt/sslctl/certs/
 └── ...
 ```
 
-所有部署入口（setup/deploy/续签）覆盖站点证书前先备份、失败自动回滚；回滚用文件操作带符号链接防护。
+所有部署入口（setup/deploy/续签）覆盖站点证书前先备份、失败自动回滚；证书、私钥和独立证书链的软链接保留不变，写入真实目标。备份前 Prepare 固定目标，自动回滚复用同一部署器；链接改向时中止，不覆盖续签新目标。
 
 ---
 
@@ -229,9 +233,9 @@ setup 流程为**未启用 SSL** 的站点安装 HTTPS 配置（需用户确认�
 
 ## Docker 站点部署（setup/deploy）
 
-- 证书写入**宿主机侧挂载路径**（`HostCertPath`，非容器内路径）。
+- volume 模式写入宿主机挂载路径（`HostCertPath`）；Nginx copy 模式写入容器内已有证书/私钥绝对路径，先持久备份并暂存两份新文件，再替换、测试和重载，失败恢复旧文件。Apache copy 不支持。
 - test/reload 使用容器化命令：`docker exec <容器> nginx -t` / `nginx -s reload`（apache 用 `apachectl`）；executor 放行 `docker exec <容器> <固定命令>`（容器名字符白名单 + 内层命令白名单）；命令构建方（`webserver.DetectDockerCommands`）用 `executor.IsValidDockerContainerName` 前置校验容器名，非法即返回空命令，不拼出必然被执行期白名单拒绝的命令（那样错误指向白名单，掩盖真实原因）；base deployer 对 docker exec 命令跳过宿主机 SIGUSR1 / 进程重启回退。
-- 非挂载卷（copy 模式）或缺容器重载命令时 `config.ValidateDockerBinding` 返回明确错误、如实计为失败，不再静默写错位置报成功。旧版本 setup 创建的存量绑定升级后持续报失败属预期，需重跑 setup 补齐容器命令与卷校验（见根 `README.md`「存量 Docker 绑定升级说明」）。
+- `config.ValidateDockerBinding` 按 volume/copy 模式校验服务器类型、容器、路径及 test/reload 命令；不完整或不支持的绑定返回明确错误并计为失败。copy 限制及旧绑定修复见根 `README.md` 的 Docker 部署与升级说明。
 - Apache 容器内仅 `httpd`/`apache2ctl` 时 reload 明确报错，自动探测待后续支持。
 - **挂载路径精确匹配**：Docker 挂载路径按精确匹配，防止 `/etc/nginx` 匹配到 `/etc/nginx-backup`。
 

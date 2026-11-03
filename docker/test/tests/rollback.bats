@@ -56,7 +56,7 @@ setup() {
   list_output=$(sslctl rollback --site test.example.com --list 2>&1)
   # 时间戳格式: 20060102-150405
   local ts
-  ts=$(echo "$list_output" | grep -oE '[0-9]{8}-[0-9]{6}' | head -1)
+  ts=$(echo "$list_output" | grep -oE '[0-9]{8}-[0-9]{6}(\.[0-9]+)?' | head -1)
   if [ -z "$ts" ]; then
     echo "Failed to extract timestamp from list output"
     echo "Output: $list_output"

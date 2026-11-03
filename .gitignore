@@ -37,6 +37,7 @@ Thumbs.db
 
 # Test artifacts
 build/test-report.md
+build/.gomutants-cache.json
 
 # E2E test artifacts
 docker/test/build/

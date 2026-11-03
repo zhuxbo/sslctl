@@ -22,6 +22,8 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
+var newSiteInstaller = webserver.NewInstaller
+
 // Run 运行 deploy 命令
 func Run(args []string, version, buildTime string, debug bool) {
 	// 检查是否为 local 子命令
@@ -199,7 +201,7 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取（pending 感知，配对校验；
 	// 续签部署全失败后 pending 私钥尚未转正，手动 deploy 须能用它补救）
-	privateKey, err := certops.GetPrivateKeyForCert(cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, log)
+	privateKey, err := certops.GetPrivateKeyForCert(ctx, cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, log)
 	if err != nil {
 		return err
 	}
@@ -248,6 +250,12 @@ func fetchAndDeployCert(ctx context.Context, cfgManager *config.ConfigManager, c
 		cert.Metadata.RetryAttemptCount = 0
 		// 无进展计时同样解除：手动部署成功本身就是最强的进展信号
 		cert.Metadata.NoProgressSince = time.Time{}
+		// 全部绑定部署成功才确认环境恢复，部分成功不能解除其他站点的阻断。
+		if deployErr == nil {
+			cert.Metadata.LastDeployBlockReason = ""
+			cert.Metadata.LastDeployBlockAt = time.Time{}
+			cert.Metadata.BlockReportCount = 0
+		}
 	}
 	// 失败绑定原样记录（不是清空）：清空会让 daemon 不再接手仍失败的站点，
 	// 制造"手动部署部分成功 → 剩下的永远没人管"的新洞
@@ -343,7 +351,10 @@ func applyDeployRenewBeforeDays(cm *config.ConfigManager, log *logger.Logger, va
 
 // deployToBinding 部署到绑定（带备份和回滚）
 func deployToBinding(ctx context.Context, binding *config.SiteBinding, certData *fetcher.CertData, privateKey string, backupMgr *backup.Manager, log *logger.Logger) error {
-	// Docker 站点：校验可安全部署（挂载卷模式 + 容器重载命令），否则如实报错而非静默成功
+	if config.IsDockerCopyBinding(binding) {
+		return certops.DeployDockerCopy(ctx, binding, certData, privateKey, backupMgr, log)
+	}
+	// volume 绑定校验宿主机路径与容器重载命令；copy 已在上方分流。
 	if config.IsDockerType(binding.ServerType) {
 		if err := config.ValidateDockerBinding(binding); err != nil {
 			return err
@@ -357,6 +368,24 @@ func deployToBinding(ctx context.Context, binding *config.SiteBinding, certData 
 		return fmt.Errorf("创建证书目录失败: %w", err)
 	}
 
+	deployer, err := webserver.NewDeployer(
+		webserver.ServerType(binding.ServerType),
+		binding.Paths.Certificate,
+		binding.Paths.PrivateKey,
+		binding.Paths.ChainFile,
+		binding.Reload.TestCommand,
+		binding.Reload.ReloadCommand,
+	)
+	if err != nil {
+		return fmt.Errorf("创建部署器失败: %w", err)
+	}
+
+	if prepared, ok := deployer.(interface{ Prepare() error }); ok {
+		if err := prepared.Prepare(); err != nil {
+			return fmt.Errorf("准备证书文件失败: %w", err)
+		}
+	}
+
 	// 备份现有证书（如果存在）
 	var backupPath string
 	if util.FileExists(binding.Paths.Certificate) && util.FileExists(binding.Paths.PrivateKey) {
@@ -368,18 +397,6 @@ func deployToBinding(ctx context.Context, binding *config.SiteBinding, certData 
 			backupPath = result.BackupPath
 			log.Info("已备份证书到: %s", backupPath)
 		}
-	}
-
-	deployer, err := webserver.NewDeployer(
-		webserver.ServerType(binding.ServerType),
-		binding.Paths.Certificate,
-		binding.Paths.PrivateKey,
-		binding.Paths.ChainFile,
-		binding.Reload.TestCommand,
-		binding.Reload.ReloadCommand,
-	)
-	if err != nil {
-		return fmt.Errorf("创建部署器失败: %w", err)
 	}
 
 	deployErr := deployer.Deploy(ctx, certData.Cert, certData.IntermediateCert, privateKey)
@@ -495,6 +512,9 @@ func findSiteForBinding(cfgManager *config.ConfigManager, siteName string) (*con
 // installSSLForSite 为未启用 SSL 的站点安装 HTTPS 配置
 // 需要先写入证书文件，否则 nginx -t / apachectl -t 会失败
 func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *config.SiteBinding, cfgManager *config.ConfigManager, cert *config.CertConfig, f *fetcher.Fetcher) error {
+	if config.IsDockerCopyBinding(binding) {
+		return fmt.Errorf("容器 copy 仅支持已有 HTTPS 配置的站点")
+	}
 	// 获取证书数据
 	api := cert.GetAPI(nil)
 	if api.URL == "" || api.Token == "" {
@@ -510,7 +530,7 @@ func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *c
 	}
 
 	// 获取私钥（pending 感知，配对校验）
-	privateKey, err := certops.GetPrivateKeyForCert(cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, nil)
+	privateKey, err := certops.GetPrivateKeyForCert(ctx, cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, nil)
 	if err != nil {
 		return err
 	}
@@ -538,10 +558,10 @@ func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *c
 	if serverType == config.ServerTypeApache {
 		testCmd = webserver.DetectApacheCommands().TestCmd
 	} else {
-		testCmd = webserver.DetectNginxCommands().TestCmd
+		testCmd = webserver.DetectNginxCommandsFor(site.ExecutablePath).TestCmd
 	}
 
-	installer, err := webserver.NewInstaller(
+	installer, err := newSiteInstaller(
 		webserver.ServerType(serverType),
 		site.ConfigFile,
 		binding.Paths.Certificate,
@@ -641,16 +661,16 @@ func runLocal(args []string, debug bool) {
 		defer release()
 	}
 
-	// 验证并读取证书文件（使用 SafeReadFile 防止 TOCTOU 攻击）
+	// 验证并读取证书文件（支持软链接并限制大小）
 	const maxCertFileSize = 1 << 20 // 1MB
-	certData, err := util.SafeReadFile(*certFile, maxCertFileSize)
+	certData, err := util.ReadCertificateFile(*certFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取证书文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 验证并读取私钥文件
-	keyData, err := util.SafeReadFile(*keyFile, maxCertFileSize)
+	keyData, err := util.ReadCertificateFile(*keyFile, maxCertFileSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取私钥文件失败: %v\n", err)
 		os.Exit(1)
@@ -659,7 +679,7 @@ func runLocal(args []string, debug bool) {
 	// 读取 CA 证书文件（可选）
 	var caData string
 	if *caFile != "" {
-		ca, err := util.SafeReadFile(*caFile, maxCertFileSize)
+		ca, err := util.ReadCertificateFile(*caFile, maxCertFileSize)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取 CA 证书文件失败: %v\n", err)
 			os.Exit(1)
@@ -800,10 +820,10 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 	// 确定证书路径
 	certPath := site.CertificatePath
 	keyPath := site.PrivateKeyPath
-	if site.HostCertPath != "" {
+	if site.VolumeMode && site.HostCertPath != "" {
 		certPath = site.HostCertPath
 	}
-	if site.HostKeyPath != "" {
+	if site.VolumeMode && site.HostKeyPath != "" {
 		keyPath = site.HostKeyPath
 	}
 
@@ -856,7 +876,7 @@ func buildBindingFromScanResult(site *config.ScannedSite, cfgManager *config.Con
 	case isDocker:
 		cmds = webserver.DetectDockerCommands(webserver.ServerType(serverType), site.ContainerName)
 	case serverType == config.ServerTypeNginx:
-		cmds = webserver.DetectNginxCommands()
+		cmds = webserver.DetectNginxCommandsFor(site.ExecutablePath)
 	case serverType == config.ServerTypeApache:
 		cmds = webserver.DetectApacheCommands()
 	}

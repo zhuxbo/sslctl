@@ -34,6 +34,7 @@ type ScannedSite struct {
 	CertificatePath string `json:"certificate_path"`          // 证书路径
 	PrivateKeyPath  string `json:"private_key_path"`          // 私钥路径
 	ChainFilePath   string `json:"chain_file_path,omitempty"` // 证书链路径（Apache SSLCertificateChainFile）
+	ExecutablePath  string `json:"executable_path,omitempty"` // 扫描该本地站点时实际使用的服务器可执行文件
 
 	// Docker 特有（宿主机路径）
 	HostCertPath  string `json:"host_cert_path,omitempty"`  // 宿主机证书路径

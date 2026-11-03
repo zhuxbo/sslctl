@@ -1,112 +1,62 @@
 # sslctl 完成检查
 
-这是本仓完成检查的唯一清单。工具入口只引用本文，不复制步骤。按变更范围执行全部适用项，并明确报告通过、不通过或不适用；不得用历史结果代替本轮证据。
+本文件是本仓唯一检查清单。默认完成与本次风险相称的检查，`finish-check` 不等于全量测试。脚本执行过的适用门禁不再按文档逐条重跑；领域资源中的命令是参考，不是追加清单。
 
-## 0. 范围与安全
+## 选择范围与档位
 
-```bash
-git status --short --branch
-git diff --stat
-git diff
-git diff --cached
-if [[ -n "${FINISH_CHECK_BASE:-}" ]]; then
-  base_ref="$FINISH_CHECK_BASE"
-else
-  upstream_base="$(git merge-base HEAD '@{upstream}' 2>/dev/null || true)"
-  [[ -n "$upstream_base" && "$upstream_base" != "$(git rev-parse HEAD)" ]] && base_ref="$upstream_base" || base_ref="$(git rev-parse HEAD^)"
-fi
-git log --oneline "$base_ref"..HEAD
-git log --format=full "$base_ref"..HEAD
-git diff --stat "$base_ref"...HEAD
-git diff "$base_ref"...HEAD
-while IFS= read -r commit; do git show --check --stat --oneline "$commit"; done < <(git rev-list --reverse "$base_ref"..HEAD)
-```
+先看 `git status --short --branch`、本次 diff（含暂存区）与任务验收条件，再选择基线。只检查本次修改及直接影响链，保留无关脏文件。默认规划器纳入 upstream 以来提交、暂存区、工作区和未跟踪文件；没有待检查变化时检查最近提交。若历史提交已验收且本任务只有工作区修改，显式使用 `--base HEAD`，不因分支领先而重复验证历史任务；任务包含提交时使用任务起点，不能用 HEAD 隐藏未验收提交。
 
-- `FINISH_CHECK_BASE` 可显式指定审查基线；默认使用当前分支 upstream 的 merge-base；若已与 upstream 同步或无 upstream，至少回退审查 `HEAD^..HEAD`，不得产生空范围。工作区干净也必须审查该提交范围。
-- 确认没有密钥、凭据、构建产物、调试代码、意外删除、无关改动、异常提交主题或 AI 署名。
-- 检查 `deploy-spec.md` 是否被修改；若修改，必须走统一多仓同步/审计流程，单仓 CI 不拉取其他仓库移动分支比较。
-- 真实发布、上传节点、Git tag、GitHub Release/PR 不属于 finish-check，除非用户另行明确授权。
+| 情况 | 适用验证 |
+| --- | --- |
+| 纯文档、AGENTS、skill | diff、引用与受影响规则；智能体文件执行配置防漂移，不加载 Go 依赖图 |
+| 普通 Go 局部修改 | 直接包与生产代码反向依赖的 race 测试、Linux/Windows 定向 lint；仅测试修改不扩展生产反向依赖 |
+| 脚本或检查基础设施 | shell 语法及命中的离线契约；不因治理脚本变更跑业务全仓测试 |
+| 依赖、平台标签、共享接口、大影响面 | 自动扩大普通测试/覆盖率、lint、三平台构建；不自动增加变异或 E2E |
+| 断言有效性存疑、安全/并发边界缺少回归证据 | 补针对性回归；需要验证断言能发现行为破坏时增加 `--with-mutation` |
+| 实际证书写入、重载、回滚或跨容器语义变化 | 增加 `--with-e2e`；Docker 实现/测试环境变化由规划器自动触发 |
+| 用户明确全量检查、正式发布前 | `--full`：全量 Go race/覆盖率、双平台 lint、三平台构建、治理契约、完整 E2E；变异仍按实际变更定向 |
 
-## 1. 确定性治理门禁
+文件路由只是初筛。阅读变更后补足自动规则无法判断的安全、并发和部署语义风险，简述升级理由；不能因为“可能有风险”就把所有小改升级。scanner 的纯解析修复可用定向回归证明；改变真实服务器路径或进程探测时补相关环境验证。无法运行的适用门禁报告阻塞，不能标为通过或偷偷降级。
 
 ```bash
-bash build/check-agent-config.sh
-bash build/test-release.sh
-bash -n build/build.sh build/generate-keys.sh build/sign-release.sh build/release.sh build/check-agent-config.sh build/test-release.sh
-git diff --check
+make finish-check
+# 需要先核对路由时，只预览一次：
+bash build/run-changed-checks.sh --base HEAD --plan-only
+# 选择了基线后，运行同一范围：
+bash build/run-changed-checks.sh --base HEAD
+# 按风险增加检查，参数可以组合：
+bash build/run-changed-checks.sh --base HEAD --with-mutation
+bash build/run-changed-checks.sh --base HEAD --with-e2e
+make finish-check-full
 ```
 
-该门禁必须验证：固定 `CLAUDE.md`、扁平 skill 路由、薄工具入口、无旧 skill 路径、CI 已执行治理检查；固定正式资产集合、SemVer、manifest、dev 可覆盖/main 不可覆盖、tag 后 resume 禁止构建和发布阶段全节点要求。
+以上是互斥或按需组合的入口示例，不是依次执行的步骤。`FINISH_CHECK_BASE` 也可设置基线，全部参数见 `--help`。修改期间已执行、且输入源码/测试/依赖/检查配置/相关环境未改变的同任务证据可以复用；若已有全部适用证据，不必为了 finish-check 名称再次运行脚本。发生新修改只重跑受影响门禁。历史耗时报告不是本轮通过凭据，正式发布仍要求当前精确提交的发布证据。
 
-## 2. 构建与版本注入
+## 执行边界
 
-在临时目录运行，避免复用 `dist/`：
+- `run-changed-checks.sh` 先跑便宜的相关契约，再跑 Go 检查，最后按计划运行 E2E/变异；任一阶段失败即退出非零。无需手动重复它已执行的命令。
+- Go race 与覆盖率在同一次 `go test` 中执行；定向日常检查不额外采集覆盖率。全量覆盖率只与同范围基线比较，不能拿局部包结果与历史整体 53.5% 比较或自动要求补测试。
+- lint 使用明确的 Linux/Windows 目标，gofmt 已由 `.golangci.yml` 检查。工具链以 `go.mod` 为准；升级时同步 CI、容器测试桩与相关契约。
+- 沙箱阻止 Go cache 或 httptest loopback 属环境问题。使用可写临时 `GOCACHE`/lint cache，在允许 loopback 的环境重跑受阻项；不修改测试迁就环境。
+- 需要构建时产物写临时目录。三平台交叉编译不代表真实 Windows 运行；修改版本注入时额外运行本机 `--version` 验证注入值，产物契约见 `skills/build-release.md`。
+- 完整 Docker E2E 是 Nginx/Apache × ubuntu/debian/alpine/rocky 的 8 项和 DinD；`--no-dind`/单环境只算定向证据，不能冒充发布门禁。异步 daemon 用例分别等待操作开始和目标回调完成。
+- 变异仅在显式选中、完整检查或独立 `make mutation`/CI 时运行。`gomutants v0.6.0`、RAM 隔离、changed-line 与稳定哨兵、20 分钟共享截止时间及失败判定保持不变，运行细节见 `build/README.md`。不升级全仓变异，不将超时、未经逐项证明等价的存活 mutant 或基础设施错误视为成功。人工等价仅按 `build/mutation-equivalents.json` 的精确条目和源码哈希校验；源码变化后重新证明，不豁免未覆盖或哨兵。
+- 普通检查不会修改 CI 的强门禁。正式发布仍遵守 `skills/remote-release.md` 与 `deploy-spec.md`，不以快速检查替代精确 commit CI/E2E、签名或全节点验收。
 
-```bash
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
-bash build/build.sh 0.0.0-test.1 "$tmp_dir"
-find "$tmp_dir" -maxdepth 1 -type f -print | sort
-```
+## 复核与停止
 
-必须生成三份固定 gzip 资产及对应未压缩二进制。在 Linux amd64 宿主直接解压代表资产并运行 `--version`；其他宿主使用相同 ldflags 额外构建本机临时二进制并运行，确认注入值为 `0.0.0-test.1`。交叉编译只证明三平台可构建，不冒充异平台运行证据。
+对照用户需求、diff 与直接影响链复核一次：部署成功是否实际生效，失败是否如实退出/回滚，安全与平台边界是否保持。发现分为“必须修复”“建议改进”“无关事项”，后两者不自动扩大本次工作。
 
-## 3. Go 测试、竞态与覆盖率
+所有适用验证通过且无验收阻塞即结束。不为普通局部修改强制创建计划、worktree、子代理或反复审核。最终说明范围/档位、实际通过项与耗时、未运行项及理由、剩余阻塞。提交前检查授权和分支，`git diff --check` 同时覆盖暂存区；不自动提交、推送或发布。
 
-```bash
-go test -race -count=1 ./...
-go test -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out | tail -1
-```
+## 自进化：用实际证据修正规则
 
-整体覆盖率基线为 53.5%；显著下降必须解释并补测试。沙箱若阻止 Go cache 或 `httptest` loopback，需在允许缓存与 loopback 的环境原样重跑，不能改代码或弱化测试迁就环境。
+运行器在忽略的 `.superpowers/finish-check/run.*/` 保存 `plan.json`、阶段 `timings.tsv` 和 `exit-code`；只记录路径、路由、耗时与状态，不保存敏感命令输出，不作自动跳检缓存。
 
-## 4. 双平台静态检查
+当用户指出过重/漏检，或出现重复误触发、无效检查、真实回归时，读取相关记录与 diff，判断是范围选择、重复执行、环境还是规则问题。无新证据时直接结束，不要求每次写反思或改 skill。
 
-```bash
-golangci-lint run --timeout=5m ./...
-GOOS=windows GOARCH=amd64 golangci-lint run --timeout=5m ./...
-```
-
-不得用无依据的 `nolint` 绕过。
-
-格式化已由 `.golangci.yml` 的 `formatters: gofmt` 门禁执行，未格式化会计入 issue 使本命令退出非零，`golangci-lint fmt` 可原地修复。CI 与本地都应使用 go.mod 钉死的 Go 1.24（`build/build.sh` 会强校验该约束）。
-
-注意：曾有「新版工具链会机械重排基线文件、故须用 1.24」的说法，2026-07-26 实测证伪——Go 1.24.13 与 1.26.5 的 gofmt 对本仓标记的文件集合完全一致，当时的 22 个文件只是从未格式化过。统一用 1.24 的理由是与发布产物、CI 保持同一工具链，不是规避重排。
-
-## 5. 领域审查
-
-按 `skills/SKILL.md` 路由复核受影响领域：
-
-- 部署链：成功必须代表实际生效；部分失败退出非零；test/reload 失败回滚；回调、pending 私钥、order_id、到期元数据与共享续签锁保持契约。
-- 安全：命令白名单、SSRF/DNS rebinding、路径/符号链接、原子写、权限、日志脱敏和 Ed25519 防降级未被削弱。
-- 跨平台：Linux/Windows build tag、服务生命周期和文件替换语义同步；交叉编译不冒充真实 Windows 运行证据。
-- 发布：三项正式资产、一次构建、持久 bundle、不可变 main、中断恢复、全节点一致性和 release gates 均由脚本测试与静态门禁覆盖。
-
-## 6. Docker E2E release gate
-
-发布相关、部署链或 Docker 语义变更时运行：
-
-```bash
-bash docker/test/scripts/run-tests-contract-test.sh
-bash docker/test/scripts/run-tests.sh
-```
-
-完整门禁包括 Nginx/Apache × ubuntu/debian/alpine/rocky 的 8 个常规任务和 DinD；`--no-dind` 仅用于调试。异步 daemon 用例必须分别等待操作启动和目标回调完成，不能把请求开始当作业务完成。
-
-仅文档/智能体路由/不触及运行代码的发布脚本治理，可将 Docker E2E 标为不适用，但仍须执行脚本 mock、三平台构建、Go tests、lint 与治理门禁。
-
-## 7. 最终复核与提交前证据
-
-```bash
-git diff --check
-git status --short --branch
-git diff --stat
-git diff
-git diff --stat "$base_ref"...HEAD
-git log --oneline "$base_ref"..HEAD
-git log --format=full "$base_ref"..HEAD
-git log -8 --oneline
-```
-
-逐条对照用户需求和 `deploy-spec.md` 受影响条款；只在所有适用命令本轮退出 0 后声明完成。提交前再次确认当前分支和授权范围；提交后检查 commit 内容与工作区状态。除非用户明确要求，不推送。
+- 对已证实且能定向验证的问题，允许在本仓就地修正现有叶子资源/规划器，作为普通 diff 交付；优先删除过时或重复规则，不新增一套流程。只有项目级长期行为才写 AGENTS。
+- 调整路由时补一个实际误触发/漏检场景及对应高风险反例，验证快速路径变轻、强门禁仍可达；文案澄清只需引用和场景复核，不强制代码测试。
+- 一次只解决有证据的问题，不把一次耗时或瞬时环境故障变成永久豁免。失败先处理根因，禁止为得到绿色结果降低断言、忽略错误或放宽超时判定。
+- 不自动改变用户授权、安全边界、`deploy-spec.md`、发布契约或 CI 强门禁；不修改其他仓库、全局 skill 或个人记忆。涉及这些边界时提出具体变更及理由，等待对应授权。
+- 更新后仅重跑受影响检查，说明改了哪条规则、依据及验证；不触发递归自我审核或无限优化。

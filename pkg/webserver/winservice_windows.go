@@ -61,6 +61,45 @@ func FindWebServerService(matchSubstr, processName string) string {
 	return ""
 }
 
+// FindWebServerServiceForExecutable 只返回 BinaryPath 精确指向 executable 的服务。
+// 多套同名 Web 服务器共存时，不能仅凭服务名或任一同名运行进程判定。
+func FindWebServerServiceForExecutable(matchSubstr, executable string) string {
+	if matchSubstr == "" || executable == "" {
+		return ""
+	}
+	needle := strings.ToLower(matchSubstr)
+	m, err := mgr.Connect()
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = m.Disconnect() }()
+
+	names, err := m.ListServices()
+	if err != nil {
+		return ""
+	}
+	for _, name := range names {
+		s, err := m.OpenService(name)
+		if err != nil {
+			continue
+		}
+		cfg, cfgErr := s.Config()
+		_ = s.Close()
+		if cfgErr != nil {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(name), needle) &&
+			!strings.Contains(strings.ToLower(cfg.BinaryPathName), needle) {
+			continue
+		}
+		serviceExe := extractServiceExePath(cfg.BinaryPathName)
+		if serviceExecutableMatchesTarget(serviceExe, executable) {
+			return name
+		}
+	}
+	return ""
+}
+
 // isServiceMatching 打开服务并判断：
 //   - BinaryPathName 是否包含 needle（小写）
 //   - BinaryPath 指向的 exe 文件是否存在

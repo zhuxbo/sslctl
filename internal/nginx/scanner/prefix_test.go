@@ -115,6 +115,14 @@ func TestPrefixCandidates(t *testing.T) {
 	}
 }
 
+func TestWindowsConfigPathForExecutableKeepsInstanceDirectory(t *testing.T) {
+	got := windowsConfigPathForExecutable(`G:\soft\nginx-1.26.3\nginx.exe`)
+	want := `G:\soft\nginx-1.26.3\conf\nginx.conf`
+	if got != want {
+		t.Fatalf("windowsConfigPathForExecutable() = %q, want %q", got, want)
+	}
+}
+
 // TestPrefixUnknownErrorWrapping 验证 errors.As 能捕获 PrefixUnknownError
 func TestPrefixUnknownErrorWrapping(t *testing.T) {
 	orig := &sslerrors.PrefixUnknownError{

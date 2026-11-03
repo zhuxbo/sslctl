@@ -12,7 +12,7 @@ import (
 )
 
 // TestDeploySingleBindings_PermanentErrorDisablesBinding 永久性错误（绑定配置本身有问题）
-// 才禁用绑定：Docker 站点未挂载卷属于必须重新配置的情形。
+// 才禁用绑定：Docker 站点缺少容器命令属于必须重新配置的情形。
 func TestDeploySingleBindings_PermanentErrorDisablesBinding(t *testing.T) {
 	tmpDir := t.TempDir()
 	testCert, err := certs.GenerateValidCert("docker.example.com", nil)
@@ -24,7 +24,7 @@ func TestDeploySingleBindings_PermanentErrorDisablesBinding(t *testing.T) {
 		ServerName: "docker.example.com",
 		ServerType: config.ServerTypeDockerNginx,
 		Enabled:    true,
-		// copy 模式（证书目录未挂载为宿主机卷）：ValidateDockerBinding 失败 → Config@write_cert
+		// copy 绑定缺少容器检查/重载命令：ValidateDockerBinding 失败 → Config@write_cert
 		Docker: &config.DockerInfo{ContainerName: "web", DeployMode: "copy"},
 		Paths: config.BindingPaths{
 			Certificate: filepath.Join(tmpDir, "docker", "cert.pem"),

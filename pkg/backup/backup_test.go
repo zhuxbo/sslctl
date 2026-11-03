@@ -490,8 +490,8 @@ func TestManager_Restore(t *testing.T) {
 	}
 }
 
-// TestManager_Restore_ChainPathSymlink 测试恢复时 ChainPath 为符号链接
-func TestManager_Restore_ChainPathSymlink(t *testing.T) {
+// TestManager_Restore_ChainTargetChanged 测试恢复时证书链目标被改向
+func TestManager_Restore_ChainTargetChanged(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
@@ -516,18 +516,18 @@ func TestManager_Restore_ChainPathSymlink(t *testing.T) {
 	_ = os.WriteFile(targetFile, []byte("target"), 0644)
 	_ = os.Symlink(targetFile, chainPath)
 
-	// 恢复应拒绝（因为 ChainPath 是符号链接）
+	// 恢复应拒绝（目标与备份记录不一致）
 	_, err = m.Restore("example.com")
 	if err == nil {
-		t.Fatal("Restore() should reject symlink ChainPath")
+		t.Fatal("Restore() should reject changed chain target")
 	}
-	if !strings.Contains(err.Error(), "符号链接") {
+	if !strings.Contains(err.Error(), "链接") {
 		t.Errorf("error should mention symlink, got: %v", err)
 	}
 }
 
-// TestManager_Restore_CertPathSymlink 测试恢复时 CertPath 为符号链接
-func TestManager_Restore_CertPathSymlink(t *testing.T) {
+// TestManager_Restore_CertTargetChanged 测试恢复时证书目标被改向
+func TestManager_Restore_CertTargetChanged(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
 	srcDir := filepath.Join(dir, "src")
@@ -553,9 +553,9 @@ func TestManager_Restore_CertPathSymlink(t *testing.T) {
 	// 恢复应拒绝
 	_, err = m.Restore("example.com")
 	if err == nil {
-		t.Fatal("Restore() should reject symlink CertPath")
+		t.Fatal("Restore() should reject changed certificate target")
 	}
-	if !strings.Contains(err.Error(), "符号链接") {
+	if !strings.Contains(err.Error(), "链接") {
 		t.Errorf("error should mention symlink, got: %v", err)
 	}
 }
@@ -665,7 +665,7 @@ func TestComputeFileHash_NotExist(t *testing.T) {
 	}
 }
 
-// TestManager_Backup_SourceSymlink 测试 Backup 在源文件为符号链接时失败
+// TestManager_Backup_SourceSymlink 测试 Backup 备份链接指向的内容
 func TestManager_Backup_SourceSymlink(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
@@ -687,10 +687,10 @@ func TestManager_Backup_SourceSymlink(t *testing.T) {
 
 	m := NewManager(backupDir, 3)
 
-	// 证书文件为符号链接时备份应失败
+	// 证书文件为符号链接时备份内容并保留链接
 	_, err := m.Backup("example.com", symlinkCert, realKeyPath, nil)
-	if err == nil {
-		t.Error("Backup() 应在源文件为符号链接时失败")
+	if err != nil {
+		t.Errorf("Backup() 应支持符号链接: %v", err)
 	}
 }
 
@@ -1072,7 +1072,7 @@ func TestListBackups_ReadDirError(t *testing.T) {
 	}
 }
 
-// TestBackup_KeySymlink 测试 cert 正常但 key 为符号链接时备份失败
+// TestBackup_KeySymlink 测试私钥软链接备份
 func TestBackup_KeySymlink(t *testing.T) {
 	dir := t.TempDir()
 	backupDir := filepath.Join(dir, "backup")
@@ -1093,11 +1093,8 @@ func TestBackup_KeySymlink(t *testing.T) {
 	m := NewManager(backupDir, 3)
 
 	_, err := m.Backup("example.com", certPath, keyPath, nil)
-	if err == nil {
-		t.Error("Backup() should fail when key is symlink")
-	}
-	if !strings.Contains(err.Error(), "failed to hash private key file") {
-		t.Errorf("error should mention key hash failure, got: %v", err)
+	if err != nil {
+		t.Fatalf("Backup key symlink: %v", err)
 	}
 }
 

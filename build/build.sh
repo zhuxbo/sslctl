@@ -22,7 +22,7 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 [[ -f "$SOURCE_DIR/go.mod" && -d "$SOURCE_DIR/cmd" ]] || { echo "错误: 构建源快照无效: $SOURCE_DIR" >&2; exit 1; }
 TOOLCHAIN="$(awk '$1 == "toolchain" { print $2; exit }' "$SOURCE_DIR/go.mod")"
-[[ "$TOOLCHAIN" =~ ^go1\.24\.[0-9]+$ ]] || { echo "错误: go.mod 必须固定 Go 1.24 patch toolchain" >&2; exit 1; }
+[[ "$TOOLCHAIN" =~ ^go1\.26\.[0-9]+$ ]] || { echo "错误: go.mod 必须固定 Go 1.26 patch toolchain" >&2; exit 1; }
 if [[ -e "$OUTPUT_DIR" && -n "$(find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
     echo "错误: 输出目录必须为空，防止混入旧产物: $OUTPUT_DIR" >&2
     exit 1

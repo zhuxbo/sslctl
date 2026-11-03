@@ -90,6 +90,53 @@ fi
 
 grep -Fq 'bash build/check-agent-config.sh' .github/workflows/ci.yml || fail "CI 未执行智能体防漂移检查"
 grep -Fq 'bash build/test-release.sh' .github/workflows/ci.yml || fail "CI 未执行发布行为回归检查"
+[[ "$(grep -Fc "go-version: '1.26.8'" .github/workflows/ci.yml)" == 4 ]] || fail "CI Go 版本未全部固定为 1.26.8"
+[[ "$(grep -Fc "go-version: '1.26.8'" .github/workflows/e2e.yml)" == 2 ]] || fail "E2E Go 版本未全部固定为 1.26.8"
+grep -Fxq 'FROM golang:1.26.8-alpine AS builder' docker/test/mock-api/Dockerfile || fail "mock API Go 版本未固定为 1.26.8"
+grep -Fq 'github.com/szhekpisov/gomutants@v0.6.0' .github/workflows/mutation.yml || fail "mutation CI 未固定 gomutants 版本"
+grep -Fq "go-version: '1.26.8'" .github/workflows/mutation.yml || fail "mutation CI 未固定 Go 1.26.8"
+grep -Fq 'MUTATION_RAM_ROOT: /dev/shm' .github/workflows/mutation.yml || fail "mutation CI 未使用 tmpfs"
+grep -Fq 'build/.gomutants-cache.json' .github/workflows/mutation.yml || fail "mutation CI 未复用小型 gomutants 缓存"
+grep -Fq 'make mutation-test' .github/workflows/mutation.yml || fail "mutation CI 未验证规划与 RAM 隔离契约"
+grep -Fq 'FINISH_CHECK_BASE="$finish_base" make mutation' .github/workflows/mutation.yml || fail "mutation CI 未执行定向门禁"
+grep -Fq 'git cat-file -e "$BEFORE_SHA:.github/workflows/mutation.yml"' .github/workflows/mutation.yml || fail "mutation CI 缺少首次启用基线保护"
+grep -Fq 'if ! git cat-file -e "$BEFORE_SHA^{commit}"' .github/workflows/mutation.yml || fail "mutation CI 在 push 基线不可解析时未失败关闭"
+[[ "$(grep -Fc "      - 'Makefile'" .github/workflows/mutation.yml)" == 2 ]] || fail "mutation CI 未监听 Makefile"
+[[ "$(grep -Fc "      - 'build/test-check-planner.sh'" .github/workflows/mutation.yml)" == 2 ]] || fail "mutation CI 未监听规划器契约"
+if grep -Fq 'cancel-in-progress: true' .github/workflows/mutation.yml; then
+    fail "mutation CI 不得取消尚未完成的 push 门禁"
+fi
+if grep -Eq '^[[:space:]]+(schedule:|workflow_dispatch:|matrix:)' .github/workflows/mutation.yml; then
+    fail "mutation CI 不应包含全量调度或分片矩阵"
+fi
+for mutation_file in \
+    build/plan-checks.py \
+    build/run-changed-checks.sh \
+    build/run-mutation.sh \
+    build/test-check-planner.sh \
+    build/test-mutation.sh \
+    build/mutation-canaries.txt; do
+    [[ -f "$mutation_file" ]] || fail "缺少 mutation 文件: $mutation_file"
+done
+python3 - <<'PY' || fail "mutation 哨兵清单无效"
+from collections import Counter
+from pathlib import Path
+
+entries = []
+for number, raw in enumerate(Path("build/mutation-canaries.txt").read_text().splitlines(), 1):
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    fields = line.split("\t")
+    assert len(fields) == 2, f"line {number}: expected package<TAB>mutant-id"
+    package, mutant_id = fields
+    assert package.startswith("./"), f"line {number}: invalid package"
+    assert mutant_id, f"line {number}: empty mutant id"
+    entries.append((package, mutant_id))
+assert 1 <= len(entries) <= 14, f"expected 1..14 mutation canaries, got {len(entries)}"
+assert len({mutant_id for _, mutant_id in entries}) == len(entries)
+assert max(Counter(package for package, _ in entries).values()) <= 3
+PY
 
 for name in sslctl-linux-amd64.gz sslctl-linux-arm64.gz sslctl-windows-amd64.exe.gz; do
     grep -Fq "$name" skills/build-release.md || fail "构建 Skill 缺少正式资产: $name"

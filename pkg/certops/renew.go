@@ -840,7 +840,7 @@ func (s *Service) discardLocalCSRIntent(cert *config.CertConfig, nextState strin
 
 // matchingActiveKey 仅从服务端返回私钥和线上正式私钥中寻找 active 证书的配对私钥。
 // 旧 pending 已被服务端 CSR 证明不属于当前签发结果，不能再参与候选。
-func (s *Service) matchingActiveKey(cert *config.CertConfig, certData *fetcher.CertData, keyPath string) (string, bool) {
+func (s *Service) matchingActiveKey(ctx context.Context, cert *config.CertConfig, certData *fetcher.CertData, keyPath string) (string, bool) {
 	if certData.PrivateKey != "" {
 		if err := validator.New("").ValidateCertKeyPair(certData.Cert, certData.PrivateKey); err == nil {
 			return certData.PrivateKey, true
@@ -849,11 +849,11 @@ func (s *Service) matchingActiveKey(cert *config.CertConfig, certData *fetcher.C
 	if keyPath == "" {
 		return "", false
 	}
-	keyData, err := util.SafeReadFile(keyPath, config.MaxPrivateKeySize)
+	keyData, err := ReadBindingPrivateKey(ctx, pickKeyBinding(cert))
 	if err != nil {
 		return "", false
 	}
-	privateKey := string(keyData)
+	privateKey := consumePrivateKey(keyData)
 	if err := validator.New("").ValidateCertKeyPair(certData.Cert, privateKey); err != nil {
 		return "", false
 	}
@@ -1060,7 +1060,7 @@ func (s *Service) retryFailedBindings(ctx context.Context, cert *config.CertConf
 
 	// pending 感知：续签部署全失败后 pending 私钥尚未转正，重试须能读到它，
 	// 否则旧私钥与新证书配对必败，站点走向真实过期
-	privateKey, err := GetPrivateKeyForCert(s.cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, s.log)
+	privateKey, err := GetPrivateKeyForCert(ctx, s.cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, s.log)
 	if err != nil {
 		s.log.Warn("重试失败绑定: 获取私钥失败: %v", err)
 		if exhausted {
@@ -1350,7 +1350,7 @@ func (s *Service) preparePullRenew(ctx context.Context, cert *config.CertConfig,
 	}
 
 	// 获取私钥：优先使用 API 返回，否则从本地读取（pending 感知，配对校验）
-	privateKey, err := GetPrivateKeyForCert(s.cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, s.log)
+	privateKey, err := GetPrivateKeyForCert(ctx, s.cfgManager.GetWorkDir(), cert, certData.Cert, certData.PrivateKey, s.log)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1432,7 +1432,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 					}
 					privateKey := ""
 					matched := false
-					privateKey, matched = s.matchingActiveKey(cert, certData, keyPath)
+					privateKey, matched = s.matchingActiveKey(ctx, cert, certData, keyPath)
 					nextState := ""
 					if matched {
 						nextState = config.IssueStateActive
@@ -1495,7 +1495,7 @@ func (s *Service) prepareLocalRenew(ctx context.Context, cert *config.CertConfig
 				if !localIntent {
 					// 跟随其它服务端在途动作或历史状态时，先用 API/正式私钥。
 					// 遗留 orphan pending 即使清理失败，也不能阻断已知可部署私钥。
-					if privateKey, matched := s.matchingActiveKey(cert, certData, keyPath); matched {
+					if privateKey, matched := s.matchingActiveKey(ctx, cert, certData, keyPath); matched {
 						return certData, privateKey, nil
 					}
 					if privateKey, err := readPendingKey(workDir, cert.CertName); err == nil {
@@ -1864,6 +1864,29 @@ func CommitPendingKeyIfMatches(workDir string, cert *config.CertConfig, deployed
 		}
 		return
 	}
+	if hasDockerCopyBinding(cert) {
+		ctx, cancel := context.WithTimeout(context.Background(), RollbackBudget)
+		defer cancel()
+		for i := range cert.Bindings {
+			binding := &cert.Bindings[i]
+			if !binding.Enabled {
+				continue
+			}
+			current, readErr := ReadBindingPrivateKey(ctx, binding)
+			matches := matchPrivateKeyAndClear(current, deployedKey) && readErr == nil
+			if matches {
+				if err := cleanupPendingKey(workDir, cert.CertName); err != nil && log != nil {
+					log.Warn("清理 pending 私钥失败: %v", err)
+				}
+				return
+			}
+		}
+		if log != nil {
+			log.Warn("正式私钥尚未确认，保留 pending 私钥")
+		}
+		return
+	}
+
 	keyPath := pickKeyPath(cert)
 	if keyPath == "" {
 		return

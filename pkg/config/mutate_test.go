@@ -2,9 +2,133 @@
 package config
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestRemoveSite_RemovesBindingStateAndOrphanCertificate(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+
+	cfg := &Config{Certificates: []CertConfig{
+		{
+			CertName: "shared-cert",
+			Enabled:  true,
+			Bindings: []SiteBinding{
+				{ServerName: "remove.example.com", Enabled: true},
+				{ServerName: "keep.example.com", Enabled: true},
+			},
+			Metadata: CertMetadata{
+				FailedBindings: []string{"remove.example.com", "keep.example.com"},
+				StaleBindings:  []string{"remove.example.com", "keep.example.com"},
+			},
+		},
+		{
+			CertName: "orphan-cert",
+			Enabled:  true,
+			Bindings: []SiteBinding{{ServerName: "remove.example.com", Enabled: true}},
+		},
+	}}
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	result, err := cm.RemoveSite("remove.example.com")
+	if err != nil {
+		t.Fatalf("RemoveSite() error = %v", err)
+	}
+	if result.RemovedBindings != 2 {
+		t.Fatalf("RemovedBindings = %d, want 2", result.RemovedBindings)
+	}
+	if len(result.RemovedCertificates) != 1 || result.RemovedCertificates[0].CertName != "orphan-cert" {
+		t.Fatalf("RemovedCertificates = %+v, want orphan-cert", result.RemovedCertificates)
+	}
+
+	after, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(after.Certificates) != 1 || after.Certificates[0].CertName != "shared-cert" {
+		t.Fatalf("Certificates = %+v, want shared-cert only", after.Certificates)
+	}
+	cert := after.Certificates[0]
+	if len(cert.Bindings) != 1 || cert.Bindings[0].ServerName != "keep.example.com" {
+		t.Fatalf("Bindings = %+v, want keep.example.com only", cert.Bindings)
+	}
+	if len(cert.Metadata.FailedBindings) != 1 || cert.Metadata.FailedBindings[0] != "keep.example.com" {
+		t.Fatalf("FailedBindings = %v, want keep.example.com only", cert.Metadata.FailedBindings)
+	}
+	if len(cert.Metadata.StaleBindings) != 1 || cert.Metadata.StaleBindings[0] != "keep.example.com" {
+		t.Fatalf("StaleBindings = %v, want keep.example.com only", cert.Metadata.StaleBindings)
+	}
+}
+
+func TestRemoveSite_MissingTargetDoesNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+	if err := cm.AddCert(&CertConfig{
+		CertName: "keep-cert",
+		Bindings: []SiteBinding{{ServerName: "keep.example.com", Enabled: true}},
+	}); err != nil {
+		t.Fatalf("AddCert() error = %v", err)
+	}
+	before, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	_, err = cm.RemoveSite("missing.example.com")
+	if !errors.Is(err, ErrSiteNotFound) {
+		t.Fatalf("RemoveSite() error = %v, want ErrSiteNotFound", err)
+	}
+	after, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !after.Metadata.UpdatedAt.Equal(before.Metadata.UpdatedAt) {
+		t.Fatal("missing site must not rewrite config")
+	}
+	if len(after.Certificates) != 1 || after.Certificates[0].CertName != "keep-cert" {
+		t.Fatalf("missing site changed config: %+v", after.Certificates)
+	}
+}
+
+func TestRemoveCertificate_RemovesEveryMatchingRecord(t *testing.T) {
+	dir := t.TempDir()
+	cm, err := NewConfigManagerWithDir(dir)
+	if err != nil {
+		t.Fatalf("NewConfigManagerWithDir() error = %v", err)
+	}
+	if err := cm.Save(&Config{Certificates: []CertConfig{
+		{CertName: "duplicate-cert", Bindings: []SiteBinding{{ServerName: "a.example.com"}}},
+		{CertName: "keep-cert", Bindings: []SiteBinding{{ServerName: "keep.example.com"}}},
+		{CertName: "duplicate-cert", Bindings: []SiteBinding{{ServerName: "b.example.com"}}},
+	}}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	removed, err := cm.RemoveCertificate("duplicate-cert")
+	if err != nil {
+		t.Fatalf("RemoveCertificate() error = %v", err)
+	}
+	if len(removed) != 2 || removed[0].Bindings[0].ServerName != "a.example.com" || removed[1].Bindings[0].ServerName != "b.example.com" {
+		t.Fatalf("removed = %+v, want both duplicate-cert records", removed)
+	}
+	after, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(after.Certificates) != 1 || after.Certificates[0].CertName != "keep-cert" {
+		t.Fatalf("Certificates = %+v, want keep-cert only", after.Certificates)
+	}
+}
 
 // TestUpdate_SeesExternalModification 验证写路径感知外部修改：
 // 两个 ConfigManager 指向同一文件（模拟 CLI 与 daemon 两进程），

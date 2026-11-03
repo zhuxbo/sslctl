@@ -1,8 +1,8 @@
 module github.com/zhuxbo/sslctl
 
-go 1.24.0
+go 1.26.0
 
-toolchain go1.24.11
+toolchain go1.26.8
 
 require (
 	golang.org/x/net v0.49.0

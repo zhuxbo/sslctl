@@ -222,6 +222,23 @@ func TestValidateCertKeyPair_ECMatch(t *testing.T) {
 	}
 }
 
+// TestValidateCertKeyPair_ECMismatch 测试不匹配的 EC 证书和私钥
+func TestValidateCertKeyPair_ECMismatch(t *testing.T) {
+	cert1, err := certs.GenerateECCert("example1.com", nil)
+	if err != nil {
+		t.Fatalf("生成 EC 测试证书 1 失败: %v", err)
+	}
+	cert2, err := certs.GenerateECCert("example2.com", nil)
+	if err != nil {
+		t.Fatalf("生成 EC 测试证书 2 失败: %v", err)
+	}
+
+	v := New("")
+	if err := v.ValidateCertKeyPair(cert1.CertPEM, cert2.KeyPEM); err == nil {
+		t.Error("期望不匹配的 EC 证书和私钥验证失败，但实际通过")
+	}
+}
+
 // TestValidateCertKeyPair_InvalidCert 测试无效证书
 func TestValidateCertKeyPair_InvalidCert(t *testing.T) {
 	testCert, _ := certs.GenerateValidCert("example.com", nil)

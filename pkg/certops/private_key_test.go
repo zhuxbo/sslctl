@@ -16,7 +16,7 @@ func TestGetPrivateKey_APIProvided(t *testing.T) {
 		},
 	}
 
-	key, err := GetPrivateKey(cert, "api-private-key", nil)
+	key, err := GetPrivateKey(t.Context(), cert, "api-private-key", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestGetPrivateKey_LocalFallback(t *testing.T) {
 	}
 
 	log := logger.NewNopLogger()
-	key, err := GetPrivateKey(cert, "", log)
+	key, err := GetPrivateKey(t.Context(), cert, "", log)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestGetPrivateKey_NoKeyPath(t *testing.T) {
 		Bindings: []config.SiteBinding{},
 	}
 
-	_, err := GetPrivateKey(cert, "", nil)
+	_, err := GetPrivateKey(t.Context(), cert, "", nil)
 	if err == nil {
 		t.Error("expected error for no key path")
 	}
@@ -68,7 +68,7 @@ func TestGetPrivateKey_FileNotExist(t *testing.T) {
 		},
 	}
 
-	_, err := GetPrivateKey(cert, "", nil)
+	_, err := GetPrivateKey(t.Context(), cert, "", nil)
 	if err == nil {
 		t.Error("expected error for nonexistent file")
 	}

@@ -102,7 +102,22 @@ sslctl rollback --site example.com --list       # 查看备份列表
 sslctl rollback --site example.com --version 20240101-120000  # 回滚到指定版本
 ```
 
-回滚前会自动备份当前文件，包含符号链接防护。
+回滚前会自动备份当前文件。支持宿主机证书、私钥及 Apache 独立证书链的软链接（包括 Let’s Encrypt `live/` → `archive/` 布局）：备份保存实际内容，部署和回滚原子替换当前真实文件，保留链接及其指向，不修改 Certbot 续签配置。
+
+若操作期间续签程序切换链接，或回滚时链接已指向与备份记录不同的版本，将报错中止，避免覆盖新版本；旧备份没有链接目标记录时不允许恢复到软链接。悬空链接、循环链接和特殊文件不支持。证书及私钥仍是逐文件写入，外部续签应与 sslctl 错开执行。
+
+### 解除站点或证书管理
+
+```bash
+sslctl cleanup --site example.com              # 解除指定站点管理
+sslctl cleanup --cert example.com-12345        # 解除指定证书管理
+sslctl cleanup --site example.com --yes        # 跳过交互确认
+sslctl cleanup --list                          # 列出全部受管证书和站点绑定
+```
+
+`--list` 是只读操作，单独使用时列出所有证书记录（包括禁用和重复记录）以及每一条站点绑定。执行清理时，`--site` 与 `--cert` 必须且只能指定一个。按站点清理会移除该站点绑定及相关失败、陈旧状态；如果证书因此失去最后一个绑定，该证书管理记录也会删除。按证书清理会移除证书管理记录、关联站点的内部备份及 pending 私钥。
+
+清理只解除 sslctl 的管理关系，不修改 Web 服务器配置，也不删除当前部署的证书、私钥、证书链或外部验证文件；即使在线证书位于 `/opt/sslctl/certs/` 下也会保留。命令需要 root/管理员权限，且与 setup、deploy、daemon 续签共用互斥锁。
 
 **其他命令:**
 
@@ -114,6 +129,9 @@ sslctl status                                        # 查看服务状态（含�
 sslctl upgrade                                       # 升级到最新版本
 sslctl upgrade --check                               # 检查更新
 sslctl service repair                                # 修复 systemd 服务
+sslctl cleanup --site example.com                    # 解除指定站点管理
+sslctl cleanup --cert example.com-12345              # 解除指定证书管理
+sslctl cleanup --list                                # 列出全部受管证书和站点绑定
 sslctl --debug scan                                  # 调试模式
 sslctl uninstall                                     # 卸载（交互确认是否清理配置）
 ```
@@ -129,9 +147,9 @@ sslctl uninstall                                     # 卸载（交互确认是�
 
 CI 覆盖 linux/amd64、linux/arm64、windows/amd64 三平台交叉编译验证。
 
-开发与发布的权威入口：项目规则见 `AGENTS.md`，任务路由见 `skills/SKILL.md`；构建/签名契约见 `skills/build-release.md`，远程发布与中断恢复见 `skills/remote-release.md`，完整完成检查见 `skills/finish-check.md`。脚本参数速查见 `build/README.md`。发布规则不在 README 中重复维护。
+开发与发布的权威入口：项目规则见 `AGENTS.md`，任务路由见 `skills/SKILL.md`；构建/签名契约见 `skills/build-release.md`，远程发布与中断恢复见 `skills/remote-release.md`，分级完成检查与规则自进化见 `skills/finish-check.md`。脚本参数速查见 `build/README.md`。发布规则不在 README 中重复维护。
 
-支持自动检测 Docker 容器 Nginx；统一 setup/deploy/续签自动链当前只支持可验证宿主机路径的挂载卷模式。
+支持自动检测 Docker 容器 Nginx；setup/deploy/续签支持宿主机挂载卷和已有 HTTPS 站点的 copy 模式。
 
 ## Debug 模式
 
@@ -168,14 +186,14 @@ sslctl --debug deploy --cert <cert_name> --site example.com
 - **并发安全**：配置读取返回深拷贝，mtime + SHA256 哈希检测外部修改自动重载，防止并发修改污染
 - **配置保存安全**：拒绝写入符号链接目标，防止任意文件覆盖
 - **路径验证**：Docker 容器路径参数严格验证，防止命令注入；挂载路径精确匹配防止误匹配
-- **备份 TOCTOU 保护**：使用文件哈希校验检测并发修改，确保备份一致性；恢复时内部备份跳过清理，防止目标备份被删除；备份源文件符号链接检查，拒绝备份符号链接目标；`siteName`/`timestamp` 路径穿越防护
+- **备份 TOCTOU 保护**：使用文件哈希校验检测并发修改，确保备份一致性；恢复时内部备份跳过清理，防止目标备份被删除；证书软链接固定真实目标并保留链接，目标变化时中止；`siteName`/`timestamp` 路径穿越防护
 - **扫描防护**：Nginx/Apache/Docker 扫描器文件数量限制（1000）+ 深度限制（100）+ 文件大小限制（10MB），防止恶意配置耗尽资源
 - **升级安全**：gzip 解压大小限制，防止 gzip 炸弹攻击；Ed25519 数字签名验证（按文件名索引签名，密钥环支持多公钥 + key ID，空密钥环拒绝验证，已配置公钥时拒绝未签名版本防止降级攻击），防止供应链攻击；先停服务再替换二进制，失败时恢复服务；Windows 上 rename 策略替换运行中 exe；安装时符号链接防护；临时文件保持 0600 仅在最终路径设置 0755；通道白名单防止路径遍历；密钥不匹配时提示用 install.sh 重装
 - **临时目录安全**：临时目录权限设置为 0700
 - **日志目录安全**：日志目录权限设置为 0700
 - **配置文件锁**：文件锁在操作前获取，确保原子性和一致性
 - **部署回滚**：部署失败自动回滚到备份（通过抽象层接口），回滚失败时提供手动恢复命令
-- **私钥保护**：本机提交下，新私钥先保存到临时位置，签发成功后再替换；所有私钥写入统一使用 AtomicWrite
+- **私钥保护**：本机提交下，新私钥先保存到临时位置，签发成功后再替换；私钥写入使用临时文件 + 原子替换（0600）
 - **SELinux 兼容**：部署后自动恢复文件安全上下文（restorecon），非 SELinux 环境静默跳过
 - **IDN/Punycode 支持**：域名匹配器自动转换国际化域名
 - **证书过期告警**：守护进程周期检查证书过期时间，7 天/13 天阈值输出告警日志
@@ -294,6 +312,8 @@ sslctl status
 
 ## Docker 支持
 
+Nginx 容器扫描直接按已发现的容器 ID 执行 `docker exec`，包括由 Compose 创建的容器，无需安装独立的 `docker-compose` 命令，也不依赖原始 Compose 文件。
+
 ```bash
 sslctl scan              # 自动检测本地或 Docker
 sslctl deploy --cert <cert_name> --site example.com  # 根据配置选择部署方式
@@ -321,16 +341,17 @@ Docker 站点绑定由通用路径、重载命令和 `docker` 字段共同描述
 }
 ```
 
-配置结构允许记录 `volume`（挂载卷）或 `copy`（docker cp）；当前 setup/deploy/续签统一自动部署链只接受可验证宿主机路径的 `volume` 绑定。
+配置支持 `volume`（写入已验证的宿主机挂载路径）和 `copy`（通过 Docker 在容器内读写）。扫描优先选择可映射宿主机路径的 `volume`；Nginx 证书未挂载到宿主机或使用命名卷时，可使用 `copy`。
+
+`copy` 模式的 `paths.certificate` 和 `paths.private_key` 必须是容器内已有证书、私钥的绝对路径；部署时持久备份原文件，两份新文件暂存成功后替换，再执行容器内 `nginx -t` 和 `nginx -s reload`。失败会恢复旧文件并重新检查、重载。API 不返回私钥时，从容器读取现有私钥；本地 CSR 续签也支持 pending 私钥。`sslctl rollback --site <站点>` 可以恢复容器备份。
+
+第一阶段仅支持已有 HTTPS 配置的 Nginx，要求容器具有 `sh`、`stat`、`head`、`mktemp` 等标准工具，并允许通过 Docker 以 root 执行文件操作。证书文件及父目录不能是符号链接；只读、单文件和 tmpfs 挂载不支持 copy。暂不支持 Apache copy、新建容器 HTTPS 配置或容器内文件验证，请使用 DNS 委托验证。
+
+容器可写层中的证书会随容器删除而消失；重建容器后需恢复原 HTTPS 文件布局并重新部署。命名卷中的文件可随卷保留，sslctl 不自动修复容器重建。
 
 ### 存量 Docker 绑定升级说明
 
-自动部署链（setup/deploy/续签）现在对 Docker 站点执行部署前校验：要求证书目录挂载为宿主机卷（`volume` 模式）且具备容器化重载命令（`docker exec <容器> nginx -s reload` 等）。不满足的绑定会**如实报失败**，而不再像旧版本那样静默写错位置并误报成功。
-
-由旧版本 setup 创建的存量 Docker 绑定（copy 模式、或缺少容器重载命令）升级后会持续报部署失败，属预期行为。处理方式：
-
-- 重新执行 `sslctl setup` 让扫描器补齐容器命令与宿主机挂载路径校验；
-- 证书目录未挂载为卷的容器，需调整容器挂载后重跑 setup（copy 模式暂不支持自动部署链）。
+重新执行 `sslctl setup` 可补齐容器名称、部署模式和容器内检查/重载命令。旧配置中若 copy 路径曾被写成宿主机路径，应重新扫描；缺少容器信息或命令的绑定会明确失败。
 
 已知项：Apache 容器内若仅有 `httpd`/`apache2ctl` 而无 `apachectl`，容器重载会明确报错（不会误报成功），容器内命令自动探测待后续版本支持。
 

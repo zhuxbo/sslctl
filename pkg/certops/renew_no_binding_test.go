@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
+	"github.com/zhuxbo/sslctl/pkg/fetcher"
 	"github.com/zhuxbo/sslctl/pkg/logger"
 )
 
@@ -495,6 +496,11 @@ func TestRetryFailedBindings_FrontFailuresTerminate(t *testing.T) {
 				t.Fatalf("创建配置管理器失败: %v", err)
 			}
 			svc := NewService(cm, logger.NewNopLogger())
+			// 本用例检查轮次配额，保留传输重试次数，但无需等待真实秒级退避。
+			retry := fetcher.DefaultRetryConfig
+			retry.InitialWait = time.Millisecond
+			retry.MaxWait = 4 * time.Millisecond
+			svc.fetcher = fetcher.NewWithRetry(retry)
 
 			apiURL := "http://127.0.0.1:1"
 			if !tc.apiDown {

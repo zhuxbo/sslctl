@@ -1,5 +1,7 @@
 # 部署运维规范
 
+这是领域参考，按任务读取相关章节：CLI/服务、Manager API、部署链与回调、续签、集成测试。示例命令不表示执行授权；本地验证由 `skills/finish-check.md` 决定，外部写入测试需对应授权。
+
 ## 安装方式
 
 ### 一键安装
@@ -313,7 +315,7 @@ sslctl                    Manager API                    CA
 - **手动 `sslctl deploy` 上报一次部署结果**（deploy-spec §5.1 步骤 6）：CLI 无 deadline，回调显式限定 `certops.CallbackFallbackBudget`（90s）。
 - **回调脱离取消传播**（`certops.callbackContext`）：回调是部署结果的唯一出口，父 ctx 取消（daemon SIGTERM、检查超时）时沿用会让整轮结果凭空消失，因此基于 `context.WithoutCancel` 重建，并按四条分支定预算——已取消 → 90s 兜底（**必须先于余量判断**，`cancel()` 不改变 deadline，此时父预算余量可能仍有几十分钟）；余量 ≤90s → 90s 兜底；余量充裕 → 保留父 deadline；无 deadline → 不设限，由单次请求超时与重试上限兜底。90s ≈ 一次完整 POST + 约 1s 退避 + 被截断的第二次尝试，daemon 60s 关停预算可能将其截断。
 - **`sslctl setup` 上报部署结果**（deploy-spec §5.1 步骤 6）：单证书尝试一次，批量中每个有资格的证书逐一尝试；本轮回调熔断后允许余下结果缺行并在汇总中说明。`success`/`failure` 由该证书是否有失败站点决定。调用位置有硬性要求——必须紧跟部署循环，早于全失败 `os.Exit(1)` 与保存门禁；放到保存阶段会被这两道关卡同时吃掉，而它们拦下的恰是最该上报的那批。三条未发生部署的 `continue`（无绑定、缺私钥、私钥验证失败）不上报，其中"需要私钥"按 deploy-spec §5.3 属区别于"失败"的第三类。
-- **已知偏离**：`retryFailedBindings` 的 `QueryOrder` 失败出口在未发生部署时仍报 failure（查询失败不是部署结果，与 deploy-spec §2.8 不符），本次维持现状不扩大——触顶后停止。
+- **已知偏离**：`retryFailedBindings` 的 `QueryOrder` 失败出口在未发生部署时仍报 failure（查询失败不是部署结果，与 deploy-spec §2.8 不符）；触顶后停止。该现状不是统一契约的例外，涉及此路径时按当前代码核实。
 
 ### 部署链语义（setup/deploy/续签）
 
@@ -339,10 +341,21 @@ sslctl                    Manager API                    CA
 
 ---
 
+## 定向解除管理
+
+- `sslctl cleanup --site <server_name>` 精确移除站点绑定、对应失败/陈旧状态和站点内部备份；证书失去最后一个绑定时同步删除证书记录及其 pending 私钥。
+- `sslctl cleanup --cert <cert_name>` 删除全部同名证书记录、其 pending 私钥，以及没有被其它证书继续引用的站点内部备份。
+- `sslctl cleanup --list` 只读列出全部证书记录（包括禁用和重复记录）及全部站点绑定，不加续签锁，也不清理数据；必须单独使用。
+- 执行清理时两种目标必须二选一，默认交互确认，`--yes` 可用于非交互执行；cleanup 与 setup、deploy、rollback、daemon 续签共用 `renewal.lock`。
+- cleanup 只解除 sslctl 管理，不修改 Web 配置、不重载服务，也不删除在线证书、私钥、证书链或外部验证文件；`certs/` 下的在线文件同样保留。
+- 配置先原子落盘，再清理内部文件；内部文件删除失败时返回非零并报告残留，不能静默视为完全成功。
+
+---
+
 ## 安全特性
 
 - **HTTPS 强制**：远程 API 必须使用 HTTPS（仅 localhost 允许 HTTP）
-- **续签/部署进程互斥**：`config.AcquireRenewalLock` 共享 `renewal.lock`，daemon 续签检查与手动 deploy/setup 非阻塞互斥，手动侧被占用时提示"守护进程正在续签"退出（deploy-spec §3.7）
+- **续签/部署进程互斥**：`config.AcquireRenewalLock` 共享 `renewal.lock`，daemon 续签检查与手动 deploy/setup/rollback/cleanup 非阻塞互斥，手动侧被占用时退出（deploy-spec §3.7）
 - **SSRF 防护**：阻止访问内网 IP（10/172.16/192.168）和云元数据地址（169.254.169.254）
 - **命令白名单**：统一的 `internal/executor` 包，只允许执行预定义的 Nginx/Apache 命令
 - **日志脱敏**：自动过滤 PEM 私钥、Bearer Token、password/secret 参数

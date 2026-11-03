@@ -5,6 +5,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	apacheDeployer "github.com/zhuxbo/sslctl/internal/apache/deployer"
 	apacheDocker "github.com/zhuxbo/sslctl/internal/apache/docker"
@@ -87,7 +88,7 @@ func (a *nginxScannerAdapter) Scan() ([]webserver.Site, error) {
 		return nil, localErr
 	}
 
-	dockerSites, _ := a.ScanDocker()
+	dockerSites, dockerErr := a.ScanDocker()
 
 	// 合并结果
 	var allSites []webserver.Site
@@ -96,9 +97,9 @@ func (a *nginxScannerAdapter) Scan() ([]webserver.Site, error) {
 	}
 	allSites = append(allSites, dockerSites...)
 
-	// 仅当本地失败且 Docker 也无结果时返回错误
-	if localErr != nil && len(dockerSites) == 0 {
-		return nil, localErr
+	// 无站点时保留两侧错误；已扫描到的站点不因其他容器失败而丢失。
+	if len(allSites) == 0 {
+		return nil, errors.Join(localErr, dockerErr)
 	}
 
 	return allSites, nil
@@ -120,6 +121,7 @@ func (a *nginxScannerAdapter) ScanLocal() ([]webserver.Site, error) {
 			CertificatePath: s.CertificatePath,
 			PrivateKeyPath:  s.PrivateKeyPath,
 			ServerType:      webserver.TypeNginx,
+			ExecutablePath:  a.scanner.ExecutablePath(),
 		})
 	}
 	return result, nil
@@ -132,21 +134,20 @@ func (a *nginxScannerAdapter) ScanDocker() ([]webserver.Site, error) {
 
 	ctx := context.Background()
 	containers, err := nginxDocker.DiscoverNginxContainers(ctx)
-	if err != nil || len(containers) == 0 {
-		return nil, nil
+	if err != nil {
+		return nil, fmt.Errorf("发现 Docker Nginx 容器失败: %w", err)
 	}
 
 	var sites []webserver.Site
+	var scanErrors []error
 	for _, container := range containers {
+		// 已发现具体容器，直接执行以避免依赖 Compose 命令和原始编排文件。
 		client := nginxDocker.NewClient(container.ID)
-		if container.IsCompose {
-			client = nginxDocker.NewComposeClient(container.ComposeFile, container.ServiceName)
-			client.SetContainer(container.ID)
-		}
 
 		scanner := nginxDocker.NewScanner(client)
 		dockerSites, err := scanner.Scan(ctx)
 		if err != nil {
+			scanErrors = append(scanErrors, fmt.Errorf("扫描 Docker Nginx 容器 %s 失败: %w", container.Name, err))
 			continue
 		}
 
@@ -168,7 +169,7 @@ func (a *nginxScannerAdapter) ScanDocker() ([]webserver.Site, error) {
 		}
 	}
 
-	return sites, nil
+	return sites, errors.Join(scanErrors...)
 }
 
 func (a *nginxScannerAdapter) ServerType() webserver.ServerType {
@@ -364,3 +365,6 @@ func (a *apacheInstallerAdapter) Install() (*webserver.InstallResult, error) {
 func (a *apacheInstallerAdapter) Rollback(backupPath string) error {
 	return a.installer.Rollback(backupPath)
 }
+
+func (a *nginxDeployerAdapter) Prepare() error  { return a.deployer.Prepare() }
+func (a *apacheDeployerAdapter) Prepare() error { return a.deployer.Prepare() }

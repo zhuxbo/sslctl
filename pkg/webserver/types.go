@@ -30,6 +30,7 @@ type Site struct {
 	HostKeyPath     string     // 宿主机私钥路径
 	HostChainPath   string     // 宿主机证书链路径（Apache SSLCertificateChainFile 的挂载映射）
 	VolumeMode      bool       // 是否挂载卷模式
+	ExecutablePath  string     // 扫描该本地站点时实际使用的 Web 服务器可执行文件
 }
 
 // Scanner 扫描器接口

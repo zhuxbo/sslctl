@@ -25,7 +25,15 @@ var (
 	ErrCertCondNotMet = errors.New("certificate condition not met")
 	// ErrCertNameConflict 目标证书名已存在，拒绝改名以免制造同名条目
 	ErrCertNameConflict = errors.New("certificate name already exists")
+	// ErrSiteNotFound 站点绑定不存在
+	ErrSiteNotFound = errors.New("site binding not found")
 )
+
+// RemoveSiteResult 站点解除管理后的配置变更摘要。
+type RemoveSiteResult struct {
+	RemovedBindings     int
+	RemovedCertificates []CertConfig
+}
 
 // ConfigManager 统一配置管理器
 type ConfigManager struct {
@@ -604,18 +612,98 @@ func (cm *ConfigManager) FindDuplicateCertNames() ([]string, error) {
 
 // DeleteCert 删除证书配置
 func (cm *ConfigManager) DeleteCert(certName string) error {
+	_, err := cm.RemoveCertificate(certName)
+	return err
+}
+
+// RemoveCertificate 原子删除所有同名证书配置并返回删除前快照。
+// 正常配置只有一条；清理历史重复条目时必须全部删除，避免残留继续被 daemon 管理。
+func (cm *ConfigManager) RemoveCertificate(certName string) ([]CertConfig, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	return cm.mutateLocked(func(cfg *Config) error {
+	var removed []CertConfig
+	err := cm.mutateLocked(func(cfg *Config) error {
+		kept := make([]CertConfig, 0, len(cfg.Certificates))
 		for i := range cfg.Certificates {
 			if cfg.Certificates[i].CertName == certName {
-				cfg.Certificates = append(cfg.Certificates[:i], cfg.Certificates[i+1:]...)
-				return nil
+				removed = append(removed, cfg.Certificates[i])
+				continue
 			}
+			kept = append(kept, cfg.Certificates[i])
 		}
-		return fmt.Errorf("certificate not found: %s", certName)
+		if len(removed) == 0 {
+			return fmt.Errorf("%w: %s", ErrCertNotFound, certName)
+		}
+		cfg.Certificates = kept
+		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
+// RemoveSite 从所有证书中移除精确匹配的站点绑定及其绑定级状态。
+// 证书失去最后一个绑定时一并删除，避免留下无法续签或部署的零绑定配置。
+func (cm *ConfigManager) RemoveSite(siteName string) (*RemoveSiteResult, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	result := &RemoveSiteResult{}
+	err := cm.mutateLocked(func(cfg *Config) error {
+		keptCerts := make([]CertConfig, 0, len(cfg.Certificates))
+		for i := range cfg.Certificates {
+			cert := &cfg.Certificates[i]
+			keptBindings := make([]SiteBinding, 0, len(cert.Bindings))
+			for _, binding := range cert.Bindings {
+				if binding.ServerName == siteName {
+					result.RemovedBindings++
+					continue
+				}
+				keptBindings = append(keptBindings, binding)
+			}
+			if len(keptBindings) == len(cert.Bindings) {
+				keptCerts = append(keptCerts, *cert)
+				continue
+			}
+
+			cert.Bindings = keptBindings
+			cert.Metadata.FailedBindings = removeExactString(cert.Metadata.FailedBindings, siteName)
+			if len(cert.Metadata.FailedBindings) == 0 {
+				cert.Metadata.FailedBindingsAt = time.Time{}
+				cert.Metadata.RetryAttemptCount = 0
+			}
+			cert.Metadata.StaleBindings = removeExactString(cert.Metadata.StaleBindings, siteName)
+			if len(cert.Metadata.StaleBindings) == 0 {
+				cert.Metadata.StaleSince = time.Time{}
+			}
+			if len(cert.Bindings) == 0 {
+				result.RemovedCertificates = append(result.RemovedCertificates, *cert)
+				continue
+			}
+			keptCerts = append(keptCerts, *cert)
+		}
+		if result.RemovedBindings == 0 {
+			return fmt.Errorf("%w: %s", ErrSiteNotFound, siteName)
+		}
+		cfg.Certificates = keptCerts
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func removeExactString(values []string, target string) []string {
+	kept := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != target {
+			kept = append(kept, value)
+		}
+	}
+	return kept
 }
 
 // ListCerts 列出所有证书配置

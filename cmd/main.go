@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	cleanupcmd "github.com/zhuxbo/sslctl/cmd/cleanup"
 	"github.com/zhuxbo/sslctl/cmd/daemon"
 	"github.com/zhuxbo/sslctl/cmd/deploy"
 	"github.com/zhuxbo/sslctl/cmd/setup"
@@ -34,8 +36,9 @@ import (
 )
 
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version    = "dev"
+	buildTime  = "unknown"
+	runCleanup = cleanupcmd.Run
 )
 
 const (
@@ -111,6 +114,8 @@ func main() {
 		runRollback(subArgs)
 	case "setup":
 		setup.Run(subArgs, debug)
+	case "cleanup":
+		runCleanup(subArgs)
 	case "uninstall":
 		runUninstall(subArgs)
 	case "version", "-v", "--version":
@@ -138,6 +143,7 @@ func printUsage() {
   upgrade         升级工具
   service         管理系统服务
   setup           一键部署
+  cleanup         解除指定站点或证书的 sslctl 管理
   uninstall       卸载工具
   version         显示版本信息
   help            显示帮助信息
@@ -157,6 +163,9 @@ func printUsage() {
   sslctl upgrade                             升级到最新版本
   sslctl upgrade --check                     检查更新
   sslctl service repair                      修复 systemd 服务
+  sslctl cleanup --site <site>               解除指定站点管理
+  sslctl cleanup --cert <name>               解除指定证书管理
+  sslctl cleanup --list                      列出全部受管证书和站点绑定
 
 诊断命令:
 %s
@@ -745,6 +754,13 @@ var isTerminalFunc = func() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
+// 回滚入口的系统边界独立保留，测试可使用临时配置并观察退出状态。
+var (
+	rollbackCheckRoot        = util.CheckRootPrivilege
+	rollbackNewConfigManager = config.NewConfigManager
+	rollbackExit             = os.Exit
+)
+
 // runRollback 回滚命令
 func runRollback(args []string) {
 	fs := flag.NewFlagSet("rollback", flag.ExitOnError)
@@ -763,18 +779,18 @@ func runRollback(args []string) {
 
 	if *siteName == "" {
 		fs.Usage()
-		os.Exit(1)
+		rollbackExit(1)
 	}
 
-	if err := util.CheckRootPrivilege(); err != nil {
+	if err := rollbackCheckRoot(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		rollbackExit(1)
 	}
 
-	cfgManager, err := config.NewConfigManager()
+	cfgManager, err := rollbackNewConfigManager()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
-		os.Exit(1)
+		rollbackExit(1)
 	}
 
 	backupMgr := backup.NewManager(cfgManager.GetBackupDir(), 5)
@@ -784,7 +800,7 @@ func runRollback(args []string) {
 		backups, err := backupMgr.ListBackups(*siteName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "获取备份列表失败: %v\n", err)
-			os.Exit(1)
+			rollbackExit(1)
 		}
 		if len(backups) == 0 {
 			fmt.Printf("站点 %s 没有备份记录\n", *siteName)
@@ -812,7 +828,7 @@ func runRollback(args []string) {
 		fmt.Fprintf(os.Stderr, "警告: %v，继续执行\n", lockErr)
 	} else if !acquired {
 		fmt.Fprintln(os.Stderr, "守护进程正在续签（或另一部署进程正在运行），请稍后再试")
-		os.Exit(1)
+		rollbackExit(1)
 	} else {
 		defer release()
 	}
@@ -820,19 +836,27 @@ func runRollback(args []string) {
 	// 执行回滚
 	fmt.Printf("正在回滚站点 %s...\n", *siteName)
 
-	var metadata *backup.Metadata
-	if *versionTS != "" {
-		metadata, err = backupMgr.Restore(*siteName, *versionTS)
+	backupPath, err := backupMgr.ResolveBackupPath(*siteName, *versionTS)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "回滚失败: %v\n", err)
+		rollbackExit(1)
+	}
+	metadata, err := backupMgr.LoadMetadata(backupPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取备份失败: %v\n", err)
+		rollbackExit(1)
+	}
+	parsedCert, parseErr := parseRollbackCert(filepath.Join(backupPath, "cert.pem"))
+	if metadata.ContainerName != "" {
+		err = certops.RestoreDockerBackup(context.Background(), backupMgr, backupPath, metadata)
 	} else {
-		metadata, err = backupMgr.Restore(*siteName)
+		metadata, err = backupMgr.Restore(*siteName, *versionTS)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "回滚失败: %v\n", err)
-		os.Exit(1)
+		rollbackExit(1)
 	}
 
-	// 更新配置中的证书元数据（非关键路径，失败仅提示）
-	parsedCert, parseErr := parseRollbackCert(metadata.CertPath)
 	if parseErr != nil {
 		fmt.Fprintf(os.Stderr, "警告: %v\n", parseErr)
 	}
@@ -858,6 +882,10 @@ func runRollback(args []string) {
 		fmt.Printf("  证书链: %s\n", metadata.ChainPath)
 	}
 
+	if metadata.ContainerName != "" {
+		fmt.Printf("  容器 %s 已通过配置检查并重载\n", metadata.ContainerName)
+		return
+	}
 	// 提示用户重载 Web 服务器
 	serverType := webserver.DetectWebServerType()
 	if serverType == "nginx" {

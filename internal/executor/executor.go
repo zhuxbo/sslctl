@@ -117,9 +117,6 @@ var AllowedCommands = map[string]bool{
 	"C:\\Apache24\\bin\\httpd.exe -k restart": true,
 	"net stop Apache2.4":                      true,
 	"net start Apache2.4":                     true,
-	"taskkill /F /T /IM httpd.exe":            true,
-	"taskkill /F /T /IM nginx.exe":            true,
-
 	// ========== 系统扫描命令（只读） ==========
 	"ps -C nginx -o pid=":   true, // 查找 nginx 进程
 	"ps -C httpd -o pid=":   true, // 查找 Apache 进程 (CentOS/RHEL)

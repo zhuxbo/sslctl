@@ -465,10 +465,12 @@ func (i *NginxInstaller) insertIPv6ListenDirective(lines []string, afterIndex in
 // insertSSLCertDirectives 在 root 后插入 SSL 证书配置（前后加空行）
 func (i *NginxInstaller) insertSSLCertDirectives(lines []string, afterIndex int) []string {
 	indent := i.getIndent(lines[afterIndex])
+	certPath := strings.ReplaceAll(i.certPath, `\`, "/")
+	keyPath := strings.ReplaceAll(i.keyPath, `\`, "/")
 	certLines := []string{
 		"",
-		fmt.Sprintf("%sssl_certificate %s;", indent, i.certPath),
-		fmt.Sprintf("%sssl_certificate_key %s;", indent, i.keyPath),
+		fmt.Sprintf("%sssl_certificate %s;", indent, certPath),
+		fmt.Sprintf("%sssl_certificate_key %s;", indent, keyPath),
 		fmt.Sprintf("%sssl_protocols TLSv1.2 TLSv1.3;", indent),
 		fmt.Sprintf("%sssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;", indent),
 		fmt.Sprintf("%sssl_prefer_server_ciphers off;", indent),

@@ -69,6 +69,34 @@ func TestCreateBinding_Nginx(t *testing.T) {
 	}
 }
 
+// TestCreateBinding_NginxUsesScannedExecutable 验证多套 Nginx 共存时，
+// 绑定命令使用扫描该站点的实例，而不是再次从 PATH 或其他运行进程中选择。
+func TestCreateBinding_NginxUsesScannedExecutable(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgManager, err := config.NewConfigManagerWithDir(tmpDir)
+	if err != nil {
+		t.Fatalf("创建配置管理器失败: %v", err)
+	}
+
+	const scannedExe = `G:\soft\nginx-1.26.3\nginx.exe`
+	site := &matcher.ScannedSiteInfo{
+		ServerName:     "blait-selector.com",
+		ConfigFile:     `G:\soft\nginx-1.26.3\conf\nginx.conf`,
+		CertPath:       `G:\soft\nginx-1.26.3\ssl\blait-selector.com.pem`,
+		KeyPath:        `G:\soft\nginx-1.26.3\ssl\blait-selector.com.key`,
+		ServerType:     config.ServerTypeNginx,
+		ExecutablePath: scannedExe,
+	}
+
+	binding := createBinding(site, cfgManager)
+	if !strings.HasPrefix(binding.Reload.TestCommand, scannedExe+" ") {
+		t.Fatalf("TestCommand = %q，应绑定扫描实例 %q", binding.Reload.TestCommand, scannedExe)
+	}
+	if !strings.HasPrefix(binding.Reload.ReloadCommand, scannedExe+" ") {
+		t.Fatalf("ReloadCommand = %q，应绑定扫描实例 %q", binding.Reload.ReloadCommand, scannedExe)
+	}
+}
+
 // TestHasDeployFailures 验证退出码判定：任一失败/未完成即视为失败。
 func TestHasDeployFailures(t *testing.T) {
 	tests := []struct {
@@ -141,7 +169,7 @@ func TestCreateBinding_DockerNginx_Volume(t *testing.T) {
 }
 
 // TestCreateBinding_DockerNginx_NoMount 验证无宿主机挂载路径的 Docker 站点为 copy 模式，
-// 部署校验会拒绝（不可通过通用路径安全部署）。
+// 已有 HTTPS 路径可通过容器专用流程部署。
 func TestCreateBinding_DockerNginx_NoMount(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
@@ -162,8 +190,8 @@ func TestCreateBinding_DockerNginx_NoMount(t *testing.T) {
 	if binding.Docker == nil || binding.Docker.DeployMode != "copy" {
 		t.Errorf("无挂载卷应为 copy 模式: %+v", binding.Docker)
 	}
-	if err := config.ValidateDockerBinding(&binding); err == nil {
-		t.Error("copy 模式 Docker 绑定应被部署校验拒绝")
+	if err := config.ValidateDockerBinding(&binding); err != nil {
+		t.Errorf("已有 HTTPS 的 copy 绑定应可部署: %v", err)
 	}
 }
 
@@ -671,17 +699,31 @@ func TestInstallService(t *testing.T) {
 func TestInstallSSLConfig_Nginx(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
+	var capturedTestCommand string
+	webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+		capturedTestCommand = testCmd
+		return &mockInstaller{configPath: configPath}
+	})
+	t.Cleanup(func() {
+		webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+			return &mockInstaller{configPath: configPath}
+		})
+	})
 
 	site := &matcher.ScannedSiteInfo{
-		ServerName: "example.com",
-		ConfigFile: "/etc/nginx/conf.d/example.conf",
-		HasSSL:     false,
-		ServerType: config.ServerTypeNginx,
+		ServerName:     "example.com",
+		ConfigFile:     "/etc/nginx/conf.d/example.conf",
+		HasSSL:         false,
+		ServerType:     config.ServerTypeNginx,
+		ExecutablePath: filepath.Join(tmpDir, "selected-nginx"),
 	}
 
 	result, err := installSSLConfig(site, cfgManager)
 	if err != nil {
 		t.Fatalf("installSSLConfig() error = %v", err)
+	}
+	if want := site.ExecutablePath + " -t"; capturedTestCommand != want {
+		t.Fatalf("安装器配置测试命令 = %q，期望目标实例 %q", capturedTestCommand, want)
 	}
 
 	if !result.Modified {
@@ -878,5 +920,44 @@ func TestPrewriteKeyThenCert_Success(t *testing.T) {
 	}
 	if fi, err := os.Stat(keyPath); err == nil && fi.Mode().Perm() != 0600 {
 		t.Errorf("私钥权限 = %o, want 0600", fi.Mode().Perm())
+	}
+}
+
+func TestCreateBindingDockerPartialMountKeepsContainerPaths(t *testing.T) {
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	site := &matcher.ScannedSiteInfo{
+		ServerName: "partial.example.com", ServerType: config.ServerTypeDockerNginx,
+		ContainerName: "nginx", HasSSL: true,
+		CertPath: "/etc/nginx/ssl/cert.pem", KeyPath: "/etc/nginx/ssl/key.pem",
+		HostCertPath: "/host/cert.pem", VolumeMode: false,
+	}
+	binding := createBinding(site, cm)
+	if binding.Paths.Certificate != site.CertPath || binding.Paths.PrivateKey != site.KeyPath || !config.IsDockerCopyBinding(&binding) {
+		t.Fatalf("部分挂载的 copy 绑定必须保留两个容器路径: %+v", binding)
+	}
+}
+
+func TestInstallSSLForBatchRejectsCopyBeforeHostWrites(t *testing.T) {
+	dir := t.TempDir()
+	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	for _, file := range []string{certPath, keyPath} {
+		if err := os.WriteFile(file, []byte("host-sentinel"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	site := &matcher.ScannedSiteInfo{ServerName: "copy.example.com"}
+	plan := &certDeployPlan{Bindings: []config.SiteBinding{{ServerName: site.ServerName, ServerType: config.ServerTypeDockerNginx, Enabled: true, Docker: &config.DockerInfo{DeployMode: "copy", ContainerName: "web"}, Paths: config.BindingPaths{Certificate: certPath, PrivateKey: keyPath}}}}
+	installSSLForBatch(site, plan, &setupParams{})
+	if plan.Bindings[0].Enabled {
+		t.Fatal("不支持的 HTTP-only copy 绑定应禁用")
+	}
+	for _, file := range []string{certPath, keyPath} {
+		data, err := os.ReadFile(file)
+		if err != nil || string(data) != "host-sentinel" {
+			t.Fatal("禁止向宿主机写入容器证书")
+		}
 	}
 }

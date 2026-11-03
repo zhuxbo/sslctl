@@ -48,3 +48,9 @@ func normalizeWindowsPath(p string) string {
 	}
 	return strings.ToLower(prefix + p)
 }
+
+func serviceExecutableMatchesTarget(serviceExecutable, targetExecutable string) bool {
+	servicePath := normalizeWindowsPath(serviceExecutable)
+	targetPath := normalizeWindowsPath(targetExecutable)
+	return servicePath != "" && servicePath == targetPath
+}
