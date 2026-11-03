@@ -91,6 +91,11 @@ func (m *Manager) Backup(siteName, certPath, keyPath string, certInfo *CertInfo,
 }
 
 var (
+	backupNow              = time.Now
+	backupFileHash         = computeFileHash
+	backupCopyFile         = util.CopyFile
+	restoreReadFile        = util.SafeReadFile
+	restoreFileStat        = os.Stat
 	containerSnapshotStat  = os.Stat
 	containerSnapshotChmod = os.Chmod
 )
@@ -141,7 +146,7 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 			}
 		}
 		if target != nil {
-			if _, err := computeFileHash(path); err != nil {
+			if _, err := backupFileHash(path); err != nil {
 				return nil, fmt.Errorf("failed to hash certificate file: %w", err)
 			}
 		}
@@ -163,23 +168,23 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 		chainPath = nil
 	}
 	// 0. 计算源文件哈希（用于检测并发修改，比时间戳更可靠）
-	certHash, err := computeFileHash(certPath)
+	certHash, err := backupFileHash(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash certificate file: %w", err)
 	}
-	keyHash, err := computeFileHash(keyPath)
+	keyHash, err := backupFileHash(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash private key file: %w", err)
 	}
 
 	// 1. 创建备份目录
-	timestamp := time.Now().Format("20060102-150405")
+	timestamp := backupNow().Format("20060102-150405")
 	if target != nil {
-		timestamp = time.Now().Format("20060102-150405.000000000")
+		timestamp = backupNow().Format("20060102-150405.000000000")
 	}
 	backupPath := filepath.Join(m.backupDir, siteName, timestamp)
 	if _, err := os.Lstat(backupPath); err == nil {
-		backupPath = filepath.Join(m.backupDir, siteName, time.Now().Format("20060102-150405.000000000"))
+		backupPath = filepath.Join(m.backupDir, siteName, backupNow().Format("20060102-150405.000000000"))
 	}
 
 	// 备份目录包含私钥文件，使用 0700 更安全
@@ -189,19 +194,19 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 
 	// 2. 备份证书文件
 	backupCertPath := filepath.Join(backupPath, "cert.pem")
-	if err := util.CopyFile(certPath, backupCertPath); err != nil {
+	if err := backupCopyFile(certPath, backupCertPath); err != nil {
 		return nil, fmt.Errorf("failed to backup certificate: %w", err)
 	}
 
 	// 3. 备份私钥文件
 	backupKeyPath := filepath.Join(backupPath, "key.pem")
-	if err := util.CopyFile(keyPath, backupKeyPath); err != nil {
+	if err := backupCopyFile(keyPath, backupKeyPath); err != nil {
 		return nil, fmt.Errorf("failed to backup private key: %w", err)
 	}
 
 	// 3.1 验证源文件在备份期间未被修改（TOCTOU 保护）
 	// 使用哈希校验比时间戳更可靠（不受文件系统精度影响，无法被 touch 欺骗）
-	newCertHash, err := computeFileHash(certPath)
+	newCertHash, err := backupFileHash(certPath)
 	if err != nil || newCertHash != certHash {
 		if rmErr := os.RemoveAll(backupPath); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "[BACKUP WARN] 清理损坏的备份失败 %s: %v\n", backupPath, rmErr)
@@ -211,7 +216,7 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 		}
 		return nil, fmt.Errorf("certificate file changed during backup (hash mismatch)")
 	}
-	newKeyHash, err := computeFileHash(keyPath)
+	newKeyHash, err := backupFileHash(keyPath)
 	if err != nil || newKeyHash != keyHash {
 		if rmErr := os.RemoveAll(backupPath); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "[BACKUP WARN] 清理损坏的备份失败 %s: %v\n", backupPath, rmErr)
@@ -226,16 +231,16 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 	var actualChainPath string
 	if len(chainPath) > 0 && chainPath[0] != "" {
 		actualChainPath = chainPath[0]
-		chainHash, err := computeFileHash(actualChainPath)
+		chainHash, err := backupFileHash(actualChainPath)
 		if err != nil {
 			_ = os.RemoveAll(backupPath)
 			return nil, fmt.Errorf("备份证书链失败: %w", err)
 		}
-		if err := util.CopyFile(actualChainPath, filepath.Join(backupPath, "chain.pem")); err != nil {
+		if err := backupCopyFile(actualChainPath, filepath.Join(backupPath, "chain.pem")); err != nil {
 			_ = os.RemoveAll(backupPath)
 			return nil, fmt.Errorf("备份证书链失败: %w", err)
 		}
-		newHash, err := computeFileHash(actualChainPath)
+		newHash, err := backupFileHash(actualChainPath)
 		if err != nil || newHash != chainHash {
 			_ = os.RemoveAll(backupPath)
 			return nil, fmt.Errorf("证书链在备份期间发生变化: %s", originalChain)
@@ -259,11 +264,8 @@ func (m *Manager) backupInternal(siteName, certPath, keyPath string, certInfo *C
 				name = "chain.pem"
 			}
 		}
-		if name == "" {
-			continue
-		}
-		sourceHash, err := computeFileHash(file.Target)
-		backupHash, copyErr := computeFileHash(filepath.Join(backupPath, name))
+		sourceHash, err := backupFileHash(file.Target)
+		backupHash, copyErr := backupFileHash(filepath.Join(backupPath, name))
 		if err != nil || copyErr != nil || sourceHash != backupHash {
 			_ = os.RemoveAll(backupPath)
 			return nil, fmt.Errorf("备份内容校验失败: %s", path)
@@ -512,11 +514,11 @@ func (m *Manager) Restore(siteName string, timestamp ...string) (*Metadata, erro
 				return err
 			}
 		}
-		data, err := util.SafeReadFile(source, 16<<20)
+		data, err := restoreReadFile(source, 16<<20)
 		if err != nil {
 			return err
 		}
-		info, err := os.Stat(source)
+		info, err := restoreFileStat(source)
 		if err != nil {
 			return err
 		}

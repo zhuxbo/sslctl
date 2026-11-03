@@ -10,6 +10,12 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
+// 文件操作边界用于确定性验证写失败与上下文恢复失败。
+var (
+	writeCertificate          = (*baseDeployer.Base).WriteCertificate
+	restoreCertificateContext = (*baseDeployer.Base).RestoreCertificateContext
+)
+
 // NginxDeployer Nginx 部署器
 type NginxDeployer struct {
 	baseDeployer.Base        // 嵌入公共功能
@@ -40,14 +46,14 @@ func (d *NginxDeployer) Deploy(ctx context.Context, cert, intermediate, key stri
 	}
 
 	// 先写私钥再写证书：中途失败时不会留下"新证书 + 旧私钥"的错配状态
-	if err := d.WriteCertificate(d.keyPath, []byte(key), 0600); err != nil {
+	if err := writeCertificate(&d.Base, d.keyPath, []byte(key), 0600); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteKey,
 			fmt.Sprintf("failed to write private key file: %s", d.keyPath), err,
 		)
 	}
 
-	if err := d.WriteCertificate(d.certPath, []byte(fullchain), 0644); err != nil {
+	if err := writeCertificate(&d.Base, d.certPath, []byte(fullchain), 0644); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
@@ -55,10 +61,10 @@ func (d *NginxDeployer) Deploy(ctx context.Context, cert, intermediate, key stri
 	}
 
 	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过，失败仅警告）
-	if err := d.RestoreCertificateContext(d.certPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.certPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.certPath, err)
 	}
-	if err := d.RestoreCertificateContext(d.keyPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.keyPath, err)
 	}
 

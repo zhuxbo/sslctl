@@ -26,10 +26,17 @@ func TestBackupRestoreSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.CertPath != paths[0] || len(meta.ResolvedPaths) != 3 {
+	if meta.CertPath != paths[0] || meta.KeyPath != paths[1] || meta.ChainPath != paths[2] || len(meta.ResolvedPaths) != 3 {
 		t.Fatalf("metadata: %+v", meta)
 	}
-	for _, path := range paths {
+	for i, path := range paths {
+		want, err := filepath.EvalSymlinks(filepath.Join(dir, []string{"cert1.pem", "key1.pem", "chain1.pem"}[i]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if meta.ResolvedPaths[path] != want {
+			t.Fatalf("resolved %s = %s, want %s", path, meta.ResolvedPaths[path], want)
+		}
 		if err := os.WriteFile(path, []byte("new"), 0600); err != nil {
 			t.Fatal(err)
 		}

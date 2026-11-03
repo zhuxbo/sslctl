@@ -10,6 +10,12 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/errors"
 )
 
+// 文件操作边界用于确定性验证写失败与上下文恢复失败。
+var (
+	writeCertificate          = (*baseDeployer.Base).WriteCertificate
+	restoreCertificateContext = (*baseDeployer.Base).RestoreCertificateContext
+)
+
 // ApacheDeployer Apache 部署器
 type ApacheDeployer struct {
 	baseDeployer.Base        // 嵌入公共功能
@@ -37,7 +43,7 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 		return err
 	}
 	// 先写私钥再写证书：中途失败时不会留下"新证书 + 旧私钥"的错配状态
-	if err := d.WriteCertificate(d.keyPath, []byte(key), 0600); err != nil {
+	if err := writeCertificate(&d.Base, d.keyPath, []byte(key), 0600); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteKey,
 			fmt.Sprintf("failed to write private key file: %s", d.keyPath), err,
@@ -50,7 +56,7 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 		// 无 SSLCertificateChainFile 指令，将中间证书合并到证书文件
 		certContent = cert + "\n" + intermediate
 	}
-	if err := d.WriteCertificate(d.certPath, []byte(certContent), 0644); err != nil {
+	if err := writeCertificate(&d.Base, d.certPath, []byte(certContent), 0644); err != nil {
 		return errors.NewStructuredDeployError(
 			errors.DeployErrorPermission, errors.PhaseWriteCert,
 			fmt.Sprintf("failed to write certificate file: %s", d.certPath), err,
@@ -59,7 +65,7 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 
 	// 有 chainPath 时，中间证书写入独立文件
 	if d.chainPath != "" && intermediate != "" {
-		if err := d.WriteCertificate(d.chainPath, []byte(intermediate), 0644); err != nil {
+		if err := writeCertificate(&d.Base, d.chainPath, []byte(intermediate), 0644); err != nil {
 			return errors.NewStructuredDeployError(
 				errors.DeployErrorPermission, errors.PhaseWriteChain,
 				fmt.Sprintf("failed to write chain file: %s", d.chainPath), err,
@@ -68,14 +74,14 @@ func (d *ApacheDeployer) Deploy(ctx context.Context, cert, intermediate, key str
 	}
 
 	// 恢复 SELinux 安全上下文（非 Enforcing 或无 SELinux 时静默跳过，失败仅警告）
-	if err := d.RestoreCertificateContext(d.certPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.certPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.certPath, err)
 	}
-	if err := d.RestoreCertificateContext(d.keyPath); err != nil {
+	if err := restoreCertificateContext(&d.Base, d.keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.keyPath, err)
 	}
 	if d.chainPath != "" {
-		if err := d.RestoreCertificateContext(d.chainPath); err != nil {
+		if err := restoreCertificateContext(&d.Base, d.chainPath); err != nil {
 			fmt.Fprintf(os.Stderr, "[WARN] SELinux context restore failed for %s: %v\n", d.chainPath, err)
 		}
 	}

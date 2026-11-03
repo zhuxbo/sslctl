@@ -8,6 +8,13 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
+// 文件系统边界允许测试确定性模拟读取后的失败和 SELinux 错误。
+var (
+	certificateStat               = os.Stat
+	restoreCertificateFileContext = util.RestoreFileContext
+	ensureCertificateDir          = util.EnsureDir
+)
+
 // PrepareFiles 在备份前固定证书路径，部署与失败回滚复用同一组目标。
 func (b *Base) PrepareFiles(paths ...string) error {
 	if b.certificateFiles != nil {
@@ -19,7 +26,7 @@ func (b *Base) PrepareFiles(paths ...string) error {
 		if path == "" {
 			continue
 		}
-		if err := util.EnsureDir(filepath.Dir(path), 0700); err != nil {
+		if err := ensureCertificateDir(filepath.Dir(path), 0700); err != nil {
 			return err
 		}
 		file, err := util.ResolveCertificateFile(path)
@@ -61,7 +68,7 @@ func (b *Base) RestoreCertificate(source, target string) error {
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(source)
+	info, err := certificateStat(source)
 	if err != nil {
 		return err
 	}
@@ -72,5 +79,5 @@ func (b *Base) RestoreCertificateContext(path string) error {
 	if err := b.CheckFiles(); err != nil {
 		return err
 	}
-	return util.RestoreFileContext(b.certificateFiles[path].Target)
+	return restoreCertificateFileContext(b.certificateFiles[path].Target)
 }

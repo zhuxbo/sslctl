@@ -8,51 +8,96 @@ import (
 	"path/filepath"
 )
 
+// 私有依赖按实例传递，便于确定性验证 I/O 失败与路径检查之间的竞争窗口。
+type certificateHandle interface {
+	io.Reader
+	io.Writer
+	Stat() (os.FileInfo, error)
+	Close() error
+}
+
+type certificateRoot interface {
+	Stat(string) (os.FileInfo, error)
+	Lstat(string) (os.FileInfo, error)
+	Open(string) (certificateHandle, error)
+	OpenFile(string, int, os.FileMode) (certificateHandle, error)
+	Remove(string) error
+	Rename(string, string) error
+	Close() error
+}
+
+type certificateOSRoot struct{ *os.Root }
+
+func (r certificateOSRoot) Open(name string) (certificateHandle, error) { return r.Root.Open(name) }
+func (r certificateOSRoot) OpenFile(name string, flags int, mode os.FileMode) (certificateHandle, error) {
+	return r.Root.OpenFile(name, flags, mode)
+}
+
+type certificateIO struct {
+	abs      func(string) (string, error)
+	eval     func(string) (string, error)
+	lstat    func(string) (os.FileInfo, error)
+	stat     func(string) (os.FileInfo, error)
+	openRoot func(string) (certificateRoot, error)
+}
+
+func systemCertificateIO() certificateIO {
+	return certificateIO{filepath.Abs, filepath.EvalSymlinks, os.Lstat, os.Stat, func(path string) (certificateRoot, error) {
+		root, err := os.OpenRoot(path)
+		return certificateOSRoot{root}, err
+	}}
+}
+
 // CertificateFile 只用于用户配置的证书文件；固定解析后的目标，保留原有链接。
 // 通用配置、备份资产和可执行文件仍使用拒绝符号链接的文件 API。
 type CertificateFile struct {
 	Path   string
 	Target string
 	parent os.FileInfo
+	io     certificateIO
 }
 
 // ResolveCertificateFile 允许普通文件首次创建，但不允许悬空链接、循环和特殊文件。
 func ResolveCertificateFile(path string) (*CertificateFile, error) {
+	return resolveCertificateFile(path, systemCertificateIO())
+}
+
+func resolveCertificateFile(path string, deps certificateIO) (*CertificateFile, error) {
 	if path == "" {
 		return nil, fmt.Errorf("证书文件路径为空")
 	}
-	absolute, err := filepath.Abs(path)
+	absolute, err := deps.abs(path)
 	if err != nil {
 		return nil, err
 	}
-	target, err := filepath.EvalSymlinks(absolute)
+	target, err := deps.eval(absolute)
 	if err != nil {
-		if _, statErr := os.Lstat(absolute); !os.IsNotExist(statErr) {
+		if _, statErr := deps.lstat(absolute); !os.IsNotExist(statErr) {
 			return nil, fmt.Errorf("解析证书链接 %s: %w", path, err)
 		}
-		parent, parentErr := filepath.EvalSymlinks(filepath.Dir(absolute))
+		parent, parentErr := deps.eval(filepath.Dir(absolute))
 		if parentErr != nil {
 			return nil, parentErr
 		}
 		target = filepath.Join(parent, filepath.Base(absolute))
 	}
-	info, err := os.Lstat(target)
+	info, err := deps.lstat(target)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 	if err == nil && !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("证书目标不是普通文件: %s", target)
 	}
-	parent, err := os.Stat(filepath.Dir(target))
+	parent, err := deps.stat(filepath.Dir(target))
 	if err != nil {
 		return nil, err
 	}
-	return &CertificateFile{Path: absolute, Target: target, parent: parent}, nil
+	return &CertificateFile{Path: absolute, Target: target, parent: parent, io: deps}, nil
 }
 
 // Check 拒绝操作期间链接改向或父目录被替换；允许本次原子写入替换文件 inode。
 func (f *CertificateFile) Check() error {
-	current, err := ResolveCertificateFile(f.Path)
+	current, err := resolveCertificateFile(f.Path, f.io)
 	if err != nil {
 		return err
 	}
@@ -62,11 +107,11 @@ func (f *CertificateFile) Check() error {
 	return nil
 }
 
-func (f *CertificateFile) openRoot() (*os.Root, error) {
+func (f *CertificateFile) openRoot() (certificateRoot, error) {
 	if err := f.Check(); err != nil {
 		return nil, err
 	}
-	root, err := os.OpenRoot(filepath.Dir(f.Target))
+	root, err := f.io.openRoot(filepath.Dir(f.Target))
 	if err != nil {
 		return nil, err
 	}
