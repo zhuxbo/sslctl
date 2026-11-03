@@ -52,5 +52,5 @@ func normalizeWindowsPath(p string) string {
 func serviceExecutableMatchesTarget(serviceExecutable, targetExecutable string) bool {
 	servicePath := normalizeWindowsPath(serviceExecutable)
 	targetPath := normalizeWindowsPath(targetExecutable)
-	return servicePath != "" && targetPath != "" && servicePath == targetPath
+	return servicePath != "" && servicePath == targetPath
 }

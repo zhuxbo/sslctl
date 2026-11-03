@@ -57,6 +57,16 @@ const maxScanDepth = 100
 // maxScanFiles 最大扫描文件数，防止 glob 展开大量文件导致性能问题
 const maxScanFiles = 1000
 
+// 系统探测入口集中于此，便于在其他平台验证 Windows 实例隔离分支。
+var scanSystem = struct {
+	goos          string
+	findBinary    func() string
+	runScan       func(string, ...string) ([]byte, error)
+	runOutput     func(string) ([]byte, error)
+	stat          func(string) (os.FileInfo, error)
+	commandOutput func(*exec.Cmd) ([]byte, error)
+}{runtime.GOOS, findNginxBinary, executor.RunScan, executor.RunOutput, os.Stat, (*exec.Cmd).Output}
+
 // Scanner Nginx 配置扫描器
 type Scanner struct {
 	mainConfigPath string                       // 主配置文件路径
@@ -103,7 +113,7 @@ func (s *Scanner) ExecutablePath() string {
 
 func (s *Scanner) ensureExecutablePath() string {
 	if s.executablePath == "" {
-		s.executablePath = findNginxBinary()
+		s.executablePath = scanSystem.findBinary()
 	}
 	return s.executablePath
 }
@@ -135,9 +145,9 @@ func detectNginxFor(nginxPath string) (configPath string, err error) {
 
 	// Windows 多实例场景只能回退到同一可执行文件目录下的配置；
 	// 继续检查 C:\nginx 等全局常见路径会把 G 盘实例与另一套配置串线。
-	if runtime.GOOS == "windows" {
+	if scanSystem.goos == "windows" {
 		if exactPath := windowsConfigPathForExecutable(nginxPath); exactPath != "" {
-			if _, statErr := os.Stat(exactPath); statErr == nil {
+			if _, statErr := scanSystem.stat(exactPath); statErr == nil {
 				return exactPath, nil
 			}
 			return "", fmt.Errorf("无法检测目标 Nginx 实例的配置文件: %s", exactPath)
@@ -147,7 +157,7 @@ func detectNginxFor(nginxPath string) (configPath string, err error) {
 	// 方法3: 尝试常见路径
 	commonPaths := getCommonNginxPaths()
 	for _, p := range commonPaths {
-		if _, err := os.Stat(p); err == nil {
+		if _, err := scanSystem.stat(p); err == nil {
 			return p, nil
 		}
 	}
@@ -173,15 +183,15 @@ func getNginxConfigFromTestFor(nginxPath string) (string, error) {
 	var output []byte
 	if nginxPath != "" {
 		args := buildNginxArgs(nginxPath, "-t")
-		output, _ = executor.RunScan(nginxPath, args...)
+		output, _ = scanSystem.runScan(nginxPath, args...)
 	}
 	if len(output) == 0 {
-		output, _ = executor.RunOutput("nginx -t")
+		output, _ = scanSystem.runOutput("nginx -t")
 	}
 
 	// nginx -t 输出: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 	if configPath := parseMainConfigPath(output); configPath != "" {
-		if _, err := os.Stat(configPath); err == nil {
+		if _, err := scanSystem.stat(configPath); err == nil {
 			return configPath, nil
 		}
 	}
@@ -212,10 +222,10 @@ func getNginxConfigFromVersionFor(nginxPath string) (string, error) {
 	var output []byte
 	var err error
 	if nginxPath != "" {
-		output, err = executor.RunScan(nginxPath, "-V")
+		output, err = scanSystem.runScan(nginxPath, "-V")
 	}
 	if len(output) == 0 {
-		output, err = executor.RunOutput("nginx -V")
+		output, err = scanSystem.runOutput("nginx -V")
 	}
 	if err != nil && len(output) == 0 {
 		return "", err
@@ -226,7 +236,7 @@ func getNginxConfigFromVersionFor(nginxPath string) (string, error) {
 	matches := re.FindSubmatch(output)
 	if len(matches) > 1 {
 		configPath := string(matches[1])
-		if _, err := os.Stat(configPath); err == nil {
+		if _, err := scanSystem.stat(configPath); err == nil {
 			return configPath, nil
 		}
 	}
@@ -237,7 +247,7 @@ func getNginxConfigFromVersionFor(nginxPath string) (string, error) {
 	if len(matches) > 1 {
 		prefix := string(matches[1])
 		configPath := filepath.Join(prefix, "conf", "nginx.conf")
-		if _, err := os.Stat(configPath); err == nil {
+		if _, err := scanSystem.stat(configPath); err == nil {
 			return configPath, nil
 		}
 	}
@@ -335,7 +345,7 @@ func (s *Scanner) Scan() ([]*SSLSite, error) {
 		if site.Webroot != "" && !filepath.IsAbs(site.Webroot) {
 			nginxPath := s.executablePath
 			if nginxPath == "" {
-				nginxPath = findNginxBinary()
+				nginxPath = scanSystem.findBinary()
 			}
 			prefix, _, ok := getNginxPrefix(nginxPath)
 			if ok && prefix != "" {
@@ -945,7 +955,7 @@ func (s *Scanner) resolveSitePaths(sites []*Site) ([]*Site, error) {
 		if site.Webroot != "" && !filepath.IsAbs(site.Webroot) {
 			nginxPath := s.executablePath
 			if nginxPath == "" {
-				nginxPath = findNginxBinary()
+				nginxPath = scanSystem.findBinary()
 			}
 			prefix, _, ok := getNginxPrefix(nginxPath)
 			if ok && prefix != "" {
@@ -1069,14 +1079,14 @@ func getNginxPrefix(nginxPath string) (prefix string, candidates []string, ok bo
 	}
 
 	// 3. Windows 运行进程命令行的 -p 参数
-	if runtime.GOOS == "windows" {
+	if scanSystem.goos == "windows" {
 		if p := getPrefixFromProcessCmdline(nginxPath); p != "" {
 			return p, nil, true
 		}
 	}
 
 	// Linux 通常走不到这里（编译时 --prefix 非空），返回空让 resolveNginxPath 原样透传
-	if runtime.GOOS != "windows" {
+	if scanSystem.goos != "windows" {
 		return "", nil, false
 	}
 
@@ -1103,10 +1113,10 @@ func getNginxPrefix(nginxPath string) (prefix string, candidates []string, ok bo
 func getPrefixFromVersion(nginxPath string) string {
 	var output []byte
 	if nginxPath != "" {
-		output, _ = executor.RunScan(nginxPath, "-V")
+		output, _ = scanSystem.runScan(nginxPath, "-V")
 	}
 	if len(output) == 0 {
-		output, _ = executor.RunOutput("nginx -V")
+		output, _ = scanSystem.runOutput("nginx -V")
 	}
 	if len(output) == 0 {
 		return ""
@@ -1127,7 +1137,7 @@ func getPrefixFromVersion(nginxPath string) string {
 // Windows 专用，使用 PowerShell Get-CimInstance 读取 Win32_Process.CommandLine
 // 失败时（权限不足 / PowerShell 不可用）返回空字符串
 func getPrefixFromProcessCmdline(nginxPath string) string {
-	if runtime.GOOS != "windows" {
+	if scanSystem.goos != "windows" {
 		return ""
 	}
 	if nginxPath == "" {
@@ -1138,7 +1148,7 @@ func getPrefixFromProcessCmdline(nginxPath string) string {
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.Equals($args[0], [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -ExpandProperty CommandLine -First 1",
 		nginxPath)
-	output, err := cmd.Output()
+	output, err := scanSystem.commandOutput(cmd)
 	if err != nil {
 		return ""
 	}

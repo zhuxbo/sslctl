@@ -284,9 +284,13 @@ func DetectNginxCommands() ServerCommands {
 // DetectNginxCommandsFor 为已经扫描到的 Nginx 实例生成命令。
 // executable 非空时不得再次从 PATH 或运行进程选择另一套 Nginx。
 func DetectNginxCommandsFor(executable string) ServerCommands {
+	return detectNginxCommandsFor(executable, runtime.GOOS, findNginxBin, FindWebServerServiceForExecutable, FindWebServerService)
+}
+
+func detectNginxCommandsFor(executable, goos string, findBin func() string, findExact func(string, string) string, findService func(string, string) string) ServerCommands {
 	nginxBin := executable
 	if nginxBin == "" {
-		nginxBin = findNginxBin()
+		nginxBin = findBin()
 	}
 	prefixArgs := getNginxPrefixArgs(nginxBin)
 	reloadCmd := nginxBin + prefixArgs + " -s reload"
@@ -294,12 +298,12 @@ func DetectNginxCommandsFor(executable string) ServerCommands {
 		TestCmd:   nginxBin + prefixArgs + " -t",
 		ReloadCmd: reloadCmd,
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		var svc string
 		if executable != "" {
-			svc = FindWebServerServiceForExecutable("nginx", nginxBin)
+			svc = findExact("nginx", nginxBin)
 		} else {
-			svc = FindWebServerService("nginx", "nginx.exe")
+			svc = findService("nginx", "nginx.exe")
 		}
 		if svc != "" {
 			cmds.ReloadCmd = WinSvcReloadPrefix + svc + WinSvcFallbackSep + reloadCmd

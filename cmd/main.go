@@ -36,8 +36,9 @@ import (
 )
 
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version    = "dev"
+	buildTime  = "unknown"
+	runCleanup = cleanupcmd.Run
 )
 
 const (
@@ -114,7 +115,7 @@ func main() {
 	case "setup":
 		setup.Run(subArgs, debug)
 	case "cleanup":
-		cleanupcmd.Run(subArgs)
+		runCleanup(subArgs)
 	case "uninstall":
 		runUninstall(subArgs)
 	case "version", "-v", "--version":

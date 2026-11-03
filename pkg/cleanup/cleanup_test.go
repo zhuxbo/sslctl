@@ -2,8 +2,11 @@ package cleanup
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zhuxbo/sslctl/pkg/config"
@@ -181,5 +184,141 @@ func writeFixture(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+type failingCleanupConfig struct {
+	*config.ConfigManager
+	listErr error
+}
+
+func (c failingCleanupConfig) ListCerts() ([]config.CertConfig, error) { return nil, c.listErr }
+
+type recordingBackup struct {
+	names []string
+	err   error
+}
+
+func (b *recordingBackup) DeleteAllBackups(name string) error {
+	b.names = append(b.names, name)
+	return b.err
+}
+
+func TestRemoveSiteMissing(t *testing.T) {
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := New(cm).RemoveSite("missing")
+	if result != nil || !errors.Is(err, config.ErrSiteNotFound) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestCleanupReportsPartialResultsAndWrappedErrors(t *testing.T) {
+	for _, site := range []bool{false, true} {
+		for _, failure := range []string{"backup", "pending"} {
+			t.Run(fmt.Sprintf("site=%v/%s", site, failure), func(t *testing.T) {
+				cm, err := config.NewConfigManagerWithDir(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := cm.AddCert(&config.CertConfig{CertName: "cert", Bindings: []config.SiteBinding{{ServerName: "example.com"}}}); err != nil {
+					t.Fatal(err)
+				}
+				s := New(cm)
+				sentinel := errors.New("backup unavailable")
+				if failure == "backup" {
+					s.backup = &recordingBackup{err: sentinel}
+				} else {
+					writeFixture(t, filepath.Join(cm.GetWorkDir(), "pending-keys"))
+				}
+				var result *Result
+				if site {
+					result, err = s.RemoveSite("example.com")
+				} else {
+					result, err = s.RemoveCertificate("cert")
+				}
+				if result == nil || result.RemovedBindings != 1 || result.RemovedCertificates != 1 || err == nil {
+					t.Fatalf("result=%+v err=%v", result, err)
+				}
+				if failure == "backup" {
+					if !errors.Is(err, sentinel) {
+						t.Fatalf("lost backup error: %v", err)
+					}
+				} else {
+					var pathErr *os.PathError
+					if !errors.As(err, &pathErr) {
+						t.Fatalf("lost filesystem error: %v", err)
+					}
+				}
+				certs, loadErr := cm.ListCerts()
+				if loadErr != nil || len(certs) != 0 {
+					t.Fatalf("management removal not committed: %v %v", certs, loadErr)
+				}
+			})
+		}
+	}
+}
+
+func TestRemoveCertificateDuplicateBindingsAndSharedSite(t *testing.T) {
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.Save(&config.Config{Certificates: []config.CertConfig{
+		{CertName: "remove", Bindings: []config.SiteBinding{{ServerName: "shared"}, {ServerName: "a"}, {ServerName: "a"}, {ServerName: "b"}}},
+		{CertName: "remove", Bindings: []config.SiteBinding{{ServerName: "c"}}},
+		{CertName: "keep", Bindings: []config.SiteBinding{{ServerName: "shared"}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(cm)
+	b := &recordingBackup{}
+	s.backup = b
+	result, err := s.RemoveCertificate("remove")
+	if err != nil || result == nil || result.RemovedBindings != 5 || result.RemovedCertificates != 2 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if !reflect.DeepEqual(b.names, []string{"a", "b", "c"}) {
+		t.Fatalf("backup removals=%v", b.names)
+	}
+}
+
+func TestRemoveCertificateListFailurePreservesBackups(t *testing.T) {
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.AddCert(&config.CertConfig{CertName: "cert", Bindings: []config.SiteBinding{{ServerName: "a"}, {ServerName: "b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	pending := filepath.Join(cm.GetWorkDir(), "pending-keys", "cert", "key")
+	writeFixture(t, pending)
+	sentinel := errors.New("list unavailable")
+	s := New(cm)
+	s.config = failingCleanupConfig{cm, sentinel}
+	b := &recordingBackup{}
+	s.backup = b
+	result, err := s.RemoveCertificate("cert")
+	if result == nil || result.RemovedBindings != 2 || !errors.Is(err, sentinel) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(b.names) != 0 {
+		t.Fatalf("deleted unverified backups: %v", b.names)
+	}
+	if _, err := os.Stat(pending); !os.IsNotExist(err) {
+		t.Fatalf("pending key not removed: %v", err)
+	}
+}
+
+func TestPendingKeysRejectsTraversal(t *testing.T) {
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = New(cm).removePendingKeys("../outside")
+	if err == nil || !strings.Contains(err.Error(), "path traversal") || errors.Unwrap(err) == nil {
+		t.Fatalf("want wrapped traversal error: %v", err)
 	}
 }

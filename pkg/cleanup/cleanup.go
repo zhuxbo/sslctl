@@ -20,8 +20,19 @@ type Result struct {
 
 // Service 清理证书和站点管理状态。
 type Service struct {
-	config *config.ConfigManager
-	backup *backup.Manager
+	config cleanupConfig
+	backup backupCleaner
+}
+
+type cleanupConfig interface {
+	RemoveSite(string) (*config.RemoveSiteResult, error)
+	RemoveCertificate(string) ([]config.CertConfig, error)
+	ListCerts() ([]config.CertConfig, error)
+	GetWorkDir() string
+}
+
+type backupCleaner interface {
+	DeleteAllBackups(string) error
 }
 
 // New 使用配置的 sslctl 工作目录创建清理服务。
@@ -53,10 +64,7 @@ func (s *Service) RemoveSite(siteName string) (*Result, error) {
 			cleanupErrors = append(cleanupErrors, err)
 		}
 	}
-	if len(cleanupErrors) > 0 {
-		return result, errors.Join(cleanupErrors...)
-	}
-	return result, nil
+	return result, errors.Join(cleanupErrors...)
 }
 
 // RemoveCertificate 解除证书管理并删除 sslctl 专用状态。
@@ -99,10 +107,7 @@ func (s *Service) RemoveCertificate(certName string) (*Result, error) {
 	if err := s.removePendingKeys(certName); err != nil {
 		cleanupErrors = append(cleanupErrors, err)
 	}
-	if len(cleanupErrors) > 0 {
-		return result, errors.Join(cleanupErrors...)
-	}
-	return result, nil
+	return result, errors.Join(cleanupErrors...)
 }
 
 func (s *Service) removePendingKeys(certName string) error {

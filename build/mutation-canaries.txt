@@ -1,6 +1,8 @@
 # package<TAB>gomutants stable mutant ID
 ./internal/deployer	internal/deployer/certificate_files.go:(*Base).PrepareFiles:RETURN_ERROR_NIL#1
 ./internal/nginx/deployer	internal/nginx/deployer/nginx.go:(*NginxDeployer).Deploy:RETURN_ERROR_NIL#1
+./internal/nginx/installer	internal/nginx/installer/installer.go:(*NginxInstaller).Install:RETURN_ERROR_NIL#1
+./internal/nginx/scanner	internal/nginx/scanner/scanner.go:(*Scanner).ensureExecutablePath:STATEMENT_REMOVE#1
 ./pkg/validator	pkg/validator/ssrf.go:CheckSSRF:CONDITIONALS_NEGATION#1
 ./pkg/validator	pkg/validator/validator.go:(*Validator).ValidateCertKeyPair:CONDITIONALS_NEGATION#1
 ./pkg/upgrade	pkg/upgrade/installer.go:VerifySignature:CONDITIONALS_NEGATION#1

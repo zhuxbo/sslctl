@@ -22,6 +22,8 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/webserver"
 )
 
+var newSiteInstaller = webserver.NewInstaller
+
 // Run 运行 deploy 命令
 func Run(args []string, version, buildTime string, debug bool) {
 	// 检查是否为 local 子命令
@@ -559,7 +561,7 @@ func installSSLForSite(ctx context.Context, site *config.ScannedSite, binding *c
 		testCmd = webserver.DetectNginxCommandsFor(site.ExecutablePath).TestCmd
 	}
 
-	installer, err := webserver.NewInstaller(
+	installer, err := newSiteInstaller(
 		webserver.ServerType(serverType),
 		site.ConfigFile,
 		binding.Paths.Certificate,

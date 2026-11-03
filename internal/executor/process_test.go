@@ -38,3 +38,20 @@ func TestBroadTaskkillByImageIsNotAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsProcessParsingBoundaries(t *testing.T) {
+	got := parseWindowsProcessList("invalid\n0|zero\n-1|negative\nbad|invalid\n1| first|suffix \n2|second\n")
+	want := []windowsProcess{{1, "first|suffix"}, {2, "second"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+	if hasUnknownExecutablePath(got) || hasUnknownExecutablePath(nil) {
+		t.Fatal("known paths reported unknown")
+	}
+	if pids := processIDsForExecutable([]windowsProcess{{1, ""}}, ""); len(pids) != 0 {
+		t.Fatalf("empty target selected %v", pids)
+	}
+	if got := normalizeWindowsExecutablePath(`" C:/APP/nginx.exe/ "`); got != `c:\app\nginx.exe` {
+		t.Fatalf("normalized = %q", got)
+	}
+}

@@ -699,17 +699,31 @@ func TestInstallService(t *testing.T) {
 func TestInstallSSLConfig_Nginx(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgManager, _ := config.NewConfigManagerWithDir(tmpDir)
+	var capturedTestCommand string
+	webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+		capturedTestCommand = testCmd
+		return &mockInstaller{configPath: configPath}
+	})
+	t.Cleanup(func() {
+		webserver.RegisterInstaller(webserver.TypeNginx, func(configPath, certPath, keyPath, chainPath, serverName, testCmd string) webserver.Installer {
+			return &mockInstaller{configPath: configPath}
+		})
+	})
 
 	site := &matcher.ScannedSiteInfo{
-		ServerName: "example.com",
-		ConfigFile: "/etc/nginx/conf.d/example.conf",
-		HasSSL:     false,
-		ServerType: config.ServerTypeNginx,
+		ServerName:     "example.com",
+		ConfigFile:     "/etc/nginx/conf.d/example.conf",
+		HasSSL:         false,
+		ServerType:     config.ServerTypeNginx,
+		ExecutablePath: filepath.Join(tmpDir, "selected-nginx"),
 	}
 
 	result, err := installSSLConfig(site, cfgManager)
 	if err != nil {
 		t.Fatalf("installSSLConfig() error = %v", err)
+	}
+	if want := site.ExecutablePath + " -t"; capturedTestCommand != want {
+		t.Fatalf("安装器配置测试命令 = %q，期望目标实例 %q", capturedTestCommand, want)
 	}
 
 	if !result.Modified {

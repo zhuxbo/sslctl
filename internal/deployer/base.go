@@ -27,6 +27,9 @@ var reloadFallbackCommandFunc = runReloadCommandWindows
 var (
 	listProcessIDsByExecutableFunc = executor.ListProcessIDsByExecutable
 	terminateProcessByPIDFunc      = executor.TerminateProcessByPID
+	restartSleep                   = time.Sleep
+	restartDetached                = executor.RunDetached
+	reloadRunWithin                = executor.RunWithin
 )
 
 // Config 部署器配置
@@ -146,7 +149,7 @@ func (b *Base) reloadWinSvc(ctx context.Context) error {
 // prevErr 为可选的前置错误（如 SCM 失败错误），返回错误时一起带回上下文，
 // 但不影响白名单判定（白名单只看 reload 命令本身的错误信息）。
 func runReloadCommandWindows(ctx context.Context, reloadCmd string, prevErr error) error {
-	err := executor.RunWithin(ctx, reloadCmd)
+	err := reloadRunWithin(ctx, reloadCmd)
 	if err == nil {
 		return nil
 	}
@@ -402,7 +405,7 @@ func restartProcessWindows(ctx context.Context, exe string, reloadArgs []string,
 	// 等待进程退出（最多 10 秒）
 	stopped := false
 	for i := 0; i < 20; i++ {
-		time.Sleep(500 * time.Millisecond)
+		restartSleep(500 * time.Millisecond)
 		running, err := isExecutableRunning(ctx, exe)
 		if err != nil {
 			return fmt.Errorf("确认目标进程退出失败: %w", err)
@@ -419,7 +422,7 @@ func restartProcessWindows(ctx context.Context, exe string, reloadArgs []string,
 	// 等待守护进程自动拉起（面板等管理工具），最多 10 秒
 	fmt.Fprintf(os.Stderr, "等待 %s 重新启动...\n", processName)
 	for i := 0; i < 10; i++ {
-		time.Sleep(time.Second)
+		restartSleep(time.Second)
 		running, err := isExecutableRunning(ctx, exe)
 		if err != nil {
 			return fmt.Errorf("确认目标进程恢复失败: %w", err)
@@ -440,12 +443,12 @@ func restartProcessWindows(ctx context.Context, exe string, reloadArgs []string,
 			args = append(args, "-d", serverRoot)
 		}
 	}
-	if startErr := executor.RunDetached(exe, args...); startErr != nil {
+	if startErr := restartDetached(exe, args...); startErr != nil {
 		return fmt.Errorf("重启失败: %w（原始错误: %v）", startErr, origErr)
 	}
 
 	// 确认启动成功
-	time.Sleep(2 * time.Second)
+	restartSleep(2 * time.Second)
 	running, err := isExecutableRunning(ctx, exe)
 	if err != nil {
 		return fmt.Errorf("确认目标进程启动失败: %w", err)
@@ -486,10 +489,14 @@ func isAbsoluteWindowsExecutablePath(path string) bool {
 // restartProcessArgs 去掉 reload 信号参数，保留 -p/-d 等实例定位参数。
 func restartProcessArgs(_ string, reloadArgs []string) []string {
 	args := make([]string, 0, len(reloadArgs))
-	for i := 0; i < len(reloadArgs); i++ {
-		arg := reloadArgs[i]
+	skip := false
+	for i, arg := range reloadArgs {
+		if skip {
+			skip = false
+			continue
+		}
 		if (arg == "-s" || arg == "-k") && i+1 < len(reloadArgs) {
-			i++
+			skip = true
 			continue
 		}
 		args = append(args, arg)

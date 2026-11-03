@@ -128,6 +128,28 @@ plan "$fixture" "$fixture/plan.json" --with-mutation
 assert_json "$fixture/plan.json" 'plan["mutation"]["mode"] == "none"' "仅测试变更不应扫描生产代码"
 assert_json "$fixture/plan.json" 'plan["mutation"]["canary_packages"] == ["./pkg/config"]' "仅测试变更应运行关键包哨兵"
 
+fixture="$(new_fixture nginx-tests-only)"
+for package in installer scanner; do
+    mkdir -p "$fixture/internal/nginx/$package"
+    printf 'package %s\nfunc Value() bool { return true }\n' "$package" >"$fixture/internal/nginx/$package/value.go"
+done
+git -C "$fixture" add internal
+git -C "$fixture" commit -qm 'nginx baseline'
+for package in installer scanner; do
+    printf 'package %s\nimport "testing"\nfunc TestValue(t *testing.T) { if !Value() { t.Fatal("false") } }\n' "$package" >"$fixture/internal/nginx/$package/value_test.go"
+done
+plan "$fixture" "$fixture/plan.json" --with-mutation
+assert_json "$fixture/plan.json" 'plan["mutation"]["mode"] == "none" and plan["mutation"]["canary_packages"] == ["./internal/nginx/installer", "./internal/nginx/scanner"]' "Nginx 安装和扫描测试必须路由到各自哨兵"
+python3 - "$fixture/plan.json" "$ROOT/build/mutation-canaries.txt" <<'PY' || fail "规划的 Nginx 测试包缺少实际哨兵"
+import json
+import sys
+from pathlib import Path
+
+targets = json.loads(Path(sys.argv[1]).read_text())["mutation"]["canary_packages"]
+declared = {line.split("\t")[0] for line in Path(sys.argv[2]).read_text().splitlines() if line and not line.startswith("#")}
+assert set(targets) <= declared
+PY
+
 fixture="$(new_fixture prod-and-tests)"
 printf '\n// changed\n' >>"$fixture/pkg/config/config.go"
 printf '\n// changed\n' >>"$fixture/pkg/config/config_test.go"

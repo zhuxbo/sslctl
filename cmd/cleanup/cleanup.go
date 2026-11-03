@@ -15,20 +15,26 @@ import (
 	"github.com/zhuxbo/sslctl/pkg/util"
 )
 
+var (
+	checkRootPrivilege = util.CheckRootPrivilege
+	newConfigManager   = config.NewConfigManager
+	exitProcess        = os.Exit
+)
+
 // Run 运行 cleanup 命令。
 func Run(args []string) {
-	if err := util.CheckRootPrivilege(); err != nil {
+	if err := checkRootPrivilege(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exitProcess(1)
 	}
-	cfgManager, err := config.NewConfigManager()
+	cfgManager, err := newConfigManager()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
-		os.Exit(1)
+		exitProcess(1)
 	}
 	if err := run(args, os.Stdin, os.Stdout, os.Stderr, cfgManager); err != nil {
 		fmt.Fprintf(os.Stderr, "清理失败: %v\n", err)
-		os.Exit(1)
+		exitProcess(1)
 	}
 }
 
