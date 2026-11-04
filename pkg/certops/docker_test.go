@@ -234,13 +234,13 @@ func TestDockerCopyMixedBindingPendingDoesNotRewriteFailedHost(t *testing.T) {
 }
 
 func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
-	for _, failure := range []string{"invalid-cert", "expired-cert", "wrong-key", "invalid-binding", "inspect", "missing-cert", "missing-key", "backup", "temporary", "rollback"} {
+	pair, err := certs.GenerateValidCert("test.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, failure := range []string{"invalid-cert", "expired-cert", "wrong-key", "invalid-binding", "inspect", "missing-cert", "missing-key", "backup", "temporary"} {
 		t.Run(failure, func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
-			pair, err := certs.GenerateValidCert("test.example.com", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
 			f.WritePair(t, "old-cert", "old-key")
 			cm, err := config.NewConfigManagerWithDir(t.TempDir())
 			if err != nil {
@@ -281,9 +281,6 @@ func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
 				}
 			case "temporary":
 				t.Setenv("TMPDIR", filepath.Join(f.Dir, "missing"))
-			case "rollback":
-				t.Setenv("TEST_DOCKER_FAIL_TEST", "1")
-				t.Setenv("TEST_DOCKER_FAIL_RELOAD", "1")
 			}
 			err = svc.DeployToBinding(t.Context(), binding, data, key)
 			if err == nil {
@@ -310,23 +307,39 @@ func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
 					t.Fatalf("必须保留临时目录创建错误: %v", err)
 				}
 			}
-			if failure != "rollback" {
-				trace, readErr := os.ReadFile(f.Trace)
-				if readErr != nil && !stderrors.Is(readErr, os.ErrNotExist) {
-					t.Fatal(readErr)
-				}
-				if strings.Contains("\n"+string(trace), "\ncp ") || strings.Contains(string(trace), "nginx -s reload") {
-					t.Fatal("预检失败不能复制文件或重载服务")
-				}
+			trace, readErr := os.ReadFile(f.Trace)
+			if readErr != nil && !stderrors.Is(readErr, os.ErrNotExist) {
+				t.Fatal(readErr)
 			}
-			if failure == "rollback" && (!strings.Contains(err.Error(), "回滚失败") || !strings.Contains(err.Error(), cm.GetBackupDir())) {
-				t.Fatalf("回滚失败应提供持久备份位置: %v", err)
+			if strings.Contains("\n"+string(trace), "\ncp ") || strings.Contains(string(trace), "nginx -s reload") {
+				t.Fatal("预检失败不能复制文件或重载服务")
 			}
 			if !strings.HasPrefix(failure, "missing-") {
 				f.AssertPair(t, "old-cert", "old-key")
 			}
 		})
 	}
+}
+
+func TestDockerCopyRollbackFailurePreservesBackup(t *testing.T) {
+	f := testutil.NewDockerCLI(t)
+	pair, err := certs.GenerateValidCert("test.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WritePair(t, "old-cert", "old-key")
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_DOCKER_FAIL_TEST", "1")
+	t.Setenv("TEST_DOCKER_FAIL_RELOAD", "1")
+	svc := NewService(cm, logger.NewNopLogger())
+	err = svc.DeployToBinding(t.Context(), copyBinding(f), &fetcher.CertData{Cert: pair.CertPEM}, pair.KeyPEM)
+	if err == nil || !strings.Contains(err.Error(), "回滚失败") || !strings.Contains(err.Error(), cm.GetBackupDir()) {
+		t.Fatalf("回滚失败应提供持久备份位置: %v", err)
+	}
+	f.AssertPair(t, "old-cert", "old-key")
 }
 
 func TestDockerCopyPrivateKeyFailuresAndPendingRetention(t *testing.T) {
