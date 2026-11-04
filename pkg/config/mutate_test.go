@@ -284,8 +284,11 @@ func TestConcurrentUpdates_NoLostUpdate(t *testing.T) {
 	}()
 	for i := 0; i < 2; i++ {
 		if err := <-done; err != nil {
-			t.Fatalf("并发更新失败: %v", err)
+			t.Errorf("并发更新失败: %v", err)
 		}
+	}
+	if t.Failed() {
+		return
 	}
 
 	// 4 个证书都应健在
@@ -296,5 +299,14 @@ func TestConcurrentUpdates_NoLostUpdate(t *testing.T) {
 	}
 	if len(final.Certificates) != 4 {
 		t.Errorf("并发更新后证书数 = %d, want 4（存在丢更新）", len(final.Certificates))
+	}
+	for _, cert := range final.Certificates {
+		want := 0
+		if cert.CertName == "a-1" || cert.CertName == "b-2" {
+			want = 19
+		}
+		if cert.Metadata.IssueRetryCount != want {
+			t.Errorf("%s 更新计数 = %d, want %d", cert.CertName, cert.Metadata.IssueRetryCount, want)
+		}
 	}
 }
