@@ -60,8 +60,8 @@ jobs:
           MANUAL_BASE: ${{ inputs.base }}
           MUTATION_RAM_ROOT: /dev/shm
           MUTATION_REPORT_DIR: mutation-report
-          # 编译也计入单项超时，避免多个 worker 争抢 runner CPU。
-          MUTATION_WORKERS: '1'
+          # ARM runner 使用两个 worker，为全部变更行与哨兵保留共享预算。
+          MUTATION_WORKERS: '2'
         run: |
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
             finish_base="$(git rev-parse --verify --end-of-options "${MANUAL_BASE:?必须提供重验基线}^{commit}")"
