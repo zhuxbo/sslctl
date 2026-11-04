@@ -34,7 +34,7 @@ on:
 
 jobs:
   mutation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -47,9 +47,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/.gomutants-cache.json
-          key: gomutants-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.ref_name }}
+          key: gomutants-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.ref_name }}
           restore-keys: |
-            gomutants-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            gomutants-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
       - run: go install github.com/szhekpisov/gomutants@v0.6.0
       - run: make mutation-test
       - name: Run targeted mutation gate

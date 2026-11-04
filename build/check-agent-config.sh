@@ -110,6 +110,8 @@ if grep -Eq '^[[:space:]]+(schedule:|matrix:)' .github/workflows/mutation.yml; t
     fail "mutation CI 不应包含全量调度或分片矩阵"
 fi
 grep -Fq "MUTATION_WORKERS: '1'" .github/workflows/mutation.yml || fail "mutation CI 未限制编译竞争"
+grep -Fq 'runs-on: ubuntu-24.04-arm' .github/workflows/mutation.yml || fail "mutation CI 未使用固定 Linux ARM64 环境"
+[[ "$(grep -Fc 'gomutants-${{ runner.os }}-${{ runner.arch }}-' .github/workflows/mutation.yml)" == 2 ]] || fail "mutation CI 缓存未按架构隔离"
 grep -Fq 'MANUAL_BASE: ${{ inputs.base }}' .github/workflows/mutation.yml || fail "mutation CI 手动重验未接收明确基线"
 grep -Fq 'git rev-parse --verify --end-of-options "${MANUAL_BASE:?必须提供重验基线}^{commit}"' .github/workflows/mutation.yml || fail "mutation CI 手动重验未校验基线提交"
 for mutation_file in \
