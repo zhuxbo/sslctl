@@ -106,9 +106,12 @@ grep -Fq 'if ! git cat-file -e "$BEFORE_SHA^{commit}"' .github/workflows/mutatio
 if grep -Fq 'cancel-in-progress: true' .github/workflows/mutation.yml; then
     fail "mutation CI 不得取消尚未完成的 push 门禁"
 fi
-if grep -Eq '^[[:space:]]+(schedule:|workflow_dispatch:|matrix:)' .github/workflows/mutation.yml; then
+if grep -Eq '^[[:space:]]+(schedule:|matrix:)' .github/workflows/mutation.yml; then
     fail "mutation CI 不应包含全量调度或分片矩阵"
 fi
+grep -Fq "MUTATION_WORKERS: '1'" .github/workflows/mutation.yml || fail "mutation CI 未限制编译竞争"
+grep -Fq 'MANUAL_BASE: ${{ inputs.base }}' .github/workflows/mutation.yml || fail "mutation CI 手动重验未接收明确基线"
+grep -Fq 'git rev-parse --verify --end-of-options "${MANUAL_BASE:?必须提供重验基线}^{commit}"' .github/workflows/mutation.yml || fail "mutation CI 手动重验未校验基线提交"
 for mutation_file in \
     build/plan-checks.py \
     build/run-changed-checks.sh \

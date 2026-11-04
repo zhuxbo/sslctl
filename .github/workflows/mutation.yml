@@ -1,6 +1,12 @@
 name: Mutation Testing
 
 on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: '重验 changed-line 的 Git 基线（必须是现有提交）'
+        required: true
+        type: string
   push:
     branches: [main, dev]
     paths:
@@ -51,10 +57,15 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base }}
           MUTATION_RAM_ROOT: /dev/shm
           MUTATION_REPORT_DIR: mutation-report
+          # 编译也计入单项超时，避免多个 worker 争抢 runner CPU。
+          MUTATION_WORKERS: '1'
         run: |
-          if [[ "$EVENT_NAME" == pull_request ]]; then
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            finish_base="$(git rev-parse --verify --end-of-options "${MANUAL_BASE:?必须提供重验基线}^{commit}")"
+          elif [[ "$EVENT_NAME" == pull_request ]]; then
             finish_base="origin/$BASE_REF"
           elif [[ "$EVENT_NAME" == push ]]; then
             if ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then

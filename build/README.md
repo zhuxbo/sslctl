@@ -85,7 +85,9 @@ make mutation
 
 `make mutation` 读取提交、暂存区、工作区和未跟踪文件。生产 Go 代码只变异本次 changed lines，要求每个可执行 mutant 都被测试杀死；关键包测试发生变化时，再独立执行 `mutation-canaries.txt` 中对应的稳定哨兵。生产代码和测试同时变化时两项都跑。`go.mod`、`go.sum` 只扩大普通测试、lint 与构建范围。`--full` 还执行契约与完整 E2E，变异始终按实际变更定向，不触发全量变异。
 
-changed-line 允许不可编译、等价和无可变异点结果；未经逐项证明等价的 `LIVED`、`NOT COVERED`、超时和基础设施错误均失败。哨兵必须精确命中一个 mutant 且状态为 `KILLED`。两类变异共享一个 20 分钟硬截止时间，默认使用 2 个 worker。
+changed-line 允许不可编译、等价和无可变异点结果；未经逐项证明等价的 `LIVED`、`NOT COVERED`、超时和基础设施错误均失败。哨兵必须精确命中一个 mutant 且状态为 `KILLED`。两类变异共享一个 20 分钟硬截止时间，本地默认使用 2 个 worker；CI 使用 1 个 worker，避免编译竞争消耗单项超时预算。
+
+需要重验历史失败范围时，可用 `gh workflow run mutation.yml --ref <branch> -f base=<commit>` 指定原基线；基线必须能解析为现有提交，缺失或无效时失败。手动入口仍运行该基线至当前提交的 changed-line 与适用哨兵，不触发全仓变异；push/PR 的自动基线不受影响。
 
 人工等价证明只允许记录在 `build/mutation-equivalents.json`：精确匹配变异 ID、原文和替换内容，并校验条目中所有证明依赖源码的 SHA-256。每项必须说明为何所有有效输入下行为相同；源码变化后需重新证明，不能只更新哈希。仅对 `LIVED` 应用，原始报告和框架缓存不改写，日志逐项列出采用的证明。框架的 100% 阈值不变；只有报告其余项全部通过、剩余存活项全部被有效证明时，运行器才接受 efficacy 的退出码 10。其他退出码、未覆盖、超时和哨兵均不可豁免。
 

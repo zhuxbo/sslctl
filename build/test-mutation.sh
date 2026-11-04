@@ -339,4 +339,56 @@ second_deadline="$(sed -n '2s/\t.*//p' "$router/record")"
 grep -Fq $'changed-lines --base HEAD ./pkg/config' "$router/record" || fail "changed-line 路由参数错误"
 grep -Fq $'canaries ./pkg/config' "$router/record" || fail "canary 路由参数错误"
 
+fixture="$(make_fixture workflow-routing)"
+python3 - "$ROOT" "$fixture" <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+import textwrap
+
+root, fixture = map(Path, sys.argv[1:])
+repo = fixture / "repo"
+workflow = (root / ".github/workflows/mutation.yml").read_text()
+script = fixture / "workflow.sh"
+script.write_text(textwrap.dedent(workflow.split("        run: |\n", 1)[1].split("      - if:", 1)[0]))
+record = fixture / "workflow-base"
+make = fixture / "bin/make"
+make.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$FINISH_CHECK_BASE" >"$MUTATION_TEST_WORKFLOW_BASE"\n')
+make.chmod(0o755)
+
+def git(*args):
+    return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+old_head = git("rev-parse", "HEAD")
+target = repo / ".github/workflows/mutation.yml"
+target.parent.mkdir(parents=True)
+target.write_text(workflow)
+git("add", str(target))
+git("commit", "-qm", "workflow")
+head = git("rev-parse", "HEAD")
+git("update-ref", "refs/remotes/origin/dev", head)
+cases = [
+    ("workflow_dispatch", "HEAD", "", head),
+    ("workflow_dispatch", "missing-commit", "", None),
+    ("workflow_dispatch", "", "", None),
+    ("workflow_dispatch", "--help", "", None),
+    ("pull_request", "", "", "origin/dev"),
+    ("push", "", head, head),
+    ("push", "", old_head, "HEAD^"),
+    ("push", "", "missing-commit", None),
+]
+for event, manual_base, before, expected in cases:
+    record.unlink(missing_ok=True)
+    env = dict(os.environ, PATH=str(fixture / "bin") + os.pathsep + os.environ["PATH"],
+               EVENT_NAME=event, MANUAL_BASE=manual_base, BEFORE_SHA=before, BASE_REF="dev",
+               MUTATION_TEST_WORKFLOW_BASE=str(record))
+    result = subprocess.run(["bash", "-e", str(script)], cwd=repo, env=env, capture_output=True, text=True)
+    if expected is None:
+        assert result.returncode != 0 and not record.exists(), (event, manual_base, before, result.stdout)
+    else:
+        assert result.returncode == 0, result.stderr
+        assert record.read_text().strip() == expected, (event, record.read_text(), expected)
+PY
+
 echo "gomutants RAM 隔离脚本测试通过"
