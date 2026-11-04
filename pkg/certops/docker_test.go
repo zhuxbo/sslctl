@@ -522,8 +522,33 @@ func TestPrivateKeyBuffersAreCleared(t *testing.T) {
 	}
 }
 
+func TestRestoreDockerBackupStatError(t *testing.T) {
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, file := range []string{"cert.pem", "key.pem"} {
+				if err := os.WriteFile(filepath.Join(dir, file), []byte("snapshot"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			originalStat := containerStat
+			t.Cleanup(func() { containerStat = originalStat })
+			fault := &os.PathError{Op: "stat", Path: filepath.Join(dir, name), Err: os.ErrPermission}
+			containerStat = func(path string) (os.FileInfo, error) {
+				if path == fault.Path {
+					return nil, fault
+				}
+				return originalStat(path)
+			}
+			if err := RestoreDockerBackup(t.Context(), nil, dir, nil); !stderrors.Is(err, fault) {
+				t.Fatalf("必须保留快照 stat 错误: %v", err)
+			}
+		})
+	}
+}
+
 func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
-	for _, phase := range []string{"write", "chmod", "restore-write", "restore-chmod", "stat"} {
+	for _, phase := range []string{"write", "chmod", "restore-write", "restore-chmod"} {
 		t.Run(phase, func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
 			pair, err := certs.GenerateValidCert("test.example.com", nil)
@@ -536,8 +561,8 @@ func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
 				t.Fatal(err)
 			}
 			svc := NewService(cm, nil)
-			originalWrite, originalChmod, originalStat := containerWriteFile, containerChmod, containerStat
-			t.Cleanup(func() { containerWriteFile, containerChmod, containerStat = originalWrite, originalChmod, originalStat })
+			originalWrite, originalChmod := containerWriteFile, containerChmod
+			t.Cleanup(func() { containerWriteFile, containerChmod = originalWrite, originalChmod })
 			fault := &os.PathError{Op: phase, Path: "snapshot", Err: os.ErrPermission}
 			restore := strings.HasPrefix(phase, "restore-")
 			selected := func(p string) bool { return strings.HasPrefix(filepath.Base(p), "restore-") == restore }
@@ -557,11 +582,8 @@ func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
 					return originalChmod(p, mode)
 				}
 			}
-			if phase == "stat" {
-				containerStat = func(string) (os.FileInfo, error) { return nil, fault }
-			}
 			var got error
-			if restore || phase == "stat" {
+			if restore {
 				backupPath := t.TempDir()
 				if err := os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte(pair.CertPEM), 0600); err != nil {
 					t.Fatal(err)
