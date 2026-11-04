@@ -216,8 +216,19 @@ func (cm *ConfigManager) refreshIfModifiedLocked() {
 	}
 }
 
-// loadLocked 加载配置（调用者需持有锁）
+// loadLocked 加载配置（调用者需持有内存锁）。迁移写回也参与跨实例互斥。
 func (cm *ConfigManager) loadLocked() (*Config, error) {
+	var cfg *Config
+	err := cm.withConfigFileLock(func() error {
+		var err error
+		cfg, err = cm.loadLockedHeld()
+		return err
+	})
+	return cfg, err
+}
+
+// loadLockedHeld 加载配置（调用者需同时持有内存锁和配置文件锁）。
+func (cm *ConfigManager) loadLockedHeld() (*Config, error) {
 	// 外部修改检测：CLI 与 daemon 两进程并发时，命中缓存前先校验盘上 mtime，
 	// 防止写路径（Update* 系列）基于陈旧缓存读-改-写，丢掉另一进程的更新
 	cm.refreshIfModifiedLocked()
@@ -248,8 +259,8 @@ func (cm *ConfigManager) loadLocked() (*Config, error) {
 	}
 	if changed {
 		data = migrated
-		// 尽力写回迁移后的配置，失败不影响本次加载（下次启动会再次迁移���
-		_ = os.WriteFile(cm.configPath, data, 0600)
+		// 尽力原子写回，失败不影响本次加载，下次启动会再次迁移。
+		_ = cm.writeConfigFileLocked(data)
 	}
 
 	var cfg Config
@@ -303,7 +314,7 @@ func (cm *ConfigManager) mutateLocked(fn func(*Config) error) error {
 		// 使盘上 mtime 不晚于本进程 cachedAt——会让写路径复用陈旧缓存，覆盖另一进程的更新（跨进程丢更新）。
 		// 读路径（Load）保持 mtime 缓存不变，daemon 高频读不因此每次落盘。
 		cm.config = nil
-		cfg, err := cm.loadLocked()
+		cfg, err := cm.loadLockedHeld()
 		if err != nil {
 			return err
 		}
@@ -337,8 +348,18 @@ func (cm *ConfigManager) saveLockedHeld(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	if err := cm.writeConfigFileLocked(data); err != nil {
+		return err
+	}
 
-	// 3. 原子写入（在文件锁保护下）
+	// 只有在所有操作成功后才更新内存缓存。
+	cm.config = cfgCopy
+	cm.cachedAt = time.Now()
+	return nil
+}
+
+// writeConfigFileLocked 原子写入配置（调用者需持有配置文件锁）。
+func (cm *ConfigManager) writeConfigFileLocked(data []byte) error {
 	// 使用 O_EXCL 防止符号链接攻击：如果文件已存在则失败
 	tmpPath := cm.configPath + ".tmp"
 	// 先删除可能存在的临时文件（可能是上次失败遗留的）
@@ -378,9 +399,6 @@ func (cm *ConfigManager) saveLockedHeld(cfg *Config) error {
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
-	// 4. 只有在所有操作成功后才更新内存缓存
-	cm.config = cfgCopy
-	cm.cachedAt = time.Now()
 	return nil
 }
 

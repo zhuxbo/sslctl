@@ -71,11 +71,11 @@ func TestDeployDockerCopyFailuresRestoreOriginalFiles(t *testing.T) {
 	for _, failure := range []string{"TEST_DOCKER_FAIL_CP", "TEST_DOCKER_FAIL_TEST", "TEST_DOCKER_FAIL_RELOAD"} {
 		t.Run(failure, func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
-			oldCert, err := certs.GenerateValidCert("test.example.com", nil)
+			oldCert, err := certs.GenerateECCert("test.example.com", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			newCert, err := certs.GenerateValidCert("test.example.com", nil)
+			newCert, err := certs.GenerateECCert("test.example.com", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +111,7 @@ func TestDeployDockerCopyReadOnlyFailsBeforeWriting(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
 	f.WritePair(t, "old-cert", "old-key")
 	t.Setenv("TEST_DOCKER_INFO", f.ReadOnlyMountJSON())
-	newCert, err := certs.GenerateValidCert("test.example.com", nil)
+	newCert, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestDockerCopyPrivateKeyAndManualRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPair, err := certs.GenerateValidCert("test.example.com", nil)
+	newPair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,11 +201,11 @@ func TestDockerCopyDoesNotUseHostWebroot(t *testing.T) {
 
 func TestDockerCopyMixedBindingPendingDoesNotRewriteFailedHost(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
-	oldPair, err := certs.GenerateValidCert("test.example.com", nil)
+	oldPair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPair, err := certs.GenerateValidCert("test.example.com", nil)
+	newPair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,13 +234,13 @@ func TestDockerCopyMixedBindingPendingDoesNotRewriteFailedHost(t *testing.T) {
 }
 
 func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
-	for _, failure := range []string{"invalid-cert", "expired-cert", "wrong-key", "invalid-binding", "inspect", "missing-cert", "missing-key", "backup", "temporary", "rollback"} {
+	pair, err := certs.GenerateECCert("test.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, failure := range []string{"invalid-cert", "expired-cert", "wrong-key", "invalid-binding", "inspect", "missing-cert", "missing-key", "backup", "temporary"} {
 		t.Run(failure, func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
-			pair, err := certs.GenerateValidCert("test.example.com", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
 			f.WritePair(t, "old-cert", "old-key")
 			cm, err := config.NewConfigManagerWithDir(t.TempDir())
 			if err != nil {
@@ -281,9 +281,6 @@ func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
 				}
 			case "temporary":
 				t.Setenv("TMPDIR", filepath.Join(f.Dir, "missing"))
-			case "rollback":
-				t.Setenv("TEST_DOCKER_FAIL_TEST", "1")
-				t.Setenv("TEST_DOCKER_FAIL_RELOAD", "1")
 			}
 			err = svc.DeployToBinding(t.Context(), binding, data, key)
 			if err == nil {
@@ -310,23 +307,39 @@ func TestDockerCopyPreflightAndRecoveryErrors(t *testing.T) {
 					t.Fatalf("必须保留临时目录创建错误: %v", err)
 				}
 			}
-			if failure != "rollback" {
-				trace, readErr := os.ReadFile(f.Trace)
-				if readErr != nil && !stderrors.Is(readErr, os.ErrNotExist) {
-					t.Fatal(readErr)
-				}
-				if strings.Contains("\n"+string(trace), "\ncp ") || strings.Contains(string(trace), "nginx -s reload") {
-					t.Fatal("预检失败不能复制文件或重载服务")
-				}
+			trace, readErr := os.ReadFile(f.Trace)
+			if readErr != nil && !stderrors.Is(readErr, os.ErrNotExist) {
+				t.Fatal(readErr)
 			}
-			if failure == "rollback" && (!strings.Contains(err.Error(), "回滚失败") || !strings.Contains(err.Error(), cm.GetBackupDir())) {
-				t.Fatalf("回滚失败应提供持久备份位置: %v", err)
+			if strings.Contains("\n"+string(trace), "\ncp ") || strings.Contains(string(trace), "nginx -s reload") {
+				t.Fatal("预检失败不能复制文件或重载服务")
 			}
 			if !strings.HasPrefix(failure, "missing-") {
 				f.AssertPair(t, "old-cert", "old-key")
 			}
 		})
 	}
+}
+
+func TestDockerCopyRollbackFailurePreservesBackup(t *testing.T) {
+	f := testutil.NewDockerCLI(t)
+	pair, err := certs.GenerateECCert("test.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WritePair(t, "old-cert", "old-key")
+	cm, err := config.NewConfigManagerWithDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_DOCKER_FAIL_TEST", "1")
+	t.Setenv("TEST_DOCKER_FAIL_RELOAD", "1")
+	svc := NewService(cm, logger.NewNopLogger())
+	err = svc.DeployToBinding(t.Context(), copyBinding(f), &fetcher.CertData{Cert: pair.CertPEM}, pair.KeyPEM)
+	if err == nil || !strings.Contains(err.Error(), "回滚失败") || !strings.Contains(err.Error(), cm.GetBackupDir()) {
+		t.Fatalf("回滚失败应提供持久备份位置: %v", err)
+	}
+	f.AssertPair(t, "old-cert", "old-key")
 }
 
 func TestDockerCopyPrivateKeyFailuresAndPendingRetention(t *testing.T) {
@@ -359,7 +372,7 @@ func TestDockerCopyPrivateKeyFailuresAndPendingRetention(t *testing.T) {
 
 func TestDockerCopyCancellationStillRestoresAndReloads(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
-	pair, err := certs.GenerateValidCert("test.example.com", nil)
+	pair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +425,7 @@ func TestDockerCopyCancellationStillRestoresAndReloads(t *testing.T) {
 
 func TestMixedPrivateKeySkipsDisabledBindings(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
-	pair, err := certs.GenerateValidCert("test.example.com", nil)
+	pair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,11 +535,36 @@ func TestPrivateKeyBuffersAreCleared(t *testing.T) {
 	}
 }
 
+func TestRestoreDockerBackupStatError(t *testing.T) {
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, file := range []string{"cert.pem", "key.pem"} {
+				if err := os.WriteFile(filepath.Join(dir, file), []byte("snapshot"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			originalStat := containerStat
+			t.Cleanup(func() { containerStat = originalStat })
+			fault := &os.PathError{Op: "stat", Path: filepath.Join(dir, name), Err: os.ErrPermission}
+			containerStat = func(path string) (os.FileInfo, error) {
+				if path == fault.Path {
+					return nil, fault
+				}
+				return originalStat(path)
+			}
+			if err := RestoreDockerBackup(t.Context(), nil, dir, nil); !stderrors.Is(err, fault) {
+				t.Fatalf("必须保留快照 stat 错误: %v", err)
+			}
+		})
+	}
+}
+
 func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
-	for _, phase := range []string{"write", "chmod", "restore-write", "restore-chmod", "stat"} {
+	for _, phase := range []string{"write", "chmod", "restore-write", "restore-chmod"} {
 		t.Run(phase, func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
-			pair, err := certs.GenerateValidCert("test.example.com", nil)
+			pair, err := certs.GenerateECCert("test.example.com", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -536,8 +574,8 @@ func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
 				t.Fatal(err)
 			}
 			svc := NewService(cm, nil)
-			originalWrite, originalChmod, originalStat := containerWriteFile, containerChmod, containerStat
-			t.Cleanup(func() { containerWriteFile, containerChmod, containerStat = originalWrite, originalChmod, originalStat })
+			originalWrite, originalChmod := containerWriteFile, containerChmod
+			t.Cleanup(func() { containerWriteFile, containerChmod = originalWrite, originalChmod })
 			fault := &os.PathError{Op: phase, Path: "snapshot", Err: os.ErrPermission}
 			restore := strings.HasPrefix(phase, "restore-")
 			selected := func(p string) bool { return strings.HasPrefix(filepath.Base(p), "restore-") == restore }
@@ -557,11 +595,8 @@ func TestContainerSnapshotFailuresStopDeployment(t *testing.T) {
 					return originalChmod(p, mode)
 				}
 			}
-			if phase == "stat" {
-				containerStat = func(string) (os.FileInfo, error) { return nil, fault }
-			}
 			var got error
-			if restore || phase == "stat" {
+			if restore {
 				backupPath := t.TempDir()
 				if err := os.WriteFile(filepath.Join(backupPath, "cert.pem"), []byte(pair.CertPEM), 0600); err != nil {
 					t.Fatal(err)
@@ -654,15 +689,15 @@ func TestCopyPendingCleanupAndLogs(t *testing.T) {
 
 func TestCopyKeyLogsAndRejectsOtherMismatchedBindings(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
-	first, err := certs.GenerateValidCert("first.example.com", nil)
+	first, err := certs.GenerateECCert("first.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := certs.GenerateValidCert("second.example.com", nil)
+	second, err := certs.GenerateECCert("second.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := certs.GenerateValidCert("target.example.com", nil)
+	target, err := certs.GenerateECCert("target.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +737,7 @@ func TestDockerCopyCleanupWarning(t *testing.T) {
 	for _, withLog := range []bool{false, true} {
 		t.Run(fmt.Sprint(withLog), func(t *testing.T) {
 			f := testutil.NewDockerCLI(t)
-			pair, err := certs.GenerateValidCert("test.example.com", nil)
+			pair, err := certs.GenerateECCert("test.example.com", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -771,7 +806,7 @@ func TestPendingCleanupFailureWithoutLogger(t *testing.T) {
 
 func TestDockerCopySuccessDoesNotWarnAboutCleanup(t *testing.T) {
 	f := testutil.NewDockerCLI(t)
-	pair, err := certs.GenerateValidCert("test.example.com", nil)
+	pair, err := certs.GenerateECCert("test.example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

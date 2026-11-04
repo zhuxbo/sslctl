@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -518,7 +519,9 @@ func TestSendCallback_WithServer(t *testing.T) {
 
 // TestSendCallback_ServerError 测试 sendCallback 服务端错误时返回 0
 func TestSendCallback_ServerError(t *testing.T) {
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -531,6 +534,11 @@ func TestSendCallback_ServerError(t *testing.T) {
 
 	log := logger.NewNopLogger()
 	svc := NewService(cm, log)
+	// 保留全部重试，仅缩短此用例不验证的退避等待。
+	retry := fetcher.DefaultRetryConfig
+	retry.InitialWait = time.Millisecond
+	retry.MaxWait = time.Millisecond
+	svc.fetcher = fetcher.NewWithRetry(retry)
 
 	req := &fetcher.CallbackRequest{
 		OrderID: 123,
@@ -544,5 +552,8 @@ func TestSendCallback_ServerError(t *testing.T) {
 
 	if result != 0 {
 		t.Errorf("服务端错��时应返回 0，实际: %d", result)
+	}
+	if got := requests.Load(); got != int32(retry.MaxRetries+1) {
+		t.Fatalf("服务端错误应耗尽全部重试，实际请求 %d 次", got)
 	}
 }
